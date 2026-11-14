@@ -231,6 +231,8 @@ def test_redress_keeps_the_posed_depth_and_archives_the_previous_look(dressed_cl
     kept = out / "looks" / "1"
     assert json.loads((kept / "dressed.json").read_text())["scene"] == "INT. WAREHOUSE - DAY."
     assert (kept / "dressed_0.jpg").read_bytes() == b"old" and (kept / "dressed-draft.spz").read_bytes() == b"old"
+    # Copied, not moved: a viewer still holding the old record can keep loading its frames.
+    assert (out / "dressed_0.jpg").read_bytes() == b"old" and (out / "dressed-draft.spz").read_bytes() == b"old"
     served = dressed_client.get("/api/dressed/p1-m1-s1-0.000-abc").json()
     assert served["scene"] == "INT. PRECINCT - NIGHT." and served["splat"] is None
     assert served["faces"][0]["dressed_url"].endswith(new["faces"][0]["dressed"])

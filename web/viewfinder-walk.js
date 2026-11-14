@@ -18,7 +18,10 @@ const CAPTURE_HEIGHT_M = 1.5;
 const ROOM_CELL_M = 0.1;
 const ROOM_REACH_M = { draft: 2.2, refined: 3.0 }; // how far from the nearest scan point the set holds up
 const BODY_M = 0.25;
-const SOLID_SPLATS = 5; // splats at body height in one 10 cm cell that count as something solid
+// Splats at body height in one 10 cm cell that count as something solid, for a draft's
+// half-million splats. A denser reconstruction puts more splats on the same surface.
+const SOLID_SPLATS = 5;
+const DRAFT_SPLATS = 524288;
 const ICON_WALK = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 const MOVE_KEYS = { w: "forward", arrowup: "forward", s: "back", arrowdown: "back", a: "left", d: "right" };
 
@@ -187,18 +190,21 @@ function measureRoom(mesh, splat, eye) {
   const counts = new Uint16Array(nx * nz);
   const low = (splat.floor_y ?? 0) + 0.35 * scale;
   const high = (splat.floor_y ?? 0) + 1.5 * scale;
+  let total = 0;
   mesh.forEachSplat((index, center, scales, quaternion, opacity) => {
+    total += 1;
     if (opacity < 0.3 || center.y < low || center.y > high) return;
     const ix = Math.floor((center.x - minX) / cell);
     const iz = Math.floor((center.z - minZ) / cell);
     if (ix >= 0 && iz >= 0 && ix < nx && iz < nz && counts[iz * nx + ix] < 65535) counts[iz * nx + ix] += 1;
   });
+  const solidAt = Math.max(SOLID_SPLATS, Math.round((SOLID_SPLATS * total) / DRAFT_SPLATS));
   // Solid cells, grown by a body's half-width.
   const grow = Math.round(BODY_M / ROOM_CELL_M);
   const solid = new Uint8Array(nx * nz);
   for (let iz = 0; iz < nz; iz += 1) {
     for (let ix = 0; ix < nx; ix += 1) {
-      if (counts[iz * nx + ix] < SOLID_SPLATS) continue;
+      if (counts[iz * nx + ix] < solidAt) continue;
       for (let dz = -grow; dz <= grow; dz += 1) {
         for (let dx = -grow; dx <= grow; dx += 1) {
           const jx = ix + dx;
@@ -241,7 +247,7 @@ function measureRoom(mesh, splat, eye) {
       }
     }
   }
-  return { scale, free: null, grid: { minX, minZ, cell, nx, nz, walk, cells: tail, points } };
+  return { scale, free: null, grid: { minX, minZ, cell, nx, nz, walk, cells: tail, points, splats: total, solidAt } };
 }
 
 function walkable(grid, x, z) {

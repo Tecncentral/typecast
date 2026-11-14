@@ -622,6 +622,7 @@ class Viewfinder {
     const slug = (data.scene || "").match(/^((?:INT\.?\/EXT|INT|EXT)\.\s*[^.]+)/i);
     const scene = (slug ? slug[1] : (data.scene || "").split(".")[0]).trim();
     this.$(".vf-ai-badge").textContent = `${data.label || "AI-imagined set dressing, not the real room"}${scene ? ` · dressed for “${scene}”` : ""}`;
+    let loaded = 0;
     await Promise.all(
       data.faces.slice(0, 4).map(async (face, i) => {
         const img = new Image();
@@ -629,13 +630,22 @@ class Viewfinder {
         img.src = face.dressed_url;
         try {
           await img.decode();
-          if (current()) renderer.setDressedFace(i, img, face);
+          if (current()) {
+            renderer.setDressedFace(i, img, face);
+            loaded += 1;
+          }
         } catch {
           /* a missing dressed frame leaves the real room visible there */
         }
       }),
     );
     if (!current()) return;
+    if (!loaded) {
+      // Never offer a comparison with nothing to compare: the toggle would only dim the real room.
+      this.dressed = null;
+      this.$(".vf-status").textContent = "The AI-dressed frames for this room couldn't load. Reload to get the current set.";
+      return;
+    }
     const toggle = this.$(".vf-dress");
     toggle.hidden = false;
     if (!reducedMotion()) toggle.animate([{ transform: "scale(0.9)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: 420, easing: EASE_OUT });

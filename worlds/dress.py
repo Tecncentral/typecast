@@ -23,6 +23,7 @@ import json
 import math
 import os
 import pathlib
+import shutil
 import sys
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -152,7 +153,11 @@ def dress_scan_point(*, sweep: dict, scene: str, scene_id: str, client: AtlasCli
 
 
 def archive_look(out: pathlib.Path, record: dict) -> pathlib.Path:
-    """Move a look's record, dressed frames and splats to dressed/looks/<n>/ before a new look replaces it."""
+    """Copy a look's record, dressed frames and splats to dressed/looks/<n>/ before a new look replaces it.
+
+    The files are copied, not moved: a viewer that already holds the old record keeps working
+    until it reloads, instead of asking for frames that have just gone.
+    """
     keep = out / "looks" / str(len(list((out / "looks").glob("*/dressed.json"))) + 1)
     keep.mkdir(parents=True)
     kept = {k: v for k, v in record.items() if k != "dir"}
@@ -161,7 +166,7 @@ def archive_look(out: pathlib.Path, record: dict) -> pathlib.Path:
     names += [entry["file"] for entry in (record.get("splats") or {}).values() if entry.get("file")]
     for name in names:
         if (out / name).is_file():
-            (out / name).replace(keep / name)
+            shutil.copy2(out / name, keep / name)
     return keep
 
 
@@ -169,7 +174,7 @@ def redress_scan_point(*, record: dict, scene: str, client: AtlasClient,
                        log: Callable[[str], None] = print) -> dict:
     """Give an already-posed scan point a new look: same cameras and depth, a new scene.
 
-    The previous look's record and frames move to dressed/looks/<n>/, so nothing is lost.
+    The previous look's record and frames are copied to dressed/looks/<n>/, so nothing is lost.
     A splat belongs to the look it was built from, so the new record starts without one.
     """
     out = scan_point_dir(record["model_id"], record["sweep_id"]) / "dressed"
