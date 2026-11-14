@@ -295,7 +295,11 @@ function stopPlay() {
   cancelAnimationFrame(S.play.raf); S.play.on = false; S.play.acc = 0;
   $('prog').value = 0; $('clock').textContent = '0.0s'; highlight(null);
 }
-function highlight(sid) { for (const b of $('timeline').querySelectorAll('button')) b.classList.toggle('now', b.dataset.sid === sid); }
+function highlight(sid) {
+  for (const b of $('timeline').querySelectorAll('button')) b.classList.toggle('now', b.dataset.sid === sid);
+  // The header names whatever the stage shows: the playing scene during playback, else the selected one.
+  if ((sid || S.sceneId) !== headSid) renderStageHead(sid || S.sceneId);
+}
 
 // ---------- rendering ----------
 function kv(title, obj) {
@@ -431,20 +435,22 @@ function renderTimeline() {
     return sceneButton(s, i, '', a ? thumb(a.shot_id, 'cut') : noThumb(), el('strong', { text: `${i + 1} · ${sh ? `${sh.duration_sec}s` : 'skipped'}` }), el('span', { text: s.heading }),
       el('small', { text: sh ? `${n ? `${n} stand-in${n > 1 ? 's' : ''}` : 'No stand-ins'} · take ${S.variant}` : 'no frame; not played' })); }));
 }
-function stageLocNodes() {
-  const a = assignFor(S.sceneId);
+function stageLocNodes(sid = S.sceneId) {
+  const a = assignFor(sid);
   if (!S.resp) return [document.createTextNode('Build a plan to put real indexed rooms on the stage.')];
   if (!a) return [document.createTextNode('Uncovered in this plan: no location assigned.')];
-  const shared = S.scenes.map((s, i) => [s, i + 1]).filter(([s]) => s.id !== S.sceneId && assignFor(s.id)?.property_id === a.property_id).map(([, n]) => n);
+  const shared = S.scenes.map((s, i) => [s, i + 1]).filter(([s]) => s.id !== sid && assignFor(s.id)?.property_id === a.property_id).map(([, n]) => n);
   const parts = [`CoStar property ${safeId(a.property_id)}`];
   if (shared.length) parts.push(`same location as scene${shared.length > 1 ? 's' : ''} ${shared.join(', ')}`);
   if (a.manual_frame) parts.push('your frame choice');
   return [el('strong', { text: `Location ${locLetter(a.property_id)}` }), document.createTextNode(` · ${parts.join(' · ')}`)];
 }
-function renderStageHead() {
+let headSid = null;
+function renderStageHead(sid = S.sceneId) {
+  headSid = sid;
   const title = $('stageTitle'), where = $('stageLoc'), mode = $('planMode');
-  if (title) title.textContent = S.scenes.find((s) => s.id === S.sceneId)?.heading || 'Stage';
-  if (where) where.replaceChildren(...stageLocNodes());
+  if (title) title.textContent = S.scenes.find((s) => s.id === sid)?.heading || 'Stage';
+  if (where) where.replaceChildren(...stageLocNodes(sid));
   if (mode) {
     const m = S.resp ? String(S.resp.mode ?? 'unknown').slice(0, 12) : null;
     mode.dataset.mode = !m ? 'none' : ['live', 'mock', 'mixed'].includes(m) ? m : 'unknown';
