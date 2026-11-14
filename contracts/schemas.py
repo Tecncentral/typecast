@@ -47,6 +47,7 @@ class Logistics(BaseModel):
     truck_spaces: Optional[int] = Field(default=None, ge=0)
     car_spaces: Optional[int] = Field(default=None, ge=0)
     parking_polygon: list[list[float]] = Field(default_factory=list)  # [[lat, lon], ...]
+    parking_geometry: Optional[dict] = None  # GeoJSON [lon, lat], preserving holes/multipart
     walk_m: Optional[float] = None
     noise_flags: list[str] = Field(default_factory=list)
     aerial_image_path: Optional[str] = None
