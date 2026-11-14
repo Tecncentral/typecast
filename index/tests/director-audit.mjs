@@ -338,7 +338,7 @@ function createEnv({ speech = 'none' } = {}) {
   const tags = {
     status: 'p', script: 'textarea', build: 'button', demo: 'button', reject: 'button',
     planSel: 'select', maxLoc: 'select', reqAvail: 'input', trucks: 'input', cars: 'input',
-    planMeta: 'p', forbidden: 'p', clearRej: 'button', rail: 'ol', framePicker: 'div',
+    planMeta: 'p', stagePlanSummary: 'p', forbidden: 'p', clearRej: 'button', rail: 'ol', framePicker: 'div',
     frameNotice: 'div', stage: 'canvas', play: 'button', pause: 'button', reset: 'button',
     prog: 'progress', clock: 'span', timeline: 'ol', varLbl: 'span', varA: 'button', varB: 'button',
     shotForm: 'fieldset', dur: 'input', dlg: 'textarea', actorSel: 'select', addActor: 'button',
@@ -559,9 +559,11 @@ function planFor(body, assignments, extra = {}) {
       uncovered_scene_ids: extra.uncovered || [],
       company_moves: 1,
       mean_similarity: 0.37,
-      locations: [...new Set(assignments.map((row) => row.property_id))],
+      property_ids: [...new Set(assignments.map((row) => row.property_id))],
+      locations: new Set(assignments.map((row) => row.property_id)).size,
     }],
     evaluated_subsets: extra.evaluated_subsets ?? 4,
+    optimal_within_pool: true,
     pool_properties: [...new Set(assignments.map((row) => row.property_id))],
     trace: extra.trace ?? { steps: [{ text: 'RESPONSE_STEP_ONLY_zz' }] },
     events: extra.events ?? [{ type: 'plan', agent: 'solver', text: 'RESPONSE_EVENT_ONLY_zz' }],
@@ -844,6 +846,56 @@ test('a replanned response that still assigns the rejected property is not shown
   await drain();
   assert.equal(env.$('rail').textContent.includes('prop_a'), false);
   assert.equal(env.api.S.resp.plans[0].assignments.some((row) => row.property_id === 'prop_a'), false);
+  assert.deepEqual(copied(env.api.S.resp.plans[0].property_ids), ['prop_b']);
+  assert.equal(env.api.S.resp.plans[0].locations, 1);
+  assert.deepEqual(copied(env.api.S.resp.plans[0].uncovered_scene_ids), ['s1']);
+  assert.equal(env.api.S.resp.optimal_within_pool, false);
+  assert.equal(env.api.S.resp.plans[0].mean_similarity, null);
+  assert.equal(env.api.S.resp.plans[0].company_moves, null);
+  assert.match(env.$('stagePlanSummary').textContent, /1\/2 scenes · 1 location · \? moves/);
+});
+
+test('a failed replan still removes the rejected property and invalidates stale plan claims', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | coffee\nINT. BEDROOM | packing', [
+    assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b'),
+  ]);
+  env.$('reject').click();
+  env.take('/api/production/plan').reject(new Error('Backend unavailable'));
+  await drain();
+  const p = env.api.S.resp.plans[0];
+  assert.equal(p.locations, 1);
+  assert.deepEqual(copied(p.property_ids), ['prop_b']);
+  assert.deepEqual(copied(p.uncovered_scene_ids), ['s1']);
+  assert.equal(p.company_moves, null);
+  assert.equal(p.mean_similarity, null);
+  assert.equal(env.api.S.resp.optimal_within_pool, false);
+  assert.match(env.$('status').textContent, /rejected location was removed locally/);
+});
+
+test('recommends full coverage with fewer locations and keeps higher-similarity alternatives', async () => {
+  const env = boot();
+  env.$('script').value = 'INT. KITCHEN | coffee\nINT. LIVING ROOM | a visitor\nINT. BEDROOM | packing';
+  env.$('build').click();
+  const job = env.take('/api/production/plan'), body = JSON.parse(job.opts.body);
+  const rows = body.scenes.map((s, i) => assignment(s.id, `prop_${i}`, `shot_${i}`));
+  const data = planFor(body, rows);
+  data.plans = [
+    { ...data.plans[0], company_moves: 2, mean_similarity: 0.4 },
+    { ...data.plans[0], assignments: rows.map((a) => ({ ...a, property_id: 'prop_0' })),
+      property_ids: ['prop_0'], locations: 1, company_moves: 0, mean_similarity: 0.3 },
+    { ...data.plans[0], assignments: [rows[0]], uncovered_scene_ids: ['s2', 's3'],
+      property_ids: ['prop_0'], locations: 1, company_moves: 0, mean_similarity: 0.5 },
+  ];
+  job.resolve(jsonResponse(data)); await drain();
+  assert.equal(env.api.S.resp.plans[0].mean_similarity, 0.3);
+  assert.equal(env.api.S.resp.plans[1].mean_similarity, 0.4);
+  assert.equal(env.api.S.resp.plans[2].assignments.length, 1);
+  assert.equal(env.$('stagePlanSummary').textContent, '3/3 scenes · 1 location · 0 moves');
+  assert.equal(env.$('planSel').options[0].textContent, '3/3 scenes · 1 location · 0 moves');
+  assert.equal(env.$('planSel').options[0].getAttribute('title'), 'Mean similarity 0.300');
+  env.$('planSel').value = '1'; env.$('planSel').dispatchEvent({ type: 'change' });
+  assert.equal(env.$('stagePlanSummary').textContent, '3/3 scenes · 3 locations · 2 moves');
 });
 
 test('explicit unknown parking and availability render as unknown', async () => {

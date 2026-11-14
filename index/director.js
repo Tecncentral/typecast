@@ -5,11 +5,11 @@ const BADGE = 'UNCALIBRATED SCREEN-SPACE REHEARSAL · GEOMETRIC FIT UNKNOWN';
 // Stage palette and type follow the scouting app (web/styles.css tokens).
 const INK = { bg: '#0b0d0d', text: '#f2efe8', muted: '#adb5b3', accent: '#edbd69', scrim: 'rgba(11,13,13,.74)' };
 const FACE = 'Barlow, "Segoe UI", system-ui, sans-serif', SLUG = '"Barlow Condensed", Barlow, system-ui, sans-serif';
-// Replace with the repo's original demo script text if it differs.
+// Visually checked against live indexed frames: three rooms in one Houston building.
 const DEMO = [
-  'INT. KITCHEN - DAY | Warm kitchen with wood cabinets; two sisters prepare a meal',
-  'INT. LIVING ROOM - DAY | Bright living room with a sofa and large windows; Mara rehearses a speech',
-  'INT. OFFICE CORRIDOR - NIGHT | A security guard walks a long empty hallway, checking each locked door',
+  'INT. HOUSTON APARTMENT KITCHEN - DAY | A bright Houston apartment kitchen with cabinets, an island and a counter; two sisters prepare coffee.',
+  'INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.',
+  'INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.',
 ].join('\n');
 const S = { scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
@@ -29,6 +29,16 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const fmt = (v) => (typeof v === 'number' ? v.toFixed(3) : 'unknown');
 const count = (v) => (Array.isArray(v) ? v.length : v ?? 'unknown');
+// The solver returns similarity-first alternatives. Recommend maximum coverage,
+// then fewer company moves; keep the higher-similarity alternatives selectable.
+function orderPlans(data) {
+  data.plans.sort((a, b) => (a.uncovered_scene_ids || []).length - (b.uncovered_scene_ids || []).length
+    || a.locations - b.locations || (b.mean_similarity ?? -Infinity) - (a.mean_similarity ?? -Infinity));
+}
+function planSummary(p) {
+  const covered = S.scenes.length - (p.uncovered_scene_ids || []).length;
+  return `${covered}/${S.scenes.length} scenes · ${p.locations} location${p.locations === 1 ? '' : 's'} · ${p.company_moves ?? '?'} move${p.company_moves === 1 ? '' : 's'}`;
+}
 
 // ---------- data access ----------
 const plan = () => (S.resp && S.resp.plans[S.planIdx]) || null;
@@ -99,6 +109,27 @@ function busy(on) {
   const frameSelect = $('framePicker').querySelector('select'); if (frameSelect) frameSelect.disabled = on;
   $('gen').disabled = on || !!S.gen.ctrl;
 }
+// Rejections remain authoritative even when the backend is stale or unavailable.
+function applyForbidden(data) {
+  const forbidden = new Set(S.forbidden);
+  data.scenes = data.scenes.map((scene) => ({ ...scene,
+    candidates: (scene.candidates || []).filter((c) => !forbidden.has(c.shot?.property_id)) }));
+  let changed = false;
+  data.plans = data.plans.map((p) => {
+    const removed = (p.assignments || []).filter((a) => forbidden.has(a.property_id));
+    if (!removed.length && !(p.property_ids || []).some((id) => forbidden.has(id))) return p;
+    changed = true;
+    // property_ids is the list; locations is always a number.
+    const assignments = (p.assignments || []).filter((a) => !forbidden.has(a.property_id));
+    const property_ids = [...new Set(assignments.map((a) => a.property_id))].sort();
+    return { ...p, assignments, property_ids, locations: property_ids.length,
+      uncovered_scene_ids: [...new Set([...(p.uncovered_scene_ids || []), ...removed.map((a) => a.scene_id)])],
+      company_moves: null, mean_similarity: null };
+  });
+  if (changed && 'optimal_within_pool' in data) data.optimal_within_pool = false;
+  if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
+  return data;
+}
 async function build(reuse) {
   if (S.planBusy) return;
   stopPlay(); cancelGen(); clearPending();
@@ -112,25 +143,19 @@ async function build(reuse) {
   try {
     const data = await api('/api/production/plan', body);
     if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
-    // Rejections remain authoritative even if a stale or faulty backend returns them.
-    const forbidden = new Set(S.forbidden);
-    data.scenes = data.scenes.map((scene) => ({ ...scene,
-      candidates: (scene.candidates || []).filter((c) => !forbidden.has(c.shot?.property_id)) }));
-    data.plans = data.plans.map((p) => {
-      const removed = (p.assignments || []).filter((a) => forbidden.has(a.property_id));
-      if (!removed.length) return p;
-      return { ...p, assignments: p.assignments.filter((a) => !forbidden.has(a.property_id)),
-        locations: (p.locations || []).filter((id) => !forbidden.has(id)),
-        uncovered_scene_ids: [...new Set([...(p.uncovered_scene_ids || []), ...removed.map((a) => a.scene_id)])],
-        company_moves: null, mean_similarity: null };
-    });
-    if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
+    applyForbidden(data);
+    orderPlans(data);
     S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {};
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
     if (data.plans.length) status(`${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`);
     else status('Backend returned no plan for these constraints. Your staging is kept.', true);
-  } catch (e) { status(`Plan request failed: ${e.message}`, true); } finally { busy(false); }
+  } catch (e) {
+    if (reuse && S.resp && S.forbidden.length) {
+      applyForbidden(S.resp); renderAll();
+      status(`Replan failed: ${e.message}. The rejected location was removed locally; affected scenes are uncovered until a replan succeeds.`, true);
+    } else status(`Plan request failed: ${e.message}`, true);
+  } finally { busy(false); }
 }
 function reject() {
   const a = assignFor(S.sceneId);
@@ -388,11 +413,11 @@ function evidenceNodes(sid, summary = evidenceSummary(sid), collapsible = true) 
 function renderPlan() {
   const sel = $('planSel'), plans = S.resp?.plans || []; sel.replaceChildren();
   plans.forEach((p, i) => {
-    const cov = S.scenes.length - (p.uncovered_scene_ids || []).length;
-    sel.append(el('option', { value: String(i), text: `Plan ${i + 1}: ${cov}/${S.scenes.length} covered · ${p.company_moves ?? '?'} moves · mean sim ${fmt(p.mean_similarity)}` }));
+    sel.append(el('option', { value: String(i), text: planSummary(p), title: `Mean similarity ${fmt(p.mean_similarity)}` }));
   });
   sel.value = String(S.planIdx); sel.disabled = S.planBusy || !plans.length;
-  $('planMeta').textContent = S.resp ? `Mode ${S.resp.mode ?? 'unknown'} · ${count(S.resp.evaluated_subsets)} subsets evaluated · pool ${count(S.resp.pool_properties)} properties. Mean sim is raw similarity, not shootability.` : 'No plan yet.';
+  sel.title = plan() ? `${planSummary(plan())} · mean similarity ${fmt(plan().mean_similarity)}` : '';
+  $('planMeta').textContent = S.resp ? `Best coverage, then fewest locations. Selected similarity ${fmt(plan()?.mean_similarity)}. Mode ${S.resp.mode ?? 'unknown'} · ${count(S.resp.evaluated_subsets)} subsets evaluated · pool ${count(S.resp.pool_properties)} properties. Similarity is visual retrieval, not shootability.` : 'No plan yet.';
   $('forbidden').textContent = S.forbidden.length ? `Rejected: ${S.forbidden.join(', ')}` : 'No rejected locations.';
   $('clearRej').disabled = !S.forbidden.length;
 }
@@ -449,6 +474,8 @@ let headSid = null;
 function renderStageHead(sid = S.sceneId) {
   headSid = sid;
   const title = $('stageTitle'), where = $('stageLoc'), mode = $('planMode');
+  const summary = $('stagePlanSummary');
+  if (summary) { summary.textContent = plan() ? planSummary(plan()) : ''; summary.hidden = !plan(); }
   if (title) title.textContent = S.scenes.find((s) => s.id === sid)?.heading || 'Stage';
   if (where) where.replaceChildren(...stageLocNodes(sid));
   if (mode) {
@@ -725,6 +752,7 @@ async function importProject(file) {
       max_locations: Math.floor(clamp($('maxLoc').value, 1, 4, 3)), forbidden_property_ids: [],
       require_available: $('reqAvail').checked, trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)),
       cars: Math.floor(clamp($('cars').value, 0, 50, 0)) });
+    orderPlans(data);
     const restored = TypecastProject.restoreEdits(project, data);
     // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
     Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
