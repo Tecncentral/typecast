@@ -1,8 +1,8 @@
 # Lane C status
 
-Updated UTC: 2026-11-14T19:07:00+00:00
-Verified application: `cf716c1` (PR [#19](https://github.com/Tecncentral/typecast/pull/19)).
-Current milestone: human evaluation complete, **15/15 live held-out requests scored; mean pooled pipeline recall@10 0.2706**. See [the full report](eval.md) and the final entry below. This integration work includes the expanded index, OSM/Vexcel caches, private team handoff and live demo/performance checks; the viewer remains owned by the other chat.
+Updated UTC: 2026-11-14T20:44:00+00:00
+Verified implementation: `ec0d183` in merged PR [#24](https://github.com/Tecncentral/typecast/pull/24); selected-default follow-up is in this commit.
+Current milestone: Job 5 tuning complete, **20 candidates / concurrency 5 / batches of 5 selected** from 42 actual requests and 860 image scorings. Full gate: **345 tests passed**. One v2 test pass is running; v1 remains unchanged. Submission drafts are prepared, and the other chat still owns the viewer.
 
 The sections below retain the earlier milestone history. The initial Job 2 implementation was `e672e70` (PR [#7](https://github.com/Tecncentral/typecast/pull/7)), when this chat owned Job 2 and other chats owned Jobs 1 and 3.
 
@@ -259,3 +259,11 @@ Independent review found three issues (outer cancellation, SDK HTTP namespace co
 Actual baseline: five tune scenes on each engine, ten successful requests, 100 fresh image scores / 100 vision calls, zero vision failures, cache hits or engine fallback. Both engines have precision@10 lower bound **0.3600** and macro recall@10 **0.3441**. Fixed median/max **20.225/20.453 s**; deep median/max **53.597/58.911 s**. Each attempt uses a fresh process/vision cache, including lazy encoder initialization in request timing; source imagery/logistics are cached. These are five tune scenes, not the frozen v1 test sample. Early baseline SDK-level deep HTTP telemetry was absent before the namespace fix; its image reservations and vision-call events were present, and no rate limit occurred. No missing deep-text call totals are inferred.
 
 Private protocol, ledger, input/code fingerprints and every attempt: `cache/experiments/rerank-v2/`. Canary comparisons are running under the same budget; only configurations completed on all five tune scenes and both engines with every deep request under 75 s can change the default. The original published v1 report remains byte-for-byte intact, with new material appended separately. Submission drafts are being prepared in parallel; viewer/exterior worktrees remain untouched.
+
+### Job 5 selection locked — 2026-11-14 20:44 UTC
+
+An independent audit recomputed all 42 tune attempts against the five frozen tune scenes and index. The declared equal-engine criterion selected **20/5/5**: precision lower bound **0.3700** versus **0.3600** at baseline, macro recall **0.3501426799** versus **0.3440942928**, slowest deep request **55.494 s**. The 20/5/1 alternative tied precision but had slightly lower recall. These are small single-run sample differences, not statistical evidence of general improvement. No held-out test labels were used to choose the setting.
+
+All 42 actual requests succeeded: **860 fresh image scorings / 544 vision calls / 42 parser calls**, no cache hits, scoring errors, fallbacks, duplicates or rate limits. The final tables and provenance caveats are in [eval.md](eval.md#tune-experiments). Experiments ended at 20:40 UTC, before the 16:30 Eastern cutoff.
+
+Production defaults and `.env.example` now select pool20/concurrency5/batch5. Baseline tests explicitly request per-image scoring. A selected-default test verifies four five-image calls, retained tail and an explicit k override. Full repository gate passed **345 tests**, plus smoke, SSE/refine/local-draft and mock evaluation. The separately labeled, exactly-once v2 fixed-engine test pass is underway with an empty private vision cache; no test-driven retuning follows it. Demo cache warming and final submission measurements remain next.

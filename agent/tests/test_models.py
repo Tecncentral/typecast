@@ -26,6 +26,7 @@ def isolated_models(monkeypatch):
     monkeypatch.setenv("TYPECAST_LLM_PROVIDER", "openai")
     monkeypatch.setenv("TYPECAST_ENABLE_MODEL_PARSE", "1")
     monkeypatch.setenv("TYPECAST_ENABLE_VISION_RERANK", "1")
+    monkeypatch.setenv("TYPECAST_VISION_BATCH_SIZE", "1")
     monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "0")
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
     models.reset_rate_limit()
