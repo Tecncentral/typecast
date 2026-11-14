@@ -1,3 +1,11 @@
+/* Keep the imported control clear of the viewer's existing frame count. */
+.shot-stage > .vf-open {
+  top: 12px;
+  right: 12px;
+  bottom: auto;
+  left: auto;
+}
+
 /* The desktop monitor is centred with translate; the narrow layout uses insets. */
 @media (max-width: 900px) {
   dialog.vf .vf-bottom,

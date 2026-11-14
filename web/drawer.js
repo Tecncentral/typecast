@@ -162,6 +162,10 @@ export function createShotViewer(
     }
   }
   caption.append(count, controls);
+  figure.addEventListener("typecast:reset-frame", () => {
+    index = 0;
+    update();
+  });
   figure.append(stage, caption);
   update();
   return { element: figure, getIndex: () => index };

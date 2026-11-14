@@ -3,8 +3,10 @@ import { SCENES } from "./scenes.js";
 import { renderCards } from "./cards.js";
 import { renderMap } from "./map.js";
 import { Progress } from "./progress.js";
+import { Descent } from "./descent.js";
 const $ = (selector) => document.querySelector(selector);
 const progress = new Progress();
+const descent = new Descent($("#location-map"));
 let config = null,
   response = null,
   busy = false,
@@ -109,6 +111,7 @@ function tick() {
         : "Still scouting. Live runs can take about 10s on the fixed engine or 40s on the deep engine.";
 }
 function begin(refine = false) {
+  descent.cancel("superseded", false);
   busy = true;
   controls();
   $("#api-error").hidden = true;
@@ -373,10 +376,14 @@ function showResult(data, previous, message) {
   }
   finish();
   if (previous) {
-    requestAnimationFrame(() => $("#changes").scrollIntoView({
-      block: "start",
-      behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth",
-    }));
+    requestAnimationFrame(() =>
+      $("#changes").scrollIntoView({
+        block: "start",
+        behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "instant"
+          : "smooth",
+      }),
+    );
   }
   $("#activity").open = false;
   $("#run-status").textContent = data.picks.length
@@ -385,6 +392,7 @@ function showResult(data, previous, message) {
       data.picks.length +
       " locations"
     : "No match · review the relaxed preferences";
+  descent.update(data, { autoplay: !previous });
 }
 async function scout(event) {
   event?.preventDefault();
@@ -523,6 +531,7 @@ $("#scene").addEventListener("input", () =>
 $("#scene-form").addEventListener("submit", scout);
 $("#refine-form").addEventListener("submit", refine);
 window.addEventListener("pagehide", () => {
+  descent.cancel("hidden", false);
   stream?.close();
   clearInterval(ticker);
   clearTimeout(deadline);

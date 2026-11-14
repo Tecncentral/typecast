@@ -14,6 +14,26 @@ Open [the local viewer](http://localhost:8001/app/). `MOCK` means invented prope
 
 The Impeccable design uses local Barlow type, charcoal, ivory and amber, with large uncropped frames and visible source status. Cards show a compact rationale derived from supplied text or fit/parking facts; `Full reason` expands the exact returned rationale. The first three skeptic notes and new refinement objections stay visible, with remaining caveats in an explicit disclosure. Every note remains in the evidence drawer. Design process documents stay in ignored `cache/viewer-design/` under this task's web-only write boundary.
 
+## Inside-out descent
+
+A fresh scout's top pick gets one approximately three-second sequence: the existing map flies to the property, its Vexcel aerial reveals the supplied parking outline, the aerial pushes into the real Matterport frame, and a View Transition lands that frame in card 1. Click or press any key to skip; `Replay descent` repeats it without another scout. Refinement keeps attention on the changed shortlist and offers replay without automatically playing the sequence again.
+
+The narrow `GET /api/aerial/{property_id}` route returns validated georeferencing for one numeric property ID. Its EPSG:3857 extent, image dimensions and source coordinates must match the private cached image and property. The viewer projects supplied parking geometry, including holes, into those pixels. Missing or inconsistent metadata uses the existing aerial image with a wipe; missing imagery skips the unsupported layer. Neither path invents a boundary. The general `/cache/` route still serves images only.
+
+Reduced motion uses approximately 200 ms fades, with no flight, zoom or spatial morph. Mocks show a labelled synthetic frame with no aerial claim. Browsers without View Transitions fade into card 1. Cleanup restores the map, focus and document interaction on completion, skip, supersession or visibility loss.
+
+PR #25's original `viewfinder.js` and `viewfinder.css` are unchanged. Separate compatibility files handle repeated WebGL opening, stale dismissed loads, the narrow-screen layout and placement of `Look around`. Because the imported loader is not cancellable, reopening waits for a dismissed load to settle before opening the requested room.
+
+Run the descent check against a separately started local live server with the private demo prerequisites:
+
+```sh
+cache/browser-venv/bin/python web/tests/check_descent.py --base-url http://localhost:8001 --mode live --output cache/screens/descent --executable '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+```
+
+It runs the five scene presets through the actual API at 1440×900 and 1280×720, then separately labels controlled response replays for skip, replay, reduced motion, unavailable imagery/georeferencing, missing View Transitions, mocks and refinement. Phase captures are controlled UI replays of real supplied images, excluded from performance measurements. The visibility-cleanup case explicitly simulates `document.hidden`; it is not proof that a particular browser or OS actually hides a background tab. Reports and screenshots remain under ignored private `cache/`.
+
+Ten initial live runs on Chrome 157.0.8103.52 / Playwright 1.65.2 measured 2.974–3.079 seconds for the animation, with RAF p95 of 16.7–16.8 ms and no observed long tasks. Isolated frame gaps occurred, so this is typical 60 Hz cadence rather than uninterrupted 60 fps. These numbers exclude scouting latency and asset preparation. The independent Impeccable finish review found no blocking issue at either desktop size.
+
 ## Browser acceptance check
 
 Run against a separately started local mock server. The script refuses live/mixed source mode before taking screenshots and never starts or stops the server. This laptop already has an isolated browser environment with **Playwright 1.65.2**:
