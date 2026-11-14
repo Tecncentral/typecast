@@ -61,3 +61,26 @@ test("formatting, urls and failures", async () => {
   assert.match(bad[0].text, /Something broke/);
   assert.match((await handle("c", "   "))[0].text, /Send me a scene/);
 });
+
+test("live unknowns remain unknown and run mode is visible", async () => {
+  const p = pick(1, { property: { address: "Synthetic", available: false, availability_status: "unknown" },
+    shot_fit: { fits: false, status: "unknown", needed_depth_m: 9, have_depth_m: null },
+    logistics: { truck_spaces: null, car_spaces: null } });
+  const text = formatPick(p);
+  assert.match(text, /availability unknown/); assert.match(text, /Shot fit unknown/);
+  assert.match(text, /Parking: unknown trucks, unknown cars/);
+  sessions.clear();
+  const parts = await handle("mode", "INT. OFFICE", { fetchImpl: async () => ({ ok: true,
+    json: async () => ({ thread_id: "mode", picks: [p], source_mode: "mock", engine: "fixed" }) }) });
+  assert.match(parts[0].text, /MOCK/);
+});
+
+test("refining clears stale approval so YES cannot save a different rank", async () => {
+  sessions.clear(); const calls = []; const f = fakeFetch(calls);
+  await handle("approval", "INT. OFFICE", { fetchImpl: f });
+  await handle("approval", "draft 1", { fetchImpl: f });
+  await handle("approval", "need parking for 5 trucks", { fetchImpl: f });
+  assert.equal(sessions.get("approval").awaitingApproval, null);
+  await handle("approval", "yes", { fetchImpl: f });
+  assert.equal(calls.filter(([path]) => path === "/approve").length, 0);
+});

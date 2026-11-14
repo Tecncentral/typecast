@@ -20,4 +20,4 @@ node bridge/terminal.mjs
 cd bridge && npm install && PHOTON_PROJECT_ID=... PHOTON_PROJECT_SECRET=... node photon.mjs
 ```
 
-Env: `TYPECAST_API` (default `http://localhost:8000`), `TYPECAST_VIEWER`. For a phone to load images, the API must be reachable from the internet (a tunnel), and `TYPECAST_API` set to that address.
+Env: `TYPECAST_API` (default `http://localhost:8000`), `TYPECAST_VIEWER`. Images require a team-authorized reachable API; do not expose licensed cache assets through a public tunnel. Approval saves a local draft only. No live Photon message has been sent by verification.

@@ -13,7 +13,7 @@ function textOf(message) {
   if (typeof c === "string") return c;
   if (c && typeof c.text === "string") return c.text;
   if (Array.isArray(c)) return c.map((x) => x?.text).filter(Boolean).join(" ");
-  console.warn("Unrecognised content shape; log it and fix textOf():", JSON.stringify(c)?.slice(0, 300));
+  console.warn("Unrecognised inbound content shape; no message content was logged.");
   return "";
 }
 

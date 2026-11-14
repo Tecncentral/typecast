@@ -23,12 +23,15 @@ export function imageUrl(path) {
 }
 
 export function formatPick(p) {
-  const fit = p.shot_fit.fits ? "Shot fits" : "Shot is tight";
+  const fit = p.shot_fit.status === "unknown" || p.shot_fit.have_depth_m == null || p.shot_fit.ceiling_m === null
+    ? "Shot fit unknown" : p.shot_fit.fits ? "Shot fits" : "Shot is tight";
+  const availability = p.property.availability_status === "unknown" ? " (availability unknown)"
+    : p.property.available ? "" : " (not listed as available)";
   const lines = [
-    `${p.rank}. ${p.property.address}${p.property.available ? "" : " (occupied)"}`,
+    `${p.rank}. ${p.property.address}${availability}`,
     p.reason,
     `${fit}: needs ${p.shot_fit.needed_depth_m} m, room has ${p.shot_fit.have_depth_m ?? "unknown"} m.`,
-    `Parking: ${p.logistics.truck_spaces} trucks, ${p.logistics.car_spaces} cars.`,
+    `Parking: ${p.logistics.truck_spaces ?? "unknown"} trucks, ${p.logistics.car_spaces ?? "unknown"} cars.`,
   ];
   const objections = (p.skeptic_notes || []).filter((n) => n !== "No objection.");
   if (objections.length) lines.push(`Watch out: ${objections.join(" ")}`);
@@ -37,6 +40,7 @@ export function formatPick(p) {
 
 function picksToParts(res, intro) {
   const parts = [];
+  if (res.source_mode) parts.push({ text: `${res.source_mode.toUpperCase()} · ${res.engine || "fixed"} engine` });
   if (intro) parts.push({ text: intro });
   if (res.gave_up?.length) parts.push({ text: `Nothing matched everything, so I relaxed: ${res.gave_up.join(", ")}.` });
   if (!res.picks.length) return [...parts, { text: "No buildings fit. Try loosening the era, size or parking." }];
@@ -62,7 +66,7 @@ export async function handle(threadKey, textIn, { say = async () => {}, fetchImp
     const rank = s.awaitingApproval; s.awaitingApproval = null; sessions.set(threadKey, s);
     const r = await post("/approve", { thread_id: s.threadId, pick_rank: rank, decision }, fetchImpl);
     if (decision === "no") return [{ text: "Okay, nothing sent." }];
-    return [{ text: r.sent ? `Sent to the team inbox (${r.to}).` : `Approved. Delivery to the team inbox is not switched on yet${r.to ? ` (${r.to})` : ""}; nothing went to the owner.` }];
+    return [{ text: r.sent ? `Sent to the team inbox (${r.to}).` : "Saved as a local draft, not sent; nothing went to the owner." }];
   }
 
   const draft = text.match(/^\s*draft\s+([123])\s*$/i);
@@ -70,17 +74,17 @@ export async function handle(threadKey, textIn, { say = async () => {}, fetchImp
     const rank = Number(draft[1]); const p = s.picks.find((x) => x.rank === rank);
     if (!p) return [{ text: `There is no pick ${rank}.` }];
     s.awaitingApproval = rank; sessions.set(threadKey, s);
-    return [{ text: `Draft to ${p.property.contact || "the listing contact"}:\n\n"Hi, we are scouting a film location and your space at ${p.property.address} fits a scene we are shooting. Could we arrange a visit this week?"\n\nReply YES to send it to our team inbox, or NO to drop it. Nothing goes to the owner.` }];
+    return [{ text: `Draft to ${p.property.contact || "the listing contact"}:\n\n"Hi, we are scouting a film location and your space at ${p.property.address} fits a scene we are shooting. Could we arrange a visit this week?"\n\nReply YES to save this as a local draft, or NO to drop it. Nothing will be sent.` }];
   }
 
   try {
     if (s.threadId && s.picks?.length && text.length < 80 && !/^\s*(int|ext)\b/i.test(text)) {
       await say("Re-ranking what I already found.");
       const res = await post("/refine", { thread_id: s.threadId, message: text }, fetchImpl);
-      sessions.set(threadKey, { ...s, picks: res.picks });
+      sessions.set(threadKey, { ...s, picks: res.picks, awaitingApproval: null });
       return picksToParts(res, "Updated ranking:");
     }
-    await say("On it. Casting real buildings for that scene.");
+    await say("On it. Scouting buildings for that scene.");
     const res = await post("/scout", { scene: text }, fetchImpl);
     sessions.set(threadKey, { threadId: res.thread_id, picks: res.picks, awaitingApproval: null });
     return picksToParts(res, null);
