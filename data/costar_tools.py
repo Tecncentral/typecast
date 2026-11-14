@@ -1,20 +1,43 @@
-"""Owner 2. CoStar filter. Returns mock data until data/join.parquet exists.
+"""Owner 2. CoStar filter over cache/join.parquet (built by data/join.py).
 
-Real version: a DuckDB query over cache/ files joined to Matterport ids.
-CoStar files stay in cache/ on Owner 2's laptop only. Never commit them.
+TYPECAST_USE_MOCKS=1 reads mocks/property.json instead.
+Unknown year_built or size_sqft passes the year and size filters and stays None on
+the Property, so callers can show the gap. CoStar files stay in cache/; never commit them.
 """
-import json, os, pathlib
-from typing import Optional
+
+import json
+import os
+import pathlib
+
 from contracts.schemas import Property
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 USE_MOCKS = os.getenv("TYPECAST_USE_MOCKS", "1") == "1"
 
+_JOIN = ROOT / "cache" / "join.parquet"
+
 
 def _all() -> list[Property]:
     if USE_MOCKS:
-        return [Property(**p) for p in json.loads((ROOT / "mocks/property.json").read_text())]
-    raise NotImplementedError("Owner 2: query the joined table here")
+        return [
+            Property(**p)
+            for p in json.loads((ROOT / "mocks/property.json").read_text())
+        ]
+    return _load_live()
+
+
+def _load_live() -> list[Property]:
+    if not _JOIN.exists():
+        raise FileNotFoundError(
+            f"join.parquet not found at {_JOIN}; run data/join.py first"
+        )
+    import duckdb
+
+    result = duckdb.connect().execute(
+        f"SELECT * FROM read_parquet('{_JOIN.as_posix()}')"
+    )
+    columns = [c[0] for c in result.description]
+    return [Property(**dict(zip(columns, row))) for row in result.fetchall()]
 
 
 def get_property(property_id: str) -> Property:
@@ -24,10 +47,15 @@ def get_property(property_id: str) -> Property:
     raise KeyError(property_id)
 
 
-def search_costar(city: str = "Los Angeles", types: Optional[list[str]] = None,
-                  year_min: Optional[int] = None, year_max: Optional[int] = None,
-                  min_sqft: Optional[float] = None, available_only: bool = True,
-                  limit: int = 500) -> list[Property]:
+def search_costar(
+    city: str = "Los Angeles",
+    types: list[str] | None = None,
+    year_min: int | None = None,
+    year_max: int | None = None,
+    min_sqft: float | None = None,
+    available_only: bool = True,
+    limit: int = 500,
+) -> list[Property]:
     out = [p for p in _all() if p.city == city and p.model_id]
     if types:
         out = [p for p in out if p.type in types]
