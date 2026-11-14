@@ -5,3 +5,5 @@
 4. Risks: browser import, mic, live trace unverified.
 5. Next: integration captain reviews diff, runs verify on Linux/demo laptop, browser-test import and Reject with backend down; push when authorized.
 6. Resume: `node --test index/tests/director-audit.mjs`; python scripts/verify.py with the typecast .venv.
+
+Update 4: docs-only index/GEMINI-DEMO-HANDOFF.md (Gemini draft + Claude cross-check; no code changed).
