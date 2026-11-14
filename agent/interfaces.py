@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from time import perf_counter
+from threading import RLock
 from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
@@ -22,11 +23,13 @@ class RunContext:
     source_mode: Literal["mock", "live"] = "mock"
     timings: dict[str, float] = field(default_factory=dict)
     started_at: float = field(default_factory=perf_counter)
+    _event_lock: object = field(default_factory=RLock, repr=False)
 
     def event(self, event: Event) -> None:
-        event.ts = max(0.0, perf_counter() - self.started_at)
-        event.engine = self.engine
-        self.emit(event)
+        with self._event_lock:
+            event.ts = max(0.0, perf_counter() - self.started_at)
+            event.engine = self.engine
+            self.emit(event)
 
 
 class Requirements(BaseModel):
@@ -62,5 +65,6 @@ def timed(ctx: RunContext, name: str):
         yield
     finally:
         ms = (perf_counter() - started) * 1000
-        ctx.timings[name] = ctx.timings.get(name, 0.0) + ms
-        ctx.event(Event(type="tool", agent=name, ms=ms))
+        with ctx._event_lock:
+            ctx.timings[name] = ctx.timings.get(name, 0.0) + ms
+            ctx.event(Event(type="tool", agent=name, ms=ms))

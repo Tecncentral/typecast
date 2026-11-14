@@ -40,3 +40,19 @@ Updated UTC: 2026-11-14T09:36:50.849577+00:00
 - Matterport SDK browser check at localhost:8766 succeeded using the official SDK bootstrap and public sample model: "PASS: SDK connected and model metadata is readable." This verifies SDK/domain access, not a matched sponsor-building tour. Temporary helper is outside the repository and reads the key only at runtime.
 
 Dependency/access PR #2 merged into dev as eeb2000; both GitHub verify jobs passed (32s and 29s). Updated UTC: 2026-11-14T09:40:44.467675+00:00.
+
+## First runtime/pipeline proof (working tree)
+
+- Live OpenAI structured-output probe: ok=true, 2.899 s.
+- Live parser police-station scene: parsed_with_model=true, Los Angeles, 1980s/year_max=1992, 3 trucks, 30 cars, night; 3.565 s.
+- Local uvicorn at 127.0.0.1:8765 with models disabled/mock adapters: health 200 (all three adapters mock); POST scout 200 with 3 picks; GET stream first event 1.40 ms and result 4.32 ms (53 events); POST refine 200 same thread and two parking objections; POST approve 200 draft_saved, sent=false; unknown refine thread 404. Every returned pick had all three evidence sources.
+- SA2 focused tests: 19 passed in 0.05s. Current full verify while SA1 finishes: 30 passed, one old approval test needs updating for thread validation; not merged as complete.
+
+## M1/M2 integrated verification
+
+- `.venv/bin/python scripts/verify.py`: 59 passed in 0.51s; mock API smoke PASS.
+- SA1 runtime/API tests: 22 passed in 0.21s. SA2 pipeline tests: 19 passed in 0.05s. SA3 fake provider/rerank tests: 11 passed in 0.31s.
+- Live vision request on a synthetic test image: 1/1 scored, zero failures, 5.259 s. Second call: 1 cached, identical score, 0.0004 s.
+- Live-mode error probe: all adapters report live; stream HTTP 200, agent error then terminal error, no result. Sanitized terminal text: "Scouting failed. Please try again." Actual current adapter prerequisite is `NotImplementedError: Owner 2: query the joined table here`. No mock fallback.
+- Working directory still has no private join; no real property pick or retrieval accuracy claim. Mock frame paths supplied by the scaffold point at missing image files; viewer fixtures need local placeholders or lane D assets.
+- Deep engine + evaluation work remain in progress; no deep success claimed yet.

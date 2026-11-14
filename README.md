@@ -6,7 +6,7 @@ Built at HackPrinceton Fall 2026 on CoStar property data, Matterport 3D scans an
 
 ## Status
 
-Scaffold. The pipeline and API run end to end on **fake data** in `mocks/`. No real CoStar, Matterport or Vexcel calls are wired in yet. See `STATUS.md`.
+The API runs end to end on **fake data** in `mocks/`, with real streaming, evidence and uncertainty, cached refinement, and local draft approval. Model parsing and vision reranking use configured providers when enabled. Real property/interior/aerial adapters and the private join still belong to lanes A/B; a working API key alone does not make those adapters live. See [verified lane C status](docs/team/status-lane-c.md).
 
 ## Team agents: start here
 
