@@ -24,7 +24,7 @@ _lock = RLock()
 _pending: ContextVar[tuple[str, dict[str, Any]] | None] = ContextVar("thread_writes", default=None)
 _aliases = {"req": "requirements", "shots": "candidates"}
 _files = {"requirements": "requirements.json", "candidates": "candidates.json",
-          "shortlist": "shortlist.json", "skeptic": "skeptic.md"}
+          "shortlist": "shortlist.json", "skeptic": "skeptic.md", "sources": "sources.json"}
 
 
 class UnknownThread(KeyError):

@@ -137,7 +137,8 @@ def _skeptic(prop: Property, fit: ShotFit, logi: Logistics, req: Requirements) -
 
 
 def _evaluate(ctx: RunContext, req: Requirements, shots: list[Shot],
-              properties: Optional[dict[str, Property]] = None) -> list[_Candidate]:
+              properties: Optional[dict[str, Property]] = None, *,
+              logistics: Optional[dict[str, Logistics]] = None) -> list[_Candidate]:
     by_property: dict[str, list[Shot]] = {}
     for shot in shots:
         by_property.setdefault(shot.property_id, []).append(shot)
@@ -161,7 +162,13 @@ def _evaluate(ctx: RunContext, req: Requirements, shots: list[Shot],
             checked.sort(key=lambda entry: entry[:3])
             _, _, _, best, fit = checked[0]
             selected = [best] + [v for _, _, _, v, f in checked[1:] if not _failed_fit(req, f)][:1]
-            logi = _call(ctx, "plan_logistics", plan_logistics, pid, req.trucks, req.cars)
+            # Deep scouts collect logistics alongside interior retrieval. Reuse
+            # those exact source records when joining their results; an absent
+            # cache entry must not quietly trigger another source request.
+            logi = (logistics[pid] if logistics is not None else
+                    _call(ctx, "plan_logistics", plan_logistics, pid, req.trucks, req.cars))
+            if logi.property_id != pid:
+                raise ValueError("Logistics record belongs to a different property")
         except (KeyError, FileNotFoundError) as exc:
             # Required Pick fields cannot honestly represent a missing source record.
             _event(ctx, "error", f"Missing source record for {pid}; omitted candidate ({type(exc).__name__}).")

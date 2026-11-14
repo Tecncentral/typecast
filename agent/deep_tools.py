@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 import json
 from threading import RLock
 from time import monotonic
@@ -11,7 +13,45 @@ from langchain_core.tools import StructuredTool
 
 from agent import pipeline
 from agent.interfaces import Requirements, RunContext, timed
-from contracts.schemas import Event, Pick, Property, Shot
+from contracts.schemas import Event, Logistics, Pick, Property, Shot
+
+SUMMARY_BYTES = 2048
+
+
+def _brief(value: str, limit: int = 140) -> str:
+    return value if len(value) <= limit else value[:limit - 1] + "…"
+
+
+def _summary(name: str, rows: list[dict[str, Any]], **metadata) -> str:
+    """Bound model-visible records; authoritative source objects stay in ToolSession."""
+    result = {name: [], "count": len(rows), "omitted": len(rows), **metadata}
+    for row in rows:
+        result[name].append(row)
+        result["omitted"] -= 1
+        if len(json.dumps(result, separators=(",", ":"), ensure_ascii=False).encode()) > SUMMARY_BYTES:
+            result[name].pop()
+            result["omitted"] += 1
+            break
+    return json.dumps(result, separators=(",", ":"), ensure_ascii=False)
+
+
+def _property_summary(prop: Property) -> dict[str, Any]:
+    return {"property_id": prop.property_id, "city": _brief(prop.city, 70), "type": _brief(prop.type),
+            "year_built": prop.year_built, "available": prop.available}
+
+
+def _shot_summary(shot: Shot) -> dict[str, Any]:
+    return {"shot_id": shot.shot_id, "property_id": shot.property_id,
+            "area_m2": shot.room_area_m2, "ceiling_m": shot.ceiling_m,
+            "depth_m": shot.depth_m, "estimated": shot.measure_on_site, "score": shot.score}
+
+
+def _logistics_summary(logi: Logistics) -> dict[str, Any]:
+    return {"property_id": logi.property_id, "truck_spaces": logi.truck_spaces,
+            "car_spaces": logi.car_spaces, "walk_m": logi.walk_m,
+            "noise_flags": [_brief(flag) for flag in logi.noise_flags[:4]],
+            "noise_count": len(logi.noise_flags),
+            "estimated": logi.estimated}
 
 
 @dataclass
@@ -21,6 +61,8 @@ class ToolSession:
     example_shot_id: str | None = None
     properties: dict[str, Property] = field(default_factory=dict)
     shots: list[Shot] = field(default_factory=list)
+    logistics: dict[str, Logistics] = field(default_factory=dict)
+    missing_logistics: set[str] = field(default_factory=set)
     picks: list[Pick] = field(default_factory=list)
     gave_up: list[str] = field(default_factory=list)
     calls: set[str] = field(default_factory=set)
@@ -58,9 +100,9 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
                                city=session.req.city, available_only=False)
         with session.lock:
             session.properties = {p.property_id: p for p in records}
-        return json.dumps([p.model_dump(mode="json") for p in records])
+        return _summary("properties", [_property_summary(p) for p in records])
 
-    def get_property(property_id: str) -> dict[str, Any]:
+    def get_property(property_id: str) -> str:
         """Fetch a CoStar property already present in search_costar; never invent property records."""
         def get():
             if property_id not in session.properties:
@@ -68,7 +110,7 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
             prop = pipeline.get_property(property_id)
             with session.lock:
                 session.properties[property_id] = prop
-            return prop.model_dump(mode="json")
+            return _summary("properties", [_property_summary(prop)])
         return session.call("get_property", get)
 
     def search_shots() -> str:
@@ -81,7 +123,7 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
             shots = pipeline.search_shots(property_ids=list(session.properties), **query)
             with session.lock:
                 session.shots = list(shots)
-            return json.dumps([s.model_dump(mode="json") for s in shots])
+            return _summary("shots", [_shot_summary(s) for s in shots])
         return session.call("search_shots", search)
 
     def rerank_shots() -> str:
@@ -90,27 +132,89 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
             if "search_shots" not in session.calls:
                 raise ValueError("Search views before reranking")
             session.shots = pipeline._rerank(session.ctx, session.req, session.shots)
-            return json.dumps([s.model_dump(mode="json") for s in session.shots])
+            return _summary("shots", [_shot_summary(s) for s in session.shots])
         return session.call("deep.rerank_shots", rank)
 
-    def check_shot(shot_id: str) -> dict[str, Any]:
+    def check_shot(shot_id: str) -> str:
         """Check a retrieved view's lens/depth/ceiling fit, preserving unknown and estimated geometry."""
         def check():
             shot = next((s for s in session.shots if s.shot_id == shot_id), None)
             if shot is None:
                 raise ValueError("View is absent from retrieved candidates")
-            return pipeline._fit(session.ctx, session.req, shot).model_dump(mode="json")
+            fit = pipeline._fit(session.ctx, session.req, shot)
+            return _summary("fits", [{"shot_id": shot_id, **fit.model_dump(mode="json"),
+                                       "note": _brief(fit.note, 400)}])
         return session.call("deep.check_shot", check)
 
-    def plan_logistics(property_id: str) -> dict[str, Any]:
-        """Read Vexcel parking, walk distance and noise for a retrieved candidate using requested truck/car counts."""
+    def plan_logistics(property_id: str | None = None) -> str:
+        """Cache Vexcel logistics for market candidates, independently of interiors. Omit id to check the complete pool."""
         def plan():
-            if property_id not in {s.property_id for s in session.shots}:
-                raise ValueError("Property has no retrieved Matterport view")
-            return pipeline.plan_logistics(property_id, session.req.trucks, session.req.cars).model_dump(mode="json")
+            if "search_costar" not in session.calls:
+                raise ValueError("Run market_scout before logistics_scout")
+            ids = [property_id] if property_id is not None else list(session.properties)
+            if any(pid not in session.properties for pid in ids):
+                raise ValueError("Property is absent from the retrieved city pool")
+
+            def load(pid):
+                session.check_deadline()
+                with session.lock:
+                    if pid in session.logistics or pid in session.missing_logistics:
+                        return
+                try:
+                    logi = pipeline.plan_logistics(pid, session.req.trucks, session.req.cars)
+                except (KeyError, FileNotFoundError):
+                    with session.lock:
+                        session.missing_logistics.add(pid)
+                    return
+                if logi.property_id != pid:
+                    raise ValueError("Logistics do not match the requested source property")
+                with session.lock:
+                    session.logistics[pid] = logi
+
+            # Bound source fan-out, inherit safe runtime tracing, and avoid another
+            # model turn when the compact market summary omits a large source pool.
+            if ids:
+                with ThreadPoolExecutor(max_workers=min(8, len(ids))) as executor:
+                    futures = [executor.submit(copy_context().run, load, pid) for pid in ids]
+                    for future in futures:
+                        future.result()
+            return _summary("logistics", [_logistics_summary(session.logistics[pid])
+                            for pid in ids if pid in session.logistics],
+                            missing_count=sum(pid in session.missing_logistics for pid in ids),
+                            required_trucks=session.req.trucks, required_cars=session.req.cars)
         return session.call("plan_logistics", plan)
 
-    def build_shortlist() -> dict[str, Any]:
+    def shortlist_summary() -> str:
+        # Three compact rows retain every pick's key CoStar/Matterport/Vexcel facts.
+        # Full evidence and objections remain authoritative in session.picks/files.
+        rows = []
+        for pick in session.picks:
+            logistics = _logistics_summary(pick.logistics)
+            logistics.pop("property_id")
+            logistics["noise_flags"] = [_brief(flag, 50) for flag in pick.logistics.noise_flags[:1]]
+            prop = _property_summary(pick.property)
+            prop.pop("city")
+            prop["type"] = _brief(prop["type"], 40)
+            rows.append({"property": prop,
+                         "shot_fit": {key: value for key, value in pick.shot_fit.model_dump(mode="json").items()
+                                      if key != "note"},
+                         "geometry_estimated": pick.shots[0].measure_on_site,
+                         "logistics": logistics,
+                         "skeptic_notes": [_brief(note, 100) for note in pick.skeptic_notes[:1]],
+                         "objection_count": len(pick.skeptic_notes)})
+        result = _summary("picks", rows, gave_up=session.gave_up)
+        if json.loads(result)["omitted"]:
+            # Never hide a shortlisted id from the director or read-only skeptic.
+            for row in rows:
+                row.pop("skeptic_notes")
+                row["property"].pop("type")
+                row["logistics"]["noise_flags"] = []
+            result = _summary("picks", rows, gave_up=session.gave_up)
+            if json.loads(result)["omitted"]:
+                raise ValueError("Shortlist source ids exceed the model summary budget")
+        return result
+
+    def build_shortlist() -> str:
         """Build the authoritative shortlist with fixed-engine geometry, objections, evidence, relaxation and ranking rules."""
         def build():
             required = {"search_costar", "search_shots", "deep.rerank_shots"}
@@ -120,7 +224,7 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
                 raise ValueError("Inspect a source property before building the shortlist")
             if session.shots and "deep.check_shot" not in session.calls:
                 raise ValueError("Inspect a representative shot before building the shortlist")
-            if session.shots and "plan_logistics" not in session.calls:
+            if session.shots and not {shot.property_id for shot in session.shots}.issubset(session.logistics):
                 raise ValueError("Complete logistics_scout before building the shortlist")
             # Shared evaluation deliberately rechecks all retrieved views: a model cannot
             # hide failed geometry or omit logistics by only checking attractive views.
@@ -133,19 +237,20 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
                     session.ctx.emit(event)
 
             ctx = replace(session.ctx, emit=forward)
-            candidates = pipeline._evaluate(ctx, session.req, session.shots, session.properties)
+            candidates = pipeline._evaluate(ctx, session.req, session.shots, session.properties,
+                                            logistics=session.logistics)
             if errors:
                 raise RuntimeError("A required candidate source record is unavailable")
             session.picks, session.gave_up = pipeline._rank(ctx, session.req, candidates)
-            return {"picks": [p.model_dump(mode="json") for p in session.picks], "gave_up": session.gave_up}
+            return shortlist_summary()
         return session.call("build_shortlist", build)
 
-    def get_shortlist() -> dict[str, Any]:
+    def get_shortlist() -> str:
         """Read the authoritative shortlist and evidence without changing records, rankings or constraints."""
         def read():
             if "build_shortlist" not in session.calls:
                 raise ValueError("Build the shortlist before asking the skeptic")
-            return {"picks": [p.model_dump(mode="json") for p in session.picks], "gave_up": session.gave_up}
+            return shortlist_summary()
         return session.call("get_shortlist", read)
 
     functions = [search_costar, get_property, search_shots, rerank_shots, check_shot,
