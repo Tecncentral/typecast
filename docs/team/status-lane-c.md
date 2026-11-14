@@ -180,3 +180,15 @@ generation has not been republished during integration. Other lanes' dirty
 files remain outside this index milestone; exact-head GitHub CI is required
 before merging its PR into dev. Next: Vexcel precompute and human labels on the
 frozen generation, coordinated by the integration captain.
+
+### Five-scene live baseline — 2026-11-14 16:55 UTC
+
+PR16 (index) and PR17 (frozen evaluation) are merged into dev; current base is `67d86a2`. Both exact-head PR17 CI checks passed and an independent source review found no actionable evaluation issues. Combined verification: 282 tests plus all fixture integration gates.
+
+All five scenes passed with both real engines, model parsing and vision enabled. Fixed times in scene order: 27.135, 22.825, 22.124, 24.793, 21.445 seconds (median 22.825). Deep: 59.981, 52.875, 61.165, 44.288, 50.762 seconds (median 52.875). All are below 90 seconds, with no fallback or vision failures. Fixed scored 20 fresh views per scene; deep cached counts were 0, 20, 0, 20, 20, so this is a mixed-cache baseline, not ten uniformly cold runs. Deep traces were independently fetched with 202–235 spans.
+
+All ten requests returned three source-backed picks. Five-truck refinements retained candidate membership/cardinality, made zero new searches, and changed ranking/allocation; all original and refined approvals persisted unsent local drafts. Refinements took 20.328–28.896 seconds for fixed and 6.792–21.894 for deep. Unknown geometry remains unknown. The warehouse scene exposed actual freeway/rail proximity objections. Chromium decoded all 179 images across the 20 initial/refined responses, with zero failures. Private evidence: `cache/demo-checks/baseline/aggregate.json`, individual responses/summaries, screenshots and `browser-report.json`.
+
+Added reproducible live demo and browser diagnostics; synthetic negative cases reject evidence loss, changed pools, over-90-second refinement, non-live responses, missing interiors/aerials and unsafe image paths. Reports cannot retain an earlier success after a failed browser rerun. No application dependency was added.
+
+Removed only the requested unused `typecast-b` and `typecast-live` worktrees after checking clean tracked/untracked status, no unmerged commits, no process working directories in either checkout, and that cache/.env/.venv were symlinks to retained main-checkout files. Main private data remains present; viewer/exterior workspaces were untouched. Next: stable authored-scene vision caching, ten-view rerank budget, cache fill and matched warm measurements. Human test labels remain pending.

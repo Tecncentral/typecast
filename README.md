@@ -93,6 +93,10 @@ python scripts/benchmark_deep.py --runs 3 --director-effort medium --scout-effor
 
 This command uses the configured model API. It disables model parsing and vision reranking; add `--tracing` to include real trace upload and verified link retrieval. Without that flag, it measures director/delegate changes without trace-service latency. Reports count fallbacks separately from successful deep runs and require a verified link on every traced trial. The output contains timing metadata, not source records.
 
+For the private five-scene demo set, run the API in live mode with model parsing and vision enabled, then use `python scripts/check_demo.py --engine fixed --phase baseline --verify-trace` (or `--engine deep` against a deep server). Each scene must return three available picks with known parking, real images, all three evidence sources and a source-grounded skeptic caveat. It also checks five-truck refinement without another search and unsent local drafts. Use `--phase precompute` to fill a changed cache, then `--phase warm` to measure it; every attempt is retained under ignored `cache/demo-checks/`.
+
+`scripts/check_demo_browser.py` uses an optional separate Playwright environment to decode the actual interior and aerial images from saved scout and refinement responses in Chromium. It saves private screenshots and fails on missing images. This verifies API imagery; the separately owned viewer UI needs its own acceptance check. Local evidence caches do not remove the live parser/director model or tracing service's network dependency.
+
 With a mock server running on port 8000 and tracing enabled, verify actual SSE delivery, public configuration, and a fetched LangSmith run with:
 
 ```bash
