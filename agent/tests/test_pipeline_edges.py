@@ -228,6 +228,7 @@ def test_minimum_area_chooses_large_enough_alternate_view(monkeypatch):
 
 
 def test_rerank_top_ten_preserves_other_cached_views(monkeypatch):
+    monkeypatch.setenv("TYPECAST_RERANK_POOL", "10")
     _, shots = dataset(monkeypatch, [{} for _ in range(25)])
     calls = []
 
@@ -244,6 +245,24 @@ def test_rerank_top_ten_preserves_other_cached_views(monkeypatch):
     assert [shot.shot_id for shot in cached[10:]] == [shot.shot_id for shot in shots[10:]]
     assert {shot.shot_id for shot in cached} == {shot.shot_id for shot in shots}
     assert len(cached) == 25
+
+
+def test_configured_rerank_can_promote_beyond_first_ten_without_losing_refine_pool(monkeypatch):
+    monkeypatch.setenv("TYPECAST_RERANK_POOL", "40")
+    _, shots = dataset(monkeypatch, [{} for _ in range(45)])
+    calls = []
+
+    def rerank(ctx, req, candidates, k):
+        calls.append(k)
+        return list(reversed(candidates[:k]))
+
+    monkeypatch.setattr(pipeline.rerank, "rerank_shots", rerank)
+    ctx = RunContext(thread_id="rerank-expanded")
+    pipeline.scout(ctx, Requirements(scene="Office"))
+    cached = pipeline._threads[ctx.thread_id]["candidates"]
+    assert calls == [40]
+    assert cached[0].shot_id == shots[39].shot_id
+    assert len(cached) == 45 and {s.shot_id for s in cached} == {s.shot_id for s in shots}
 
 
 def test_live_unknown_availability_capacity_and_noise_are_visible(monkeypatch):

@@ -120,10 +120,12 @@ def commit(thread_id: str, pending: dict[str, Any]) -> None:
         save(thread_id, name, obj)
 
 
-def record_run(thread_id: str, *, engine: str, source_mode: str, timings: dict[str, float]) -> None:
+def record_run(thread_id: str, *, engine: str, source_mode: str, timings: dict[str, float],
+               notes: list[str] | None = None) -> None:
     with _lock:
         _existing(validate_thread_id(thread_id))["runtime"] = {
             "engine": engine, "source_mode": source_mode, "timings": dict(timings),
+            "notes": list(notes or []),
         }
 
 

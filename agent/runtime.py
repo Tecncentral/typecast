@@ -10,10 +10,11 @@ from time import perf_counter
 from uuid import uuid4
 
 from contracts.schemas import Event, ScoutResponse
-from agent import deep, parse, pipeline, state, tracing
+from agent import deep, models, parse, pipeline, state, tracing
 from agent.interfaces import RunContext, timed
 
 DEEP_TIMEOUT_SECONDS = 90.0
+DEFAULT_CITY_NOTE = "No city named; searched Los Angeles. Name Houston to search there."
 _ADAPTERS = {"costar": "data.costar_tools", "matterport": "index.search", "vexcel": "data.vexcel_tools"}
 
 
@@ -56,6 +57,14 @@ def _check_source_mode(ctx: RunContext) -> None:
     ctx.source_mode = requested
 
 
+def _default_city_notes(req) -> list[str]:
+    if isinstance(req, dict):
+        return []
+    if req.scene and req.city == "Los Angeles" and "city" not in req.explicit_fields:
+        return [DEFAULT_CITY_NOTE]
+    return []
+
+
 def _deep_or_fixed(ctx: RunContext, req) -> ScoutResponse:
     cancelled = ThreadEvent()
     completed: Queue = Queue(maxsize=1)
@@ -90,12 +99,17 @@ def _deep_or_fixed(ctx: RunContext, req) -> ScoutResponse:
         return response
     except Empty:
         reason = "Deep engine exceeded its time limit; continuing with the fixed engine."
-    except Exception:
+    except Exception as error:
+        if models.rate_limit_seen() or models.is_rate_limit_error(error):
+            models.mark_rate_limit()
+            raise models.ModelRateLimitError("Model rate limit reached; further requests stopped") from None
         reason = "Deep engine failed; continuing with the fixed engine."
     finally:
         cancelled.set()
         ctx.timings["deep_attempt_ms"] = (perf_counter() - started) * 1000
     ctx.engine = "fixed"
+    if models.rate_limit_seen():
+        raise models.ModelRateLimitError("Model rate limit reached; further requests stopped")
     ctx.event(Event(type="fallback", agent="runtime", text=reason))
     return pipeline.scout(ctx, req)
 
@@ -127,7 +141,8 @@ def _execute(ctx: RunContext, action, operation: str) -> ScoutResponse:
         response.events = list(emitted)
         response.timings = dict(ctx.timings)
         response.trace_url = trace.trace_url
-        state.record_run(ctx.thread_id, engine=ctx.engine, source_mode=ctx.source_mode, timings=ctx.timings)
+        state.record_run(ctx.thread_id, engine=ctx.engine, source_mode=ctx.source_mode,
+                         timings=ctx.timings, notes=response.notes)
         return response
     except Exception:
         ctx.event(Event(type="error", agent="runtime", text="Scouting failed. Please try again."))
@@ -146,23 +161,36 @@ def run_scout(ctx: RunContext, scene=None, example_shot_id=None) -> ScoutRespons
     ctx.engine = engine
 
     def action():
+        if models.rate_limit_seen():
+            raise models.ModelRateLimitError("Model rate limit reached; further requests stopped")
         ctx.event(Event(type="plan", agent="runtime", text=f"Starting the {ctx.engine} scouting engine."))
         if example_shot_id:
             req = {"example_shot_id": example_shot_id}
         else:
             with timed(ctx, "parse"):
                 req = parse.parse_scene(scene, emit=ctx.event)
-        return _deep_or_fixed(ctx, req) if ctx.engine == "deep" else pipeline.scout(ctx, req)
+            if models.rate_limit_seen():
+                raise models.ModelRateLimitError("Model rate limit reached; further requests stopped")
+        notes = _default_city_notes(req)
+        for note in notes:
+            ctx.event(Event(type="notice", agent="runtime", text=note))
+        response = _deep_or_fixed(ctx, req) if ctx.engine == "deep" else pipeline.scout(ctx, req)
+        response.notes = list(dict.fromkeys([*response.notes, *notes]))
+        return response
 
     return _execute(ctx, action, "scout")
 
 
 def run_refine(ctx: RunContext, message: str) -> ScoutResponse:
     saved = state.get_thread(ctx.thread_id)
+    search_notes = list(saved.get("runtime", {}).get("notes", []))
     ctx.engine = "fixed"
 
     def action():
         ctx.event(Event(type="plan", agent="runtime", text="Refining the saved candidates with the fixed engine."))
-        return pipeline.refine(ctx, saved, message)
+        response = pipeline.refine(ctx, saved, message)
+        # Refinement reuses the original pool, so report its original scope.
+        response.notes = list(dict.fromkeys([*response.notes, *search_notes]))
+        return response
 
     return _execute(ctx, action, "refine")
