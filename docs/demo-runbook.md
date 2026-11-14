@@ -147,13 +147,27 @@ TYPECAST_USE_MOCKS=1 TYPECAST_ENGINE=fixed \
 
 Verify the **MOCK** label. Fixtures demonstrate interaction only; none of their timings or relevance counts are real-data results.
 
-## Record the backup video
+## Backup recording
 
-1. Rehearse the accepted viewer at 1440×900 and projector-like 1280×720. Confirm the exact scene, source/mode labels, main objection and follow-up. Confirm 20/5/5 and the current evidence before recording performance claims.
-2. On macOS, use **Shift–Command–5 → Record Selected Portion** and select the app window area. Close terminals, credentials, personal contacts and unrelated tabs. Save locally under ignored `cache/submission/`.
-3. Record one continuous take of at most two minutes using the beat sheet: main scene → real progress → frame/aerial/skeptic → five trucks → unsent local draft. Capture narration and readable labels. If showing retained footage, label it as recorded.
-4. Watch the complete file locally: check audio, text size, image loads, actual engine/mode, the changed allocation and the unsent state. An interrupted or failed step should remain accurately described.
-5. Keep the original recording private. A human confirms sponsor-media permission, chooses the final video and screenshot, adds the final links/Discord names, and submits. No video, licensed imagery or raw cache belongs in Git.
+Run the exact judging path against the already-running LIVE deep stage server. This spends one Warehouse scout, one five-truck refinement and one Director production plan; coordinate with the integration captain so it does not overlap the full warm rehearsal. It does not approve an owner draft, generate dressing or call World Labs.
+
+```bash
+cache/browser-venv/bin/python scripts/check_judge_path.py \
+  --base-url http://localhost:8000 --record \
+  --executable "$HOME/Library/Caches/ms-playwright/chromium_headless_shell-1248/chrome-headless-shell-mac-arm64/chrome-headless-shell"
+```
+
+The check follows Warehouse handoff → actual inside-out descent → Replay/Skip → Look around at 24 then 50 mm → D if precomputed AI dressing is offered → G → Escape → **Need parking for 5 trucks.** on the same thread → Director demo script → one-location plan → Play. It fails on JavaScript/console errors, missing images, a missing honesty label, a lost thread, or a Director plan that does not cover three or four scenes from one location with zero company moves. An explicit 404 from the optional dressed-set lookup is logged **not offered**; broken offered assets still fail. Walk mode is reported as offered/not offered and is optional.
+
+Screenshots and `report.json` stay under `cache/demo-checks/judge-path/<UTC timestamp>/`. With `--record`, the same path runs at human pace at 1440×900 and writes `cache/demo-video/<UTC timestamp>.webm`. A failed check also retains its recording for diagnosis: only a report with `passed: true` is an accepted backup. The video has no narration; record narration separately if the human wants a narrated submission video. Do not call cached images or scores a fully offline fresh run: keep a visible **recorded live run** label alongside the accepted video throughout fallback playback. The raw private recording is not a publication-ready submission video.
+
+Before the Director PR merges, pass `--director-script-file cache/demo-checks/director-grouping/winner-script.txt` to use stream 1's visually checked authored script. The checker selects the actual zero-move plan through the candidate selector. After the merge, omit that option to exercise the served **Demo script** itself. Chromium and Playwright live in the separate private browser environment; omit `--executable` only when its default Chromium is installed.
+
+The accepted pre-merge run passed all **11 checks**, with no console errors, JavaScript exceptions or missing images. Its scout used **deep (46.576 s)**; the five-truck refinement used **fixed** and kept the thread. AI dressing was offered and its label and decoded frames passed; walk mode was not offered. Director covered three scenes from one location with zero moves and played. Source: private `cache/demo-checks/judge-path/20261114T225134664622Z/report.json`; this used the authored script override against the stage's existing Director UI. Keep this recording's timing separate from the five-scene rehearsal benchmark.
+
+Accepted private video: `cache/demo-video/20261114T225134664622Z.webm` — **87.24 seconds, 1440×900, VP9**, verified by `ffprobe`; source: adjacent private `cache/demo-checks/judge-path/20261114T225134664622Z/video-metadata.json`. Checker debugging used **four individual Warehouse scouts and two refinements**, with one accepted full recording; the earlier interrupted/failed attempts remain private and unaccepted. Source: `cache/demo-checks/judge-path/attempt-summary.json`.
+
+Repeat this command after the human merges the Job 8 PRs and after **01:00 ET Sunday November 15**; the accepted pre-merge run does not satisfy that final gate. Watch the complete accepted recording locally for readable evidence, actual engine/mode, uncertainty labels, framing and refinement. Keep the original private: it contains licensed imagery. Only a human may approve publication after checking sponsor-media permission, choose the final video/screenshot, add team Discord names and submit. No video, licensed imagery or raw cache belongs in Git.
 
 ## Evidence locations and final handoff
 
