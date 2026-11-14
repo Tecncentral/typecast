@@ -60,12 +60,16 @@
         <h1 id="h-stage"><span id="stageTitle">Stage</span></h1>
         <p id="stageLoc" class="stage-loc">Build a plan to put real indexed rooms on the stage.</p>
       </div>
-      <div class="seg" role="group" aria-label="Staging variant">
-        <span class="seg-label" aria-hidden="true">Take</span>
-        <button id="varA" type="button" aria-pressed="true">A</button><button id="varB" type="button" aria-pressed="false">B</button>
+      <div class="stage-modes">
+        <div class="seg" role="group" aria-label="Staging variant">
+          <span class="seg-label" aria-hidden="true">Take</span>
+          <button id="varA" type="button" aria-pressed="true">A</button><button id="varB" type="button" aria-pressed="false">B</button>
+        </div>
+        <button id="cmpAB" type="button" aria-pressed="false" aria-controls="compareStrip" title="Read-only side-by-side preview of both takes on the same frame">Compare A/B</button>
       </div>
     </div>
     <div id="frameNotice" class="notice" hidden></div>
+    <div id="compareStrip" class="compare-strip" role="status" hidden></div>
     <div class="screen"><canvas id="stage" width="1280" height="720" tabindex="0" aria-label="Stage. Drag an actor body to set start, the ring to set end. Arrow keys nudge selected actor start, Shift plus arrows nudge end."></canvas></div>
     <div class="transport">
       <div class="transport-play">
@@ -133,6 +137,10 @@
       </div>
       <p id="micNote" class="meta">Mic is off by default. If you start it, your browser's speech service may process the audio.</p>
       <div class="row"><button id="gen" type="button" class="primary">Generate alternative</button><button id="undo" type="button" disabled>Undo apply</button></div>
+      <div class="sample-box">
+        <p class="meta"><strong>No model?</strong> Load a fixed, pre-written sample alternative. It is not AI-generated and does not read the direction above.</p>
+        <button id="loadSample" type="button">Load authored sample alternative</button>
+      </div>
       <div id="proposal" class="proposal" hidden>
         <p id="pSum" class="strong"></p><p id="pNote" class="meta"></p>
         <p class="meta">Changes versus current take B:</p><ul id="pDiff" class="diff"></ul>

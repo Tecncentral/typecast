@@ -6,6 +6,8 @@ Branch `ai/claude-release-audit` (PR #31), base origin/dev dbceec2. Code head: c
 
 > Second pass: PR30 dressed-set fixes (label/prompt, face path allowlist, corruption/decoding) done on `ai/director-unified`; details in `index/UNIFIED-INTEGRATION-HANDOFF.md` section "PR30 dressed-set fixes". Full verify: 649 passed, 7 skipped; Node 116 pass/1 skip. Not pushed.
 
+> Third pass: read-only Compare A/B, explicit authored offline sample, dressed-cache no-spend guard, docs/COMPETITIVE-DECISIONS.md. See index/UNIFIED-INTEGRATION-HANDOFF.md section on Compare A/B. Not pushed; no film consultation claimed.
+
 ## 1. Goal
 Release QA for HackPrinceton Typecast (Director, reel, project import, viewfinder, AI dressing). Fix reproduced failures only; mock/synthetic data only; no push/merge/provider calls/private data. Interior labeling is complete; no more labeling.
 

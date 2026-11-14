@@ -348,3 +348,70 @@ def test_disabled_flag_and_unknown_shots_still_answer_cleanly(worlds, monkeypatc
     assert _client().get("/api/dressed/p1-m1-s9-0.000-abc").status_code == 404
     monkeypatch.setenv("TYPECAST_ENABLE_DRESSED", "0")
     assert _client().get(f"/api/dressed/{SHOT_ID}").status_code == 404
+
+
+# ---- batch runner: an invalid EXISTING cache must not be silently regenerated (no provider spend) ----
+
+class _NoProviderClient:
+    """Stands in for AtlasClient: any real use (upload/submit/wait/download) is a spend and fails the test."""
+    calls = 0
+
+    def __getattr__(self, name):
+        type(self).calls += 1
+        raise AssertionError(f"provider client used: {name}")
+
+
+@pytest.fixture
+def batch(worlds, monkeypatch):
+    sweep = {"model_id": "m1", "sweep_id": "s1", "shot_id": SHOT_ID,
+             "faces": [{"heading_deg": 0, "image_path": "/cache/views/x.jpg"}] * 2}
+    generated = []
+    _NoProviderClient.calls = 0
+    monkeypatch.setattr(dress, "AtlasClient", _NoProviderClient)
+    monkeypatch.setattr(dress, "scan_point", lambda api, shot: sweep)
+    monkeypatch.setattr(dress, "top_pick_shot", lambda api, scene: SHOT_ID)
+
+    def fake_generate(**kw):
+        generated.append(kw["scene_id"])
+        return {"faces": [{"yaw_deg": 0.0}]}
+
+    monkeypatch.setattr(dress, "dress_scan_point", fake_generate)
+    return lambda *extra: dress.main(["--shot", SHOT_ID, "--scene", "INT. KITCHEN - DAY.", *extra]), generated
+
+
+@pytest.mark.parametrize("bad", ["{not json", "[]", json.dumps({"model_id": "other", "sweep_id": "s1", "faces": [FACE]})])
+def test_rerun_over_an_invalid_existing_cache_fails_closed_without_generating(batch, worlds, capsys, bad):
+    run, generated = batch
+    _write(worlds, bad)
+    assert run() == 1
+    out = capsys.readouterr().out
+    assert "existing dressed cache" in out and "--force" in out and "no credits were spent" in out
+    assert generated == [] and _NoProviderClient.calls == 0
+
+
+def test_rerun_over_a_cache_with_missing_images_fails_closed(batch, worlds, capsys):
+    run, generated = batch
+    _write(worlds, {"faces": [FACE]}, images=())        # record is syntactically fine but its images are gone
+    assert run() == 1 and generated == [] and "FAILED" in capsys.readouterr().out
+
+
+def test_valid_existing_cache_is_reused_and_absent_cache_still_generates(batch, worlds, capsys):
+    run, generated = batch
+    assert run() == 0 and generated == ["custom"]       # nothing cached: explicit generation request proceeds
+    generated.clear()
+    _write(worlds, {"faces": [FACE]})
+    assert run() == 0 and generated == [] and "already dressed, skipped" in capsys.readouterr().out
+
+
+def test_force_is_the_explicit_way_to_regenerate_an_invalid_cache(batch, worlds):
+    run, generated = batch
+    _write(worlds, "{not json")
+    assert run("--force") == 0 and generated == ["custom"]
+
+
+def test_cache_state_helper_distinguishes_absent_invalid_and_valid(worlds):
+    assert dress.dressed_cache_state("m1", "s1") == "absent"
+    out = _write(worlds, "{not json")
+    assert dress.dressed_cache_state("m1", "s1") == "invalid"
+    (out / "dressed.json").write_text(json.dumps({**IDS, "faces": [FACE]}), encoding="utf-8")
+    assert dress.dressed_cache_state("m1", "s1") == "valid"

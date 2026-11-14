@@ -253,6 +253,18 @@ def load_dressed(model_id: str, sweep_id: str) -> Optional[dict]:
     }
 
 
+def dressed_cache_state(model_id: str, sweep_id: str) -> str:
+    """'absent' (no dressed.json yet), 'valid' (usable by the viewer) or 'invalid' (a record exists but fails validation).
+
+    The batch runner uses this so a damaged or stale existing cache is never mistaken for an empty one and
+    regenerated, which would spend provider credits without anyone having asked for that.
+    """
+    if load_dressed(model_id, sweep_id):
+        return "valid"
+    record = scan_point_dir(model_id, sweep_id) / "dressed" / "dressed.json"
+    return "invalid" if (record.exists() or record.is_symlink()) else "absent"
+
+
 def main(argv=None) -> int:
     load_dotenv(ROOT / ".env", override=False)
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -287,8 +299,16 @@ def main(argv=None) -> int:
         try:
             shot_id = shot_id or top_pick_shot(args.api, scene)
             sweep = scan_point(args.api, shot_id)
-            if load_dressed(sweep["model_id"], sweep["sweep_id"]) and not args.force:
+            state = dressed_cache_state(sweep["model_id"], sweep["sweep_id"])
+            if state == "valid" and not args.force:
                 print(f"{scene_id}: already dressed, skipped")
+                continue
+            if state == "invalid" and not args.force:
+                # Fail closed: an existing but unusable record is not "absent". No provider call is made.
+                failures += 1
+                print(f"{scene_id}: FAILED: an existing dressed cache for this scan point is invalid or incomplete. "
+                      "Nothing was generated and no credits were spent. Inspect or remove it, or rerun with --force "
+                      "to deliberately regenerate (this spends provider credits).")
                 continue
             print(f"{scene_id}: dressing the top pick's scan point ({len(sweep['faces'])} faces)")
             record = dress_scan_point(sweep=sweep, scene=scene, scene_id=scene_id, client=client,

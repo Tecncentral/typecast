@@ -346,7 +346,7 @@ function createEnv({ speech = 'none' } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);
@@ -1458,3 +1458,163 @@ function highlighted(env, sid) {
 }
 
 test('real browser surfaces this harness cannot drive', { skip: 'No display, microphone, or browser HTML parser in this vm. Canvas pixels, JPEG contents, SpeechRecognition audio, layout hit-testing, and Chrome/Firefox outerHTML byte-for-byte output are not exercised. The tests above drive director.js itself and serialize the textContent nodes it creates.' }, () => {});
+
+// ---------- Compare A/B (read-only) and the authored offline sample ----------
+async function twoTakes() {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first\nINT. OFFICE | second', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]);
+  env.api.selectScene('s1');
+  env.$('addActor').click();                                  // take A: one actor, 5 s
+  env.$('dlg').value = 'A_LINE'; env.$('dlg').dispatchEvent({ type: 'input' });
+  env.api.setVariant('B');
+  env.$('addActor').click();
+  env.$('dur').value = '8'; env.$('dur').dispatchEvent({ type: 'input' });   // take B: 8 s
+  env.$('dlg').value = 'B_LINE'; env.$('dlg').dispatchEvent({ type: 'input' });
+  env.api.setVariant('A');
+  return env;
+}
+const painted = (env) => env.drawLog.filter((e) => e.m === 'fillText').map((e) => String(e.args[0])).join('\n');
+const editsOf = (env) => JSON.stringify(env.api.S.edits);
+
+test('Compare A/B is a read-only view: nothing mutates, the active take stays, drag/keys/form are locked', async () => {
+  const env = await twoTakes();
+  const before = editsOf(env), rev = env.api.S.rev, variant = env.api.S.variant, mode = env.api.S.resp.mode;
+  env.$('cmpAB').click();
+  assert.equal(env.api.S.compare, true);
+  assert.equal(env.$('cmpAB').attrs['aria-pressed'], 'true');
+  assert.equal(env.$('compareStrip').hidden, false);
+  assert.match(env.$('compareStrip').textContent, /Read-only A\/B comparison/);
+  assert.match(env.$('compareStrip').textContent, /Take A runs 5s, take B 8s \(different lengths/);
+  assert.match(env.$('compareStrip').textContent, /PNG and WebM export that take only; Project JSON and Shoot pack include both/);
+  assert.equal(env.$('shotForm').disabled, true); assert.equal(env.$('addActor').disabled, true);
+  const text = painted(env);
+  assert.match(text, /TAKE A \(active take\)/); assert.match(text, /TAKE B/); assert.match(text, /Comparison view only\. Not an export/);
+  assert.match(text, /5s/); assert.match(text, /8s/);
+  assert.ok(env.drawLog.filter((e) => e.m === 'fillText' && String(e.args[0]).includes(env.api.BADGE)).length >= 2, 'uncalibrated label in both panes');
+  // Pointer drag on the actor and arrow keys must not edit either take.
+  const cv = env.$('stage'), a = env.api.shotData('s1', 'A').actors[0];
+  cv.dispatchEvent({ type: 'pointerdown', clientX: a.x0 * 1280, clientY: (a.y0 - 0.05) * 720, pointerId: 1 });
+  cv.dispatchEvent({ type: 'pointermove', clientX: 100, clientY: 100, pointerId: 1 });
+  cv.dispatchEvent({ type: 'pointerup', pointerId: 1 });
+  cv.dispatchEvent({ type: 'keydown', key: 'ArrowLeft' }); cv.dispatchEvent({ type: 'keydown', key: 'ArrowUp', shiftKey: true });
+  assert.equal(editsOf(env), before); assert.equal(env.api.S.rev, rev);
+  assert.equal(env.api.S.variant, variant); assert.equal(env.api.S.resp.mode, mode);
+  env.$('cmpAB').click();                                       // toggle off restores single view, still unmutated
+  assert.equal(env.api.S.compare, false); assert.equal(env.$('compareStrip').hidden, true); assert.equal(env.$('shotForm').disabled, false);
+  assert.equal(editsOf(env), before);
+});
+
+test('selecting take A or B leaves comparison and edits only that take afterwards', async () => {
+  const env = await twoTakes();
+  env.$('cmpAB').click(); env.api.setVariant('B');
+  assert.equal(env.api.S.compare, false);
+  env.$('dlg').value = 'B_EDIT'; env.$('dlg').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.shotData('s1', 'B').dialogue, 'B_EDIT'); assert.equal(env.api.shotData('s1', 'A').dialogue, 'A_LINE');
+});
+
+test('compare playback uses one real-time clock: scene lasts the longer take; the shorter holds and says so', async () => {
+  const env = await twoTakes();
+  env.$('cmpAB').click();
+  env.nowMs = 1000; env.$('play').click();
+  assert.equal(env.api.S.play.total, 8 + 5);                    // s1: max(5,8)=8, s2 default 5/5
+  env.flushRaf(); env.drawLog.length = 0; env.nowMs = 1000 + 6500; env.flushRaf();
+  const text = painted(env);
+  assert.match(text, /ended at 5s, holding last pose/);          // take A (5 s) is past its end
+  assert.match(text, /6\.5s \/ 8s/);                             // take B still running
+  assert.doesNotMatch(text, /6\.5s \/ 5s/);
+  assert.match(env.$('status').textContent, /both takes side by side on one real-time clock/);
+  // Single-take playback is unchanged: active take A only.
+  env.$('cmpAB').click(); env.$('play').click();
+  assert.equal(env.api.S.play.total, 5 + 5);
+});
+
+test('exports keep their take semantics while comparing: PNG is the active take only, JSON/pack still carry both', async () => {
+  const env = await twoTakes();
+  env.$('cmpAB').click();
+  const cv = env.$('stage'), orig = cv.toBlob.bind(cv); let atExport = null;
+  cv.toBlob = (cb, type) => { atExport = painted(env); orig(cb, type); };
+  env.drawLog.length = 0; env.$('expPng').click(); await drain();
+  assert.doesNotMatch(atExport, /Comparison view only|TAKE A|TAKE B/);     // canvas was the single-take layout at capture time
+  assert.ok(env.downloads.some((d) => d.name === 'typecast-s1-A.png'));
+  assert.equal(env.api.S.compare, true);                                    // comparison restored afterwards
+  const snap = env.api.exportSnapshot();
+  assert.equal(snap.variant, 'A');
+  assert.equal(snap.scenes[0].variants.A.dialogue, 'A_LINE'); assert.equal(snap.scenes[0].variants.B.dialogue, 'B_LINE');
+  assert.equal(snap.scenes[0].variants.B.duration_sec, 8); assert.equal(snap.scenes[0].staging.dialogue, 'A_LINE');
+});
+
+test('brainstorm still fails honestly without a model and never substitutes the authored sample', async () => {
+  const env = await twoTakes();
+  const before = editsOf(env);
+  env.$('instr').value = 'Have the actor enter from the window'; env.$('gen').click();
+  env.take('/api/production/brainstorm').resolve(jsonResponse({ detail: 'Configured model provider unavailable' }, 503));
+  await drain();
+  assert.match(env.$('status').textContent, /Brainstorm unavailable: Configured model provider unavailable\. No changes made/);
+  assert.equal(env.api.S.pending, null); assert.equal(env.$('proposal').hidden, true); assert.equal(editsOf(env), before);
+  assert.equal(env.jobs.length, 0);
+});
+
+test('authored sample: opt-in, no model call, labelled, A untouched, Apply writes only B, Undo and Discard keep semantics', async () => {
+  const env = await twoTakes();
+  const aBefore = JSON.stringify(env.api.shotData('s1', 'A')), bBefore = JSON.stringify(env.api.shotData('s1', 'B')), mode = env.api.S.resp.mode;
+  env.$('instr').value = 'something completely different that must be ignored';
+  env.$('loadSample').click();
+  assert.equal(env.jobs.length, 0, 'no network request for the sample');
+  assert.equal(env.$('proposal').hidden, false);
+  assert.match(env.$('pSum').textContent, /Authored sample alternative \(pre-written, not AI-generated\)/);
+  assert.match(env.$('pNote').textContent, /ignores your direction text and no model was called/);
+  assert.match(env.$('status').textContent, /not AI, no model call/);
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'A')), aBefore); assert.equal(JSON.stringify(env.api.shotData('s1', 'B')), bBefore);
+  const a = env.api.shotData('s1', 'A').actors[0];
+  env.$('discard').click();
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'B')), bBefore);
+  env.$('loadSample').click(); env.$('applyB').click();
+  const b = env.api.shotData('s1', 'B');
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'A')), aBefore);          // A never changes
+  assert.equal(b.dialogue, 'A_LINE'); assert.equal(b.duration_sec, 5);          // derived from A, no invented dialogue
+  assert.equal(b.actors[0].x0, Math.round((1 - a.x0) * 1000) / 1000);          // mirrored from A
+  assert.ok(b.actors[0].x1 !== b.actors[0].x0 && b.actors.length === 1);
+  assert.match(env.$('status').textContent, /Applied the authored sample to variant B/);
+  assert.equal(env.api.S.resp.mode, mode); assert.equal(env.$('proposal').hidden, true);
+  env.$('undo').click();
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'B')), bBefore); assert.equal(JSON.stringify(env.api.shotData('s1', 'A')), aBefore);
+  assert.equal(env.jobs.length, 0);
+});
+
+test('authored sample with an empty take A uses one generic performer and invents no source facts', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
+  const evBefore = JSON.stringify(env.api.exportSnapshot().scenes[0].evidence);
+  env.$('loadSample').click(); env.$('applyB').click();
+  const b = env.api.shotData('s1', 'B');
+  assert.equal(b.actors.length, 1); assert.equal(b.actors[0].name, 'Performer');
+  assert.equal(env.api.shotData('s1', 'A').actors.length, 0);
+  assert.equal(JSON.stringify(env.api.exportSnapshot().scenes[0].evidence), evBefore);
+});
+
+test('loading the sample cancels an in-flight model request whose late reply is then ignored', async () => {
+  const env = await twoTakes();
+  env.honorAbort = false;
+  env.$('instr').value = 'model direction'; env.$('gen').click();
+  const job = env.take('/api/production/brainstorm');
+  env.$('loadSample').click();
+  const sample = JSON.stringify(env.api.S.pending.shot);
+  job.resolve(jsonResponse({ summary: 'late', shot: { duration_sec: 9, dialogue: 'LATE_MODEL', actors: [] } }));
+  await drain();
+  assert.equal(JSON.stringify(env.api.S.pending.shot), sample);
+  assert.equal(editsOf(env).includes('LATE_MODEL'), false);
+  assert.match(env.$('pSum').textContent, /Authored sample/);
+});
+
+test('a pending sample is dropped when the scene changes or the take is edited, and Apply refuses a stale one', async () => {
+  const env = await twoTakes();
+  const before = editsOf(env);
+  env.$('loadSample').click(); env.api.selectScene('s2');
+  assert.equal(env.api.S.pending, null); assert.equal(env.$('proposal').hidden, true);
+  env.$('applyB').click();
+  assert.match(env.$('status').textContent, /no longer matches|discarded/i);
+  assert.equal(editsOf(env), before);
+  env.api.selectScene('s1'); env.$('loadSample').click();
+  env.$('dlg').value = 'typed meanwhile'; env.$('dlg').dispatchEvent({ type: 'input' });       // staging edit invalidates it
+  assert.equal(env.api.S.pending, null);
+});
