@@ -2,7 +2,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from time import perf_counter
-from threading import RLock
+from threading import Event as CancellationEvent, RLock
 from typing import Callable, Literal
 
 from pydantic import BaseModel, Field
@@ -24,6 +24,7 @@ class RunContext:
     timings: dict[str, float] = field(default_factory=dict)
     started_at: float = field(default_factory=perf_counter)
     _event_lock: object = field(default_factory=RLock, repr=False)
+    cancelled: CancellationEvent = field(default_factory=CancellationEvent, repr=False)
 
     def event(self, event: Event) -> None:
         with self._event_lock:

@@ -64,7 +64,7 @@ def _deep_or_fixed(ctx: RunContext, req) -> ScoutResponse:
             ctx.emit(event)
 
     child = RunContext(thread_id=ctx.thread_id, emit=emit, engine="deep", source_mode=ctx.source_mode,
-                       started_at=ctx.started_at)
+                       started_at=ctx.started_at, cancelled=cancelled)
 
     def work():
         try:

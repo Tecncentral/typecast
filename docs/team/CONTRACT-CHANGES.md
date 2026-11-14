@@ -17,3 +17,5 @@ Migration: existing API event names agent/result remain; consumers should render
 - Event type `rerank` reports actual skipped/completed visual ranking, with existing generic Event shape. Added to TypeScript union.
 - Concurrent callbacks serialize timestamp assignment and emission so streamed timestamps preserve event order.
 - `POST /approve` on a deep-engine thread resumes the saved deepagents human-approval checkpoint; fixed-engine threads save a local draft directly. Both always return sent=false.
+
+- Event type `trace` reports a traced run whose real URL could not be retrieved. It does not supply or invent a URL.

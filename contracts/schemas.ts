@@ -4,7 +4,7 @@ export interface Property { property_id: string; address: string; city: string; 
 export interface Logistics { property_id: string; truck_spaces: number; car_spaces: number; parking_polygon: number[][]; walk_m?: number; noise_flags: string[]; aerial_image_path?: string; estimated: boolean }
 export interface ShotFit { fits: boolean; needed_depth_m: number; have_depth_m?: number; ceiling_m?: number; note: string; status?: "fits" | "tight" | "unknown" }
 export interface Pick { rank: number; property: Property; shots: Shot[]; shot_fit: ShotFit; logistics: Logistics; reason: string; skeptic_notes: string[]; evidence?: Evidence[] }
-export interface AgentEvent { type: "plan" | "todo" | "subagent_start" | "subagent_result" | "skeptic" | "relaxed" | "final" | "tool" | "error" | "fallback" | "rerank"; agent?: string; text: string; ts?: number; ms?: number | null; engine?: "fixed" | "deep" | null }
+export interface AgentEvent { type: "plan" | "todo" | "subagent_start" | "subagent_result" | "skeptic" | "relaxed" | "final" | "tool" | "error" | "fallback" | "rerank" | "trace"; agent?: string; text: string; ts?: number; ms?: number | null; engine?: "fixed" | "deep" | null }
 export interface ScoutResponse { thread_id: string; picks: Pick[]; gave_up: string[]; events: AgentEvent[]; engine?: "fixed" | "deep"; source_mode?: "mock" | "live"; trace_url?: string | null; timings?: Record<string, number> }
 
 export interface Evidence { source: "costar" | "matterport" | "vexcel"; claim: string; status: "measured" | "estimated" | "unknown" }
