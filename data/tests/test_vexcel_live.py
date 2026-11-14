@@ -177,6 +177,12 @@ def test_walking_requires_connected_source_entrance_and_path():
     assert mapped_walk(osm, parking, footprint, 0, 0) == pytest.approx(111.2, abs=.1)
     osm["elements"][0]["tags"]["access"] = "private"
     assert mapped_walk(osm, parking, footprint, 0, 0) is None
+    del osm["elements"][0]["tags"]["access"]
+    osm["elements"][1]["tags"]["access"] = "private"
+    assert mapped_walk(osm, parking, footprint, 0, 0) is None
+    del osm["elements"][1]["tags"]["access"]
+    osm["elements"][1]["tags"]["foot"] = "no"
+    assert mapped_walk(osm, parking, footprint, 0, 0) is None
 
 
 def test_generation_index_is_used_and_path_traversal_rejected(tmp_path):

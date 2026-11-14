@@ -206,6 +206,8 @@ def mapped_walk(osm: dict, parking, footprint, lat: float, lon: float):
         tags = element.get("tags", {})
         if element.get("type") != "node" or tags.get("entrance") in {None, "no", "exit", "emergency"}:
             continue
+        if tags.get("access") in {"no", "private"} or tags.get("foot") in {"no", "private"}:
+            continue
         entrance = osm_geometry(element)
         if entrance is not None and projected_footprint.distance(project(entrance, lat, lon)) <= 2:
             if element.get("id") in graph:
