@@ -69,7 +69,7 @@ def _choice(name, default, choices):
 
 
 def configured_pool_size() -> int:
-    return _choice("TYPECAST_RERANK_POOL", 10, {10, 20, 30, 40})
+    return _choice("TYPECAST_RERANK_POOL", 20, {10, 20, 30, 40})
 
 
 class VisionRateLimitError(RuntimeError):
@@ -221,7 +221,7 @@ def rerank_shots(ctx: RunContext, req: Requirements, shots, k: int = 20) -> list
     if isinstance(k, bool) or not isinstance(k, int) or not 0 <= k <= 40:
         raise ValueError("Vision rerank k must be an integer in 0..40")
     concurrency = _choice("TYPECAST_VISION_CONCURRENCY", 5, {5, 10})
-    batch_size = _choice("TYPECAST_VISION_BATCH_SIZE", 1, {1, 5, 10})
+    batch_size = _choice("TYPECAST_VISION_BATCH_SIZE", 5, {1, 5, 10})
     cache_root = _score_cache_root()
     mode = "single" if batch_size == 1 else "batch"
     provider_events = SimpleQueue()
