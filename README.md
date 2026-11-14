@@ -1,12 +1,21 @@
 # Typecast
 
-Cast real buildings for your script. Text a scene and get back camera frames from inside real, vacant Los Angeles buildings that could play it, with a check that the shot fits the room, where the crew parks, and a drafted note to the owner.
+Cast real buildings for your script. Text a scene and retrieve interior camera frames from Los Angeles and Houston, with source-backed availability, parking estimates, explicit shot-fit uncertainty and a local inquiry draft. Marketed lease availability does not establish vacancy or filming permission.
 
 Built at HackPrinceton Fall 2026 on CoStar property data, Matterport 3D scans and Vexcel aerial imagery.
 
 ## Status
 
-The API runs end to end on **fake data** in `mocks/`, with real streaming, evidence and uncertainty, cached refinement, and local draft approval. Model parsing and vision reranking use configured providers when enabled. Real property/interior/aerial adapters and the private join still belong to lanes A/B; a working API key alone does not make those adapters live. See [verified lane C status](docs/team/status-lane-c.md).
+Both fixed and deep engines have completed real-data runs with model parsing, vision reranking, CoStar/Matterport/Vexcel evidence, LangSmith traces, same-thread refinement and local draft approval. Private sources must be provisioned separately; a fresh checkout defaults to explicit fixtures in `mocks/`. See [verified integration status](docs/team/status-lane-c.md) for coverage, timings and remaining evidence limits.
+
+The November 14 private index contains **10,568 views across 343 properties and 329 models**, built in 14.15 minutes while preserving the original 608 views. It covers all 307 mapped, available commercial properties plus 20 available multifamily properties. Sixteen additional available commercial properties have no supplied scan mapping.
+
+| City | Available office | Industrial | Flex | Retail | Multifamily | Retained unavailable/unknown |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Los Angeles | 75 | 8 | 3 | 15 | 10 | 16 |
+| Houston | 127 | 50 | 9 | 20 | 10 | 0 |
+
+All 343 indexed properties have cached aerials and OSM noise screening. Parking is estimated for 224; 119 remain unknown. Proximity screening flags 128 properties and does not establish measured sound levels or quiet at unflagged sites. One mapped walking route is estimated; 342 remain unknown. Five Vexcel parcel-detail requests returned 404, while imagery succeeded. Shot depth remains unmeasured. Held-out accuracy for this expanded index awaits the 15 human test reviews; older-index scores do not apply.
 
 ## Team agents: start here
 
@@ -96,8 +105,21 @@ Tracing waits at most eight seconds for a run to become readable after upload. I
 ```bash
 python scripts/e2e.py
 python agent/eval/run_eval.py --mode mock
-# After real data and hand labels exist:
-python agent/eval/run_eval.py --mode live --labels cache/eval/labels.jsonl --split test
 ```
 
 The authored benchmark has 15 test and 5 tuning scenes. Empty labels are skipped, so mock runs never become a retrieval accuracy claim. Keep real labels in ignored `cache/`. The 15 mock frame images are explicitly labelled placeholders, not photographs; regenerate them with `python scripts/make_mock_images.py`.
+
+For the live blinded lab, freeze the exact index and candidate pools before human review. Use the immutable generation path printed by `freeze` for the lab, export and evaluation:
+
+```bash
+python agent/eval/label_bridge.py freeze
+# Set TYPECAST_INDEX_DIR to the printed generation path, then start the lab:
+TYPECAST_USE_MOCKS=0 uvicorn index.preview:app --port 8765
+# Review all 15 test scenes at http://localhost:8765/evaluate as Human review.
+python agent/eval/label_bridge.py export --split test
+TYPECAST_ENABLE_MODEL_PARSE=1 TYPECAST_ENABLE_VISION_RERANK=1 \
+  TYPECAST_ALLOW_VISION_UPLOAD=1 python agent/eval/run_eval.py --mode live --split test \
+  --scenes cache/evaluation/agent/scenes.jsonl --labels cache/evaluation/agent/labels.jsonl
+```
+
+The exporter rejects stale, incomplete, AI or mock reviews. This evaluation measures pipeline recall@10 against human judgments of a frozen global top-40 pool, not exhaustive catalog recall. The pipeline's city filter can exclude relevant views from that global pool; the report includes a city-eligibility diagnostic. Empty judged pools are counted separately and excluded from recall. Never use held-out test judgments for tuning.
