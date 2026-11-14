@@ -113,3 +113,56 @@ Rebuilt from the same supplied kit with a private pre-change backup: 13,096 pair
 Verified all 10 requested IDs have complete caches. Packaged 90 source/derived files under cache/vexcel paths into ignored `cache/handoffs/typecast-vexcel-owner2-20261114.zip` (42,904,234 bytes), plus private manifest. ZIP integrity passed; no configured credential values appear in its source files. All 10 have OSM noise screening; seven have parking estimates. Current availability: one available, two not_available, seven unknown. These older human-selected interiors are not the new available-property demo set. The user has the archive and a reply to send privately; no external message was sent by this agent.
 
 Owner 2 plans test/docs changes in test_data.py and their root STATUS.md section; those files remain theirs. Applied the reported Windows CSV fixture fix (`newline=""` for csv.writer). Focused data/evaluation tests: 45 passed. OSM PR13 and listing-category PR14 are merged into dev.
+
+### Available interior coverage and frozen index — 2026-11-14 16:43 UTC
+
+Base dev: `20cb03a`. This milestone adds the bounded private bulk runner and its
+incremental import/build support. `index.bulk` uses at most eight workers and one
+provider request per worker, selects one explicit supplied catalog model per
+property, downloads and encodes shared source views once, and retains all prior
+shots and source evidence. Per-model checkpoints support partial-face retries,
+source/index interruption recovery, larger scan requests and explicit
+`--retry-failed`; request timeouts respect the remaining fetch budget. A partial
+run reports its usable coverage and exits nonzero. No-change resumes retain the
+published generation. Explicit bootstrap model lists no longer have a 20-model
+cap, unchanged embeddings are reused, and failed room refreshes preserve prior
+evidence. The store can read a directly pinned immutable generation.
+
+Frozen private generation: `043653ce80184bf4839cf1750c312b42` — **10,568 views /
+343 distinct properties / 329 distinct models**. It covers all 307 mapped
+available Office, Industrial, Flex and GeneralRetail properties in the current
+join, plus 20 available Multifamily properties (10 Los Angeles, 10 Houston),
+while retaining all 19 previously indexed properties. Three selected properties
+were already indexed. Available commercial coverage is Los Angeles: Office 75,
+Industrial 8, Flex 3, GeneralRetail 15; Houston: Office 127, Industrial 50, Flex 9,
+GeneralRetail 20. Another 16 available commercial properties have no supplied
+model mapping and remain explicitly uncovered. Seven attempted apartment models
+were inaccessible and replaced with available selections. Six catalog/property
+disagreements remain flagged privately; the supplied exact CSV pair mapping is
+retained without address or coordinate inference.
+
+Exactly 302 selected properties have eight scans; 25 have one to seven catalogued
+scans. Completed captures have zero failed faces and zero failed room requests.
+Every indexed view and source image exists. The original 608 Shot records,
+embedding floats, source records and provenance entries compare exactly equal
+after expansion. Actual source imagery for all 20 selected apartment properties
+was inspected by AI, with representative room/living/amenity images and generic
+visual tags saved privately. This is not human-held-out relevance evaluation.
+
+Measured wall time was **849.2 seconds / 14.15 minutes**, from first bulk command
+start at `2026-11-14T16:04:35.087743Z` to final immutable-manifest publication at
+`2026-11-14T16:18:44.239379Z`, including alternate-selection passes and preservation
+checks between them. Evidence stays in ignored
+`cache/matterport/bulk-review/preservation-final.json`, `timing-final.json`,
+`selection-review.json` and `multifamily-20-representatives.jpg`; no source rows,
+contacts, keys, images or embeddings enter Git.
+
+Verification: 99 focused index tests passed. The combined current worktree
+`scripts/verify.py` passed 282 tests in 3.98 seconds, API smoke, genuine-progress
+SSE, cached same-thread refinement, local-draft/no-send approval, and 20/20
+unlabelled mock scenes (recall remains N/A). Read-only final resume inspection
+found zero provider tasks and zero views needing preparation. The frozen
+generation has not been republished during integration. Other lanes' dirty
+files remain outside this index milestone; exact-head GitHub CI is required
+before merging its PR into dev. Next: Vexcel precompute and human labels on the
+frozen generation, coordinated by the integration captain.

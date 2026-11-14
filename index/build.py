@@ -28,12 +28,16 @@ def _dimension(value):
         return None
     return number if math.isfinite(number) and number > 0 else None
 
-def prepare(manifest_path):
+def prepare(manifest_path, *, preserve_provenance=False):
     rows = json.loads(cache_path(manifest_path).read_text(encoding='utf-8'))
     if isinstance(rows, dict):
         rows = rows['records']
     shots = []
     provenance = {}
+    if preserve_provenance:
+        path = cache_path('cache/view-provenance.json')
+        if path.is_file():
+            provenance = json.loads(path.read_text(encoding='utf-8'))
     for row in rows:
         for key in ('property_id', 'model_id', 'sweep_id'):
             if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', row[key]):
@@ -82,6 +86,47 @@ def prepare(manifest_path):
         raise ValueError('Duplicate exported views')
     atomic_write_json(cache_path('cache/view-provenance.json'), provenance)
     return shots
+
+
+def encode_incremental(shots, *, previous_shots=(), previous_vectors=None,
+                       model_name=DEFAULT_MODEL, batch_size=16, progress=None):
+    """Encode new source views once, including scans shared by explicit properties.
+
+    The image digest is part of prepared shot identities. Property-specific copies
+    can therefore share a vector without assuming two different source files match.
+    Existing rows are returned unchanged; callers must check the embedding model.
+    """
+    def key(shot):
+        return (shot.model_id, shot.sweep_id, shot.heading_deg,
+                shot.shot_id.rsplit('-', 1)[-1])
+    cached = {}
+    if previous_vectors is not None:
+        if len(previous_shots) != len(previous_vectors):
+            raise ValueError('Previous shots and embeddings must align')
+        cached.update((key(shot), vector) for shot, vector in zip(previous_shots, previous_vectors))
+    pending = {}
+    for shot in shots:
+        if key(shot) not in cached:
+            pending.setdefault(key(shot), shot)
+    unique = list(pending.items())
+    for start in range(0, len(unique), batch_size):
+        batch = unique[start:start + batch_size]
+        images = []
+        try:
+            for _, shot in batch:
+                with Image.open(cache_path(shot.image_path.lstrip('/'))) as image:
+                    images.append(image.convert('RGB'))
+            vectors = np.asarray(encoder(model_name).encode(images, batch_size=batch_size,
+                convert_to_numpy=True, normalize_embeddings=True), dtype=np.float32)
+            cached.update((identity, vector) for (identity, _), vector in zip(batch, vectors))
+        finally:
+            for image in images:
+                image.close()
+        if progress:
+            progress(min(start + batch_size, len(unique)), len(unique))
+    if not shots:
+        return np.empty((0, previous_vectors.shape[1] if previous_vectors is not None else 0), dtype=np.float32)
+    return np.asarray([cached[key(shot)] for shot in shots], dtype=np.float32)
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)

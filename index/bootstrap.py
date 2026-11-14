@@ -7,8 +7,9 @@ from typing import Any, Sequence
 import httpx, numpy as np
 from PIL import Image
 
-from index.build import prepare, cache_path
-from index.matterport import atomic_write_json, fetch_model_record, ingest_matterport, load_matterport_credentials
+from index.build import prepare, cache_path, encode_incremental
+from index.matterport import (atomic_write_json, fetch_model_record, ingest_matterport,
+                             load_matterport_credentials, load_model_property_pairs)
 from index.rooms import ROOMS_GRAPHQL_QUERY, enrich_source_manifest
 from index.store import DEFAULT_MODEL, ROOT, encoder, save_index
 
@@ -91,6 +92,14 @@ def fetch_catalog_csv(url: str = CATALOG_URL, *, timeout: float = 15.0) -> str:
 
 
 def _encode_shot_images(shots: Sequence[Any], model_name: str) -> np.ndarray:
+    from index.store import load_index
+    try:
+        old_shots, old_vectors, old_model = load_index()
+    except RuntimeError:
+        old_shots, old_vectors, old_model = (), None, model_name
+    if old_vectors is not None and old_model == model_name:
+        return encode_incremental(shots, previous_shots=old_shots,
+            previous_vectors=old_vectors, model_name=model_name, batch_size=ENCODE_BATCH_SIZE)
     encode_fn = encoder(model_name)
     batches: list[np.ndarray] = []
     for start in range(0, len(shots), ENCODE_BATCH_SIZE):
@@ -107,8 +116,10 @@ def _encode_shot_images(shots: Sequence[Any], model_name: str) -> np.ndarray:
 
 
 def run_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
-    if not 1 <= args.max_models <= 20 or not 1 <= args.max_sweeps <= 12:
-        raise BootstrapError("--max-models must be 1..20 and --max-sweeps must be 1..12")
+    if args.max_models < 1 or not 1 <= args.max_sweeps <= 12:
+        raise BootstrapError("--max-models must be positive and --max-sweeps must be 1..12")
+    if not args.models and args.max_models > 20:
+        raise BootstrapError("Automatic city samples are capped at 20; use --models or index.bulk for explicit larger coverage")
     auth = load_matterport_credentials(ROOT / '.env')
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     if args.models:
@@ -128,8 +139,15 @@ def run_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
         models_path = CACHE_DIR / "selected_models.json"
         atomic_write_json(models_path, selected)
 
+    previous_path = CACHE_DIR / 'source_manifest.json'
+    previous_rows = json.loads(previous_path.read_text()).get('records', []) if previous_path.is_file() else []
+    def record_key(row):
+        return (row.get('property_id'), row.get('model_id'), row.get('sweep_id'), row.get('heading_deg'))
+    previous_by_key = {record_key(row): row for row in previous_rows}
     manifest, report = ingest_matterport(models_path=models_path, output_dir=CACHE_DIR, max_models=args.max_models, max_sweeps=args.max_sweeps)
-    model_ids = sorted({r["model_id"] for r in manifest.get("records") or [] if r.get("model_id")})
+    requested_ids = {p.model_id for p in load_model_property_pairs(models_path, max_models=args.max_models)}
+    model_ids = sorted({r["model_id"] for r in manifest.get("records") or []
+                        if r.get("model_id") in requested_ids})
     rooms_by_model: dict[str, Any] = {}
     room_failures = 0
     with httpx.Client(timeout=15.0, follow_redirects=False) as client:
@@ -140,8 +158,20 @@ def run_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
             except Exception:
                 room_failures += 1
     from index.planning import room_plans
-    atomic_write_json(CACHE_DIR / 'room-plans.json', room_plans(rooms_by_model))
-    enriched = enrich_source_manifest(manifest, rooms_by_model)
+    plans_path = CACHE_DIR / 'room-plans.json'
+    plans = json.loads(plans_path.read_text()) if plans_path.is_file() else {}
+    plans.update(room_plans(rooms_by_model))
+    atomic_write_json(plans_path, plans)
+    current_records = [r for r in manifest['records'] if r.get('model_id') in rooms_by_model]
+    untouched = []
+    for row in manifest['records']:
+        if row.get('model_id') in rooms_by_model:
+            continue
+        old = previous_by_key.get(record_key(row))
+        resumed = (row.get('provenance') or {}).get('ingest_status') == 'resumed_local'
+        untouched.append(old if old is not None and resumed else row)
+    enriched = {**manifest, 'records': untouched + enrich_source_manifest(
+        {'records': current_records}, rooms_by_model)['records']}
     manifest_path = CACHE_DIR / "source_manifest.json"
     atomic_write_json(manifest_path, enriched)
 
@@ -167,7 +197,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Bootstrap Matterport local shot index.")
     parser.add_argument("--models", default=None, help="Existing private models JSON path.")
     parser.add_argument("--city", default="Los Angeles", help="City filter for models_index.csv.")
-    parser.add_argument("--max-models", type=int, default=20, help="Max models (1..20).")
+    parser.add_argument("--max-models", type=int, default=20, help="Max models (explicit --models has no 20-model cap).")
     parser.add_argument("--max-sweeps", type=int, default=8, help="Max sweeps per model (1..12).")
     parser.add_argument("--reuse-catalog", action="store_true", help="Reuse cached models_index.csv without downloading.")
     parser.add_argument("--prepare-only", action="store_true", help="Skip CLIP image encoding and save_index.")
