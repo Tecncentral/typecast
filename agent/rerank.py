@@ -1,7 +1,8 @@
 """Permission-gated visual reranking with cached results and bounded requests."""
 from __future__ import annotations
 import base64
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import deque
+from concurrent.futures import FIRST_COMPLETED, Future, wait
 import hashlib
 import json
 import mimetypes
@@ -9,6 +10,8 @@ import os
 from pathlib import Path
 import re
 import tempfile
+from queue import Empty, SimpleQueue
+from threading import BoundedSemaphore, Event as ThreadEvent, Thread
 from time import monotonic
 from urllib.parse import unquote, urlparse
 import httpx
@@ -21,6 +24,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 CACHE_ROOT = REPO_ROOT / "cache"
 PROMPT_PATH = Path(__file__).with_name("prompts") / "rerank.md"
 MAX_CONCURRENCY = 5
+# Abandoned calls retain their slot until they really finish, even across scouts.
+_VISION_SLOTS = BoundedSemaphore(MAX_CONCURRENCY)
 SHOT_TIMEOUT_S = 20.0
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
@@ -135,7 +140,10 @@ def rerank_shots(ctx: RunContext, req: Requirements, shots, k: int = 20) -> list
     if os.getenv("TYPECAST_ALLOW_VISION_UPLOAD", "").strip() != "1":
         event("Vision rerank skipped: TYPECAST_ALLOW_VISION_UPLOAD=1 is required for sponsor-permitted image uploads; kept embedding order.")
         return original
-    provider = get_provider(vision=True, emit=ctx.event)
+    # Workers can only enqueue provider events. Only this caller emits or writes
+    # cache files, so an abandoned worker cannot mutate the finished run.
+    provider_events = SimpleQueue()
+    provider = get_provider(vision=True, emit=provider_events.put)
     if not provider.configured():
         event("Vision rerank skipped: no configured vision provider; kept embedding order.")
         return original
@@ -166,31 +174,95 @@ def rerank_shots(ctx: RunContext, req: Requirements, shots, k: int = 20) -> list
         except Exception:
             failures += 1
 
-    def score(item):
-        index, shot, path, identity = item
-        deadline = monotonic() + SHOT_TIMEOUT_S
-        image = _image_input(shot.image_path, SHOT_TIMEOUT_S)
-        remaining = deadline - monotonic()
-        if remaining <= 0:
-            raise TimeoutError("Image load exceeded shot deadline")
-        result = provider.structured(instructions, text, VisualScore, image_url=image, timeout=remaining)
-        if monotonic() > deadline:
-            raise TimeoutError("Vision call exceeded shot deadline")
-        return index, VisualScore.model_validate(result), path, identity
+    abandoned = ThreadEvent()
 
-    if pending:
-        with ThreadPoolExecutor(max_workers=MAX_CONCURRENCY, thread_name_prefix="typecast-rerank") as pool:
-            futures = [pool.submit(score, item) for item in pending]
-            for future in as_completed(futures):
-                try:
-                    index, result, path, identity = future.result()
-                    results[index] = result
-                    try:
-                        _write_cached(path, identity, result)
-                    except OSError:
-                        cache_write_failures += 1
-                except Exception:
+    def score(item, deadline):
+        index, shot, path, identity = item
+        remaining = max(0.0, deadline - monotonic())
+        if not _VISION_SLOTS.acquire(timeout=remaining):
+            raise TimeoutError("Vision concurrency wait exceeded shot deadline")
+        try:
+            remaining = deadline - monotonic()
+            if abandoned.is_set() or remaining <= 0:
+                raise TimeoutError("Shot deadline expired before image load")
+            image = _image_input(shot.image_path, remaining)
+            remaining = deadline - monotonic()
+            if abandoned.is_set() or remaining <= 0:
+                raise TimeoutError("Image load exceeded shot deadline")
+            result = provider.structured(instructions, text, VisualScore, image_url=image, timeout=remaining)
+            result = VisualScore.model_validate(result)
+            if monotonic() > deadline:
+                raise TimeoutError("Vision call exceeded shot deadline")
+            return index, result, path, identity
+        finally:
+            _VISION_SLOTS.release()
+
+    def drain_provider_events():
+        while True:
+            try:
+                ctx.event(provider_events.get_nowait())
+            except Empty:
+                break
+
+    queued = deque(pending)
+    active, expired = {}, set()
+
+    def launch(item):
+        future = Future()
+        deadline = monotonic() + SHOT_TIMEOUT_S
+        active[future] = deadline
+
+        def run():
+            if not future.set_running_or_notify_cancel():
+                return
+            try:
+                future.set_result(score(item, deadline))
+            except BaseException as exc:
+                future.set_exception(exc)
+
+        # Daemon workers do not block shutdown if a transport ignores timeout.
+        # A replacement starts only once its predecessor has actually finished.
+        Thread(target=run, name="typecast-rerank", daemon=True).start()
+
+    try:
+        for _ in range(min(MAX_CONCURRENCY, len(queued))):
+            launch(queued.popleft())
+        while active:
+            live = [future for future in active if future not in expired]
+            if not live:
+                # Every remaining physical worker is stalled. Do not replace
+                # them or start queued uploads after returning to the caller.
+                failures += len(queued)
+                break
+            remaining = max(0.0, min(active[future] for future in live) - monotonic())
+            done, _ = wait(active, timeout=remaining, return_when=FIRST_COMPLETED)
+            for future in done:
+                deadline = active.pop(future)
+                if future in expired:
+                    expired.remove(future)
+                elif monotonic() > deadline:
                     failures += 1
+                else:
+                    try:
+                        index, result, path, identity = future.result()
+                        results[index] = result
+                        try:
+                            _write_cached(path, identity, result)
+                        except OSError:
+                            cache_write_failures += 1
+                    except Exception:
+                        failures += 1
+                if queued:
+                    launch(queued.popleft())
+            now = monotonic()
+            for future, deadline in active.items():
+                if future not in expired and now >= deadline:
+                    expired.add(future)
+                    failures += 1
+            drain_provider_events()
+    finally:
+        abandoned.set()
+    drain_provider_events()
     ranked = [shot.model_copy(update=results[index].model_dump()) if index in results else shot
               for index, shot in enumerate(original[:limit])]
     ranked.sort(key=lambda shot: -(shot.score if shot.score is not None else 0.0))

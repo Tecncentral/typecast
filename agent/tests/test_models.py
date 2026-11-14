@@ -217,3 +217,87 @@ def test_provider_fallback_emits_sanitized_event(monkeypatch):
     assert calls[0][2] == 14 and 0 < calls[1][2] <= 20
     assert len(events) == 1 and events[0].type == "fallback"
     assert "TimeoutError" in events[0].text and "sensitive" not in events[0].text
+
+
+def test_wall_clock_timeout_abandons_workers_without_late_side_effects(tmp_path, monkeypatch):
+    shots = shots_fixture(tmp_path, monkeypatch, count=8)
+    monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "1")
+    monkeypatch.setattr(rerank, "SHOT_TIMEOUT_S", 0.05)
+    release, stopped = threading.Event(), threading.Event()
+    events = []
+
+    class BlockingProvider:
+        cache_identity = "blocking:test"
+
+        def __init__(self):
+            self.calls = self.active = self.max_active = 0
+            self.lock = threading.Lock()
+
+        def configured(self):
+            return True
+
+        def structured(self, instructions, text, output_model, **kwargs):
+            with self.lock:
+                self.calls += 1
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+            try:
+                release.wait()
+                # Even a transport that emits after its timeout cannot reach ctx.
+                self.emit(SimpleNamespace(type="fallback", text="late fallback"))
+                return output_model(score=0.99, reason="A late successful response.")
+            finally:
+                with self.lock:
+                    self.active -= 1
+                    if not self.active:
+                        stopped.set()
+
+    fake = BlockingProvider()
+
+    def provider(**kwargs):
+        fake.emit = kwargs["emit"]
+        return fake
+
+    monkeypatch.setattr(rerank, "get_provider", provider)
+    ctx, req = RunContext("blocked", emit=events.append), Requirements(scene=SCENE)
+    try:
+        started = time.monotonic()
+        first = rerank.rerank_shots(ctx, req, shots)
+        elapsed = time.monotonic() - started
+        assert elapsed < 0.3 and not release.is_set()
+        assert first == shots and fake.calls == 5 and fake.max_active == 5
+        assert "8 failures" in events[-1].text
+        # Abandoned calls hold the global slots: another batch cannot start
+        # replacement requests while those first five are physically active.
+        second = rerank.rerank_shots(ctx, req, shots)
+        assert second == shots and fake.calls == 5 and fake.max_active == 5
+        saved_events = list(events)
+        assert not list(rerank.CACHE_ROOT.rglob("*.json"))
+    finally:
+        release.set()
+        assert stopped.wait(timeout=1)
+    assert events == saved_events
+    assert not list(rerank.CACHE_ROOT.rglob("*.json"))
+
+
+@pytest.mark.parametrize("fallback", [False, True])
+def test_provider_rejects_success_after_shared_deadline(monkeypatch, fallback):
+    monkeypatch.setenv("LLM_API_KEY", "fake-test-key")
+    monkeypatch.setenv("TYPECAST_LLM_MODEL", "primary-model")
+    if fallback:
+        monkeypatch.setenv("TYPECAST_FALLBACK_PROVIDER", "anthropic")
+        monkeypatch.setenv("TYPECAST_FALLBACK_MODEL", "backup-model")
+        monkeypatch.setenv("FALLBACK_API_KEY", "fake-backup-key")
+    clock = [0.0]
+    monkeypatch.setattr(models, "monotonic", lambda: clock[0])
+    provider = models.get_provider()
+
+    def late_call(name, *args):
+        if fallback and name == "openai":
+            raise TimeoutError("primary failed")
+        clock[0] = 0.02
+        return {"score": 0.9, "reason": "Valid but too late."}
+
+    monkeypatch.setattr(provider, "_call", late_call)
+    with pytest.raises(TimeoutError, match="exceeded request deadline"):
+        provider.structured("instructions", "scene", rerank.VisualScore, timeout=0.01)

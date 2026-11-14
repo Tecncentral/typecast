@@ -47,9 +47,16 @@ class ModelProvider:
         fallback = bool(self.provider != "anthropic" and self._fallback_provider == "anthropic"
                         and self._fallback_key and self._fallback_model)
         deadline = monotonic() + timeout
+
+        def validate_before_deadline(result):
+            parsed = output_model.model_validate(result)
+            if monotonic() > deadline:
+                raise TimeoutError("Model response exceeded request deadline")
+            return parsed
+
         try:
             primary_timeout = timeout * 0.7 if fallback else timeout
-            return output_model.model_validate(self._call(
+            return validate_before_deadline(self._call(
                 self.provider, self.model, self._key, instructions, text,
                 output_model, image_url, primary_timeout))
         except Exception as exc:
@@ -61,7 +68,7 @@ class ModelProvider:
                 self.emit(Event(type="fallback", agent="models", text=(
                     f"Primary {role} model failed ({type(exc).__name__}); using the configured anthropic fallback."
                 )))
-            return output_model.model_validate(self._call(
+            return validate_before_deadline(self._call(
                 "anthropic", self._fallback_model, self._fallback_key,
                 instructions, text, output_model, image_url, remaining))
 
