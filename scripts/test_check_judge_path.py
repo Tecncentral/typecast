@@ -66,6 +66,13 @@ def test_recording_requires_a_nonempty_file_without_cleanup_errors(tmp_path):
     assert not CHECK.recording_saved(path, {"cleanup_error": "encoder failed"})
 
 
+def test_director_honesty_respects_rendered_uppercase_but_requires_both_caveats():
+    assert CHECK.director_honesty("UNCALIBRATED SCREEN-SPACE REHEARSAL\nGEOMETRIC FIT: UNKNOWN")
+    assert CHECK.director_honesty("Uncalibrated screen-space rehearsal Geometric fit: unknown")
+    assert not CHECK.director_honesty("Uncalibrated screen-space rehearsal")
+    assert not CHECK.director_honesty("Geometric fit: verified")
+
+
 def test_grouping_rejects_partial_duplicate_and_false_count_plans():
     plan = {"locations": 1, "company_moves": 0, "uncovered_scene_ids": [],
             "assignments": [{"scene_id": f"s{i}", "property_id": "fixture-one"} for i in range(3)]}

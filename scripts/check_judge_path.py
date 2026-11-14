@@ -140,6 +140,62 @@ def decode_urls(page, urls, timeout_ms=15000):
     }))""", [urls, timeout_ms])
 
 
+def director_honesty(text):
+    rendered = " ".join(text.casefold().split())
+    return "uncalibrated screen-space rehearsal" in rendered and "geometric fit: unknown" in rendered
+
+
+def check_director(page, args, report, step, screenshot, pause):
+    page.goto(args.base_url + "/director", wait_until="domcontentloaded")
+    if args.director_script_file:
+        page.locator("#script").fill(args.director_script_file.read_text())
+        report["director_script"] = str(args.director_script_file)
+    else:
+        page.locator("#demo").click()
+        report["director_script"] = "served Demo script"
+    pause(page)
+    with page.expect_response(lambda r: urlsplit(r.url).path == "/api/production/plan" and r.request.method == "POST") as plan_response:
+        page.locator("#build").click()
+    plan_http = plan_response.value
+    require(plan_http.ok, "Director production plan failed")
+    production = plan_http.json()
+    report["production"] = production
+    require(production.get("plans"), "Director returned no plan")
+    page.wait_for_function("document.querySelector('#planSel').options.length > 0")
+    scene_count = len(production.get("scenes") or [])
+    # Before stream 1's merge the served selector still sorts by raw
+    # similarity. Choose its actual zero-move option through the UI.
+    # After the merge that same plan is already the default.
+    matches = [index for index, plan in enumerate(production["plans"]) if grouping(plan, scene_count)]
+    require(matches, "Director has no 3–4 scene / one location / zero move plan")
+    zero_moves = page.locator("#planSel option").filter(has_text=re.compile(r"\b0 moves\b")).first
+    require(zero_moves.count() > 0, "Director selector does not expose its zero-move plan")
+    chosen_value = zero_moves.get_attribute("value")
+    report["director_plan_selection_changed"] = page.locator("#planSel").input_value() != chosen_value
+    page.locator("#planSel").select_option(chosen_value)
+    # Read, never modify, the selected application plan. The new UI sorts
+    # plans and displays 'Location A' instead of private property IDs.
+    selected = page.evaluate("S.resp.plans[S.planIdx]")
+    identity = lambda p: sorted((a["scene_id"], a["property_id"], a["shot_id"])
+                                for a in p.get("assignments", []))
+    require(any(identity(selected) == identity(production["plans"][i]) for i in matches),
+            "Selected assignments disagree with the zero-move response plan")
+    require(page.locator("#rail button[data-sid]").count() == scene_count,
+            "Director did not render every scene")
+    require(grouping(selected, scene_count), "Director winner is not 3–4 covered scenes / one location / zero moves")
+    require(director_honesty(page.locator("body").inner_text()), "Missing Director geometry honesty label")
+    decoded = decode_urls(page, [args.base_url + "/image/" + a["shot_id"] for a in selected["assignments"]])
+    require(all(decoded), "An assigned Director frame is missing")
+    screenshot(page, "06-director-plan")
+    pause(page, 3)
+    page.locator("#play").click()
+    page.wait_for_function("Number(document.querySelector('#prog').value) > 0")
+    pause(page, 5)
+    screenshot(page, "07-director-play")
+    page.locator("#pause").click()
+    step("Director groups every scene and plays", scenes=scene_count, locations=1, moves=0)
+
+
 def run(args, report, output, video_path):
     from playwright.sync_api import sync_playwright
 
@@ -325,55 +381,7 @@ def run(args, report, output, video_path):
             screenshot(page, "05-five-trucks")
             step("Five trucks preserves thread and earlier frames", count=check_images(page))
 
-            page.goto(args.base_url + "/director", wait_until="domcontentloaded")
-            if args.director_script_file:
-                page.locator("#script").fill(args.director_script_file.read_text())
-                report["director_script"] = str(args.director_script_file)
-            else:
-                page.locator("#demo").click()
-                report["director_script"] = "served Demo script"
-            pause(page)
-            with page.expect_response(lambda r: urlsplit(r.url).path == "/api/production/plan" and r.request.method == "POST") as plan_response:
-                page.locator("#build").click()
-            plan_http = plan_response.value
-            require(plan_http.ok, "Director production plan failed")
-            production = plan_http.json()
-            report["production"] = production
-            require(production.get("plans"), "Director returned no plan")
-            page.wait_for_function("document.querySelector('#planSel').options.length > 0")
-            scene_count = len(production.get("scenes") or [])
-            # Before stream 1's merge the served selector still sorts by raw
-            # similarity. Choose its actual zero-move option through the UI.
-            # After the merge that same plan is already the default.
-            matches = [index for index, plan in enumerate(production["plans"]) if grouping(plan, scene_count)]
-            require(matches, "Director has no 3–4 scene / one location / zero move plan")
-            zero_moves = page.locator("#planSel option").filter(has_text=re.compile(r"\b0 moves\b")).first
-            require(zero_moves.count() > 0, "Director selector does not expose its zero-move plan")
-            chosen_value = zero_moves.get_attribute("value")
-            report["director_plan_selection_changed"] = page.locator("#planSel").input_value() != chosen_value
-            page.locator("#planSel").select_option(chosen_value)
-            # Read, never modify, the selected application plan. The new UI sorts
-            # plans and displays 'Location A' instead of private property IDs.
-            selected = page.evaluate("S.resp.plans[S.planIdx]")
-            identity = lambda p: sorted((a["scene_id"], a["property_id"], a["shot_id"])
-                                        for a in p.get("assignments", []))
-            require(any(identity(selected) == identity(production["plans"][i]) for i in matches),
-                    "Selected assignments disagree with the zero-move response plan")
-            require(page.locator("#rail button[data-sid]").count() == scene_count,
-                    "Director did not render every scene")
-            require(grouping(selected, scene_count), "Director winner is not 3–4 covered scenes / one location / zero moves")
-            require("Uncalibrated screen-space rehearsal" in page.locator("body").inner_text()
-                    and "Geometric fit: unknown" in page.locator("body").inner_text(), "Missing Director geometry honesty label")
-            decoded = decode_urls(page, [args.base_url + "/image/" + a["shot_id"] for a in selected["assignments"]])
-            require(all(decoded), "An assigned Director frame is missing")
-            screenshot(page, "06-director-plan")
-            pause(page, 3)
-            page.locator("#play").click()
-            page.wait_for_function("Number(document.querySelector('#prog').value) > 0")
-            pause(page, 5)
-            screenshot(page, "07-director-play")
-            page.locator("#pause").click()
-            step("Director groups every scene and plays", scenes=scene_count, locations=1, moves=0)
+            check_director(page, args, report, step, screenshot, pause)
         finally:
             report["console_errors"] = [error for error in console_errors if not (
                 error["url"] in optional_urls and "404" in error["text"])]
