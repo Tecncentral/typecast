@@ -1,6 +1,7 @@
 """The public viewer config is dynamic, offline, and never a secret dump."""
 import os
 import socket
+import sys
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,11 @@ from index import search
 
 @pytest.fixture
 def config_client(monkeypatch):
+    original_connect = socket.socket.connect
     def no_network(*args, **kwargs):
+        fallback = getattr(socket, '_fallback_socketpair', None)
+        if fallback is not None and sys._getframe(1).f_code is fallback.__code__:
+            return original_connect(*args, **kwargs)
         raise AssertionError("/config must not access the network")
 
     monkeypatch.setattr(socket, "create_connection", no_network)
