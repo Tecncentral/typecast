@@ -111,3 +111,46 @@ Source: official sponsor quickstart
 https://beta-app.matterport.com/2026-princeton-hackathon/quickstart .
 Gemini supplied draft retrieval/importer code; local review corrected signatures,
 provider status, dependency use, error redaction and cache generation compatibility.
+
+
+## Camera planning studio (Owner 1 extension)
+Run the preview on the SDK-permitted origin **http://localhost:8765/** (127.0.0.1 still supports search).
+`python -m index.enrich cache/matterport/source_manifest.json` refreshes room evidence
+and saves validated polygons in ignored `cache/matterport/room-plans.json`.
+Bootstrap now saves the same polygons automatically. Current private coverage:
+25 valid room polygons across 19 models; 164 indexed views have a polygon containing
+their scan position. Missing boundaries remain unknown.
+
+The preview has a varied shortlist (MMR, at most two views per property and one per
+model/scan), optional mood/light/material query fields, an editable scene lookbook,
+and a lens planner. The planner uses a manual heading in the API floor XY plane,
+Super35 or full-frame sensor width, focal length and desired subject frame width.
+It displays horizontal FOV, subject distance, first wall intersections, frame edges,
+2 m actor-side and 1 m camera-side centerline clearance. These are room-boundary
+estimates excluding furniture, access and rigging; `status` remains unknown.
+Manual heading is independent of panorama cube heading and SDK orientation.
+
+`/api/plan/{shot_id}?focal=24&sensor=24.9&width=3&heading=0` is an additive local
+preview API; shared Shot/search/check_shot interfaces are unchanged. The SDK
+connection exposes only the domain-bound browser SDK key. Source-scan navigation
+requires a unique observed SDK ID match, never a guessed pose or nearest scan.
+Use the original tour link if SDK access or matching fails.
+
+Lookbooks export self-contained HTML with selected images, creative notes,
+source identifiers and saved lens setup, plus editable JSON. Save before refreshing:
+selection is held in the tab only. Keep licensed lookbooks within the permitted team/demo.
+
+## Blinded relevance evaluation
+Open `/evaluate`. Twenty authored visual scenes are fixed in
+`index/evaluation-scenes.json` (15 test, 5 tuning). Candidate order is blinded;
+reviewers mark relevant frames from the top-40 cosine pool and identify whether
+the review was human or AI. Empty relevant sets are valid reviewed negatives.
+Labels are private in `cache/evaluation/interior-labels.json`; no labels are seeded.
+`/api/evaluation/report` exports attribution and labels.
+`/api/evaluation/metrics` compares cosine and diverse pooled recall@10, separately
+by human/AI, live/mock and test/tune, excluding no-relevant pools from recall while
+reporting their count. Pooled recall is not exhaustive catalog recall. Freeze test
+labels before tuning; never call AI or fixture labels human-held-out accuracy.
+
+Sources: [Embed SDK quickstart](https://developers.matterport.com/embed-sdk/quickstart/),
+[Sweep navigation](https://developers.matterport.com/reference/sweep/).

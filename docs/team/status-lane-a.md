@@ -1,3 +1,26 @@
+# Owner 1 planning milestone
+
+Updated 2026-11-14 12:32 UTC. Branch lane-a / PR #6.
+
+Added Gemini-drafted and locally reviewed MMR diversity, hard property/scan caps,
+visual query briefs, manually oriented floor-plan FOV/clearance estimates, room
+polygon retention during enrich/bootstrap, scene lookbook HTML/JSON export, and
+20-scene blinded local relevance labeling (15 held-out / 5 tune). Labels remain
+empty. Metrics segregate reviewer type, source mode and split and are explicitly
+pooled, not whole-catalog recall. Shared contracts are unchanged.
+
+Live enrichment: 19/19 room model requests succeeded, 600 room assignments,
+488 ceiling estimates; validated polygon coverage is 25 rooms / 164 indexed views.
+All planning fit statuses remain unknown. Missing boundaries have no guessed plan.
+Browser SDK connection succeeds at localhost; 127.0.0.1 is outside the key's
+existing referrer allowlist. Scan navigation and viewer FOV are under browser
+verification; cube-to-world image orientation is not claimed.
+
+Targeted gate: 75 index tests pass; studio.js passes node --check. Full combined
+Windows verification and browser/export evidence will be recorded below.
+
+---
+
 # Owner 1 status
 
 Updated 2026-11-14 10:59 UTC. Branch lane-a, PR #6 into dev.

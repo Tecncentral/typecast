@@ -7,6 +7,7 @@ from index.build import cache_path
 from index.matterport import (load_matterport_credentials, fetch_model_record,
                               atomic_write_json, MatterportIngestionError)
 from index.rooms import ROOMS_GRAPHQL_QUERY, enrich_source_manifest
+from index.planning import room_plans
 
 
 def main():
@@ -27,6 +28,7 @@ def main():
             except MatterportIngestionError:
                 failed += 1
     result = enrich_source_manifest(source, payloads)
+    atomic_write_json(path.parent / 'room-plans.json', room_plans(payloads))
     atomic_write_json(path.with_name('rooms_source_manifest.json'), result)
     print(json.dumps({'models': len(models), 'failed': failed,
         'views': len(result['records']),

@@ -139,6 +139,8 @@ def run_bootstrap(args: argparse.Namespace) -> dict[str, Any]:
                     model_id=mid, auth=auth, query=ROOMS_GRAPHQL_QUERY)}}
             except Exception:
                 room_failures += 1
+    from index.planning import room_plans
+    atomic_write_json(CACHE_DIR / 'room-plans.json', room_plans(rooms_by_model))
     enriched = enrich_source_manifest(manifest, rooms_by_model)
     manifest_path = CACHE_DIR / "source_manifest.json"
     atomic_write_json(manifest_path, enriched)
