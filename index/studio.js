@@ -101,6 +101,7 @@ async function run(example) {
 }
 function field(label, node) {
   const l = el("label", label);
+  node.setAttribute("aria-label", label);
   l.append(node);
   return l;
 }
@@ -251,7 +252,10 @@ async function openPlan(s) {
       evidence.replaceChildren(el("p", e.message));
     }
   }
-  for (const n of [focal, width, heading, sensor]) n.onchange = update;
+  for (const n of [focal, width, heading, sensor]) {
+    n.onchange = update;
+    n.oninput = update;
+  }
   await update();
 }
 $("#closePlan").onclick = () => {

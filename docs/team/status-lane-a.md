@@ -91,3 +91,11 @@ can be captured in lookbook JSON. Self-contained lookbook saved/inspected locall
 The combined pre-export gate passed 185 tests; final gate is recorded next.
 Human labeling remains a requested teammate action, and image-heading alignment
 remains explicitly unverified. No accuracy metric has been fabricated.
+
+
+Final combined gate: scripts/verify.py exits 0 with 186 passed, API smoke,
+concurrent-progress SSE/refinement/no-send checks, and 20/20 unlabelled mock scenes.
+GitHub push and PR checks at bcb9c39 succeeded. A final browser fix makes lens edits
+recalculate on input (35 mm / Super35 shows 39.2 degrees and 4.22 m subject distance).
+The refreshed team ZIP passes integrity validation: 619 files, 608 images,
+300,445,311 bytes. Output handoff and standalone lookbook are updated.
