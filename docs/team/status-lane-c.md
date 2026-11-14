@@ -17,7 +17,7 @@ Baseline commit: 5a449bcc9952d038ce7b0de12a1d401099c62574
 - SA1-SA5 implementations, independent review, API/e2e checks, clean dependency install.
 
 ## Blocked on
-- Private join and real interior/aerial adapters from A/B; Matterport API secret is absent.
+- Private join and real interior/aerial adapters from A/B remain absent. Matterport credentials are now present and verified (see checks below).
 - LangSmith key absent; trace_url stays null.
 - Real hand labels absent; no retrieval metric claimed.
 
@@ -35,4 +35,8 @@ Baseline commit: 5a449bcc9952d038ce7b0de12a1d401099c62574
 Updated UTC: 2026-11-14T09:36:50.849577+00:00
 
 - Vexcel key validated using documented WMTS GetCapabilities: HTTP 200, XML root Capabilities. Control request without credentials returned HTTP 401. Authentication-only endpoint returned 404 and is not used by the diagnostic.
-- Browser SDK key remains unverified until a real model is embedded by lane D.
+- Browser SDK key is verified on the official public sample; real matched-building tour remains lane D integration work.
+
+- Matterport SDK browser check at localhost:8766 succeeded using the official SDK bootstrap and public sample model: "PASS: SDK connected and model metadata is readable." This verifies SDK/domain access, not a matched sponsor-building tour. Temporary helper is outside the repository and reads the key only at runtime.
+
+Dependency/access PR #2 merged into dev as eeb2000; both GitHub verify jobs passed (32s and 29s). Updated UTC: 2026-11-14T09:40:44.467675+00:00.
