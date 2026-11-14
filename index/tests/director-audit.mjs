@@ -861,6 +861,49 @@ test('a failed replan after Reject still removes the rejected location from view
   assert.match(env.$('status').textContent, /replan failed/i);
 });
 
+const PROJECT_JS = readFileSync(join(DIR, '..', 'director-project.js'), 'utf8');
+function savedProject(dialogue) {
+  const shot = (text) => ({ duration_sec: 5, dialogue: text, actors: [] });
+  return JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{
+    id: 's1', heading: 'INT. KITCHEN', description: 'first',
+    evidence: { frame: { shot_id: 'shot_a', property_id: 'prop_a' } },
+    variants: { A: shot(dialogue), B: shot('') } }] });
+}
+async function startImport(env, text) {
+  // The harness injects host Object/Array/JSON; the validator needs same-realm plain objects, as in a browser.
+  for (const name of ['Object', 'Array', 'JSON']) delete env.context[name];
+  vm.runInContext(PROJECT_JS, env.context, { filename: 'director-project.js' });
+  const file = { size: text.length, text: async () => text };
+  env.$('impProject').files = [file];
+  env.$('impProject').dispatchEvent({ type: 'change' });
+  await drain();
+  if (!env.jobs.length) throw new Error(env.$('status').textContent);
+  const job = env.take('/api/production/plan');
+  return { job, body: JSON.parse(job.opts.body) };
+}
+
+test('an in-flight project import never overwrites staging typed while it loads', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
+  const { job, body } = await startImport(env, savedProject('IMPORTED_LINE'));
+  env.$('dlg').value = 'NEWER_USER_WORK';
+  env.$('dlg').dispatchEvent({ type: 'input' });
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a')])));
+  await drain();
+  assert.equal(env.api.shotData('s1').dialogue, 'NEWER_USER_WORK');
+  assert.match(env.$('status').textContent, /nothing was replaced/);
+  assert.equal(env.api.S.importReview.length, 0);
+});
+
+test('an untouched in-flight project import still commits exact-frame staging', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
+  const { job, body } = await startImport(env, savedProject('IMPORTED_LINE'));
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a')])));
+  await drain();
+  assert.equal(env.api.shotData('s1').dialogue, 'IMPORTED_LINE', env.$('status').textContent);
+});
+
 test('explicit unknown parking and availability render as unknown', async () => {
   const env = boot();
   await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);

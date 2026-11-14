@@ -8,7 +8,7 @@ const DEMO = [
   'INT. LIVING ROOM - DAY | Bright living room with a sofa and large windows; Mara rehearses a speech',
   'INT. OFFICE CORRIDOR - NIGHT | A security guard walks a long empty hallway, checking each locked door',
 ].join('\n');
-const S = { scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
+const S = { rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
@@ -368,10 +368,12 @@ function renderFrameNotice() {
   if (!fc || !a || a.shot_id !== fc.to) { n.hidden = true; return; }
   const copy = el('button', { type: 'button', text: 'Copy old staging (re-check by eye)' }), fresh = el('button', { type: 'button', text: 'Start fresh' });
   copy.addEventListener('click', () => {
+    S.rev++;
     S.edits[`${S.sceneId}::${fc.to}`] = clone(S.edits[`${S.sceneId}::${fc.from}`]); delete S.frameChange[S.sceneId];
     stopPlay(); renderAll(); status('Staging copied. Screen positions carry no geometry; re-stage against the new frame.');
   });
   fresh.addEventListener('click', () => {
+    S.rev++;
     stopPlay(); cancelGen(); clearPending(); S.edits[`${S.sceneId}::${fc.to}`] = { A: blankShot(), B: blankShot() };
     delete S.frameChange[S.sceneId]; renderAll();
   });
@@ -388,7 +390,7 @@ function renderFrames() {
   select.value = a.shot_id;
   select.disabled = S.planBusy;
   select.addEventListener('change', () => {
-    const prev = assignMap(); stopPlay(); cancelGen(); clearPending();
+    const prev = assignMap(); S.rev++; stopPlay(); cancelGen(); clearPending();
     S.frameOverrides[`${S.planIdx}::${S.sceneId}`] = select.value;
     noteFrameChanges(prev); renderAll(); status('Manual frame selected within the same property. Plan score still describes the original solver selection.');
   });
@@ -408,7 +410,7 @@ function renderAll() {
 function invalidateProposal() {
   if (S.gen.ctrl || S.pending) { cancelGen(); clearPending(); status('Staging changed; generate a new proposal to review.'); }
 }
-function edited() { invalidateProposal(); stopPlay(); draw(); renderTimeline(); }
+function edited() { S.rev++; invalidateProposal(); stopPlay(); draw(); renderTimeline(); }
 function selectScene(sid) {
   stopPlay(); cancelGen();
   if (S.pending) { clearPending(); status('Pending proposal discarded because the scene changed.'); }
@@ -461,12 +463,13 @@ async function generate() {
 }
 function applyB() {
   if (!S.pending || keyOf(S.sceneId) !== S.pending.k) { clearPending(); return status('Proposal no longer matches this scene; discarded.', true); }
-  const ed = S.edits[S.pending.k]; S.undo = { k: S.pending.k, prev: clone(ed.B) }; ed.B = clone(S.pending.shot);
+  S.rev++; const ed = S.edits[S.pending.k]; S.undo = { k: S.pending.k, prev: clone(ed.B) }; ed.B = clone(S.pending.shot);
   clearPending(); $('undo').disabled = false; stopPlay(); renderAll();
   status(S.variant === 'B' ? 'Applied to variant B.' : 'Applied to variant B. Switch to B to view it.');
 }
 function undoApply() {
   if (!S.undo || !S.edits[S.undo.k]) return;
+  S.rev++;
   S.edits[S.undo.k].B = S.undo.prev; S.undo = null; $('undo').disabled = true; stopPlay(); renderAll(); status('Apply undone.');
 }
 
@@ -597,6 +600,7 @@ async function importProject(file) {
     project = TypecastProject.normalizeProject(await file.text());
   } catch (e) { return status(`Project not loaded: ${e.message}`, true); }
   stopPlay(); cancelGen(); clearPending(); busy(true);
+  const rev = S.rev, scriptAtStart = $('script').value;
   status('Rebuilding project evidence using the current visible location and vehicle constraints…');
   try {
     const scenes = project.scenes.map(({ id, heading, description }) => ({ id, heading, description }));
@@ -604,6 +608,9 @@ async function importProject(file) {
       max_locations: Math.floor(clamp($('maxLoc').value, 1, 4, 3)), forbidden_property_ids: [],
       require_available: $('reqAvail').checked, trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)),
       cars: Math.floor(clamp($('cars').value, 0, 50, 0)) });
+    // Newer user work must never be silently overwritten by a slow import.
+    if (S.rev !== rev || $('script').value !== scriptAtStart)
+      throw new Error('you changed the script or staging while the project was loading, so nothing was replaced. Import again when ready');
     const restored = TypecastProject.restoreEdits(project, data);
     // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
     Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
@@ -622,7 +629,8 @@ $('impProject').addEventListener('change', (event) => importProject(event.target
 
 // ---------- events ----------
 $('build').addEventListener('click', () => build(false));
-$('demo').addEventListener('click', () => { $('script').value = DEMO; status('Demo script loaded. Press Build plan to fetch real results.'); });
+$('script').addEventListener('input', () => { S.rev++; });
+$('demo').addEventListener('click', () => { S.rev++; $('script').value = DEMO; status('Demo script loaded. Press Build plan to fetch real results.'); });
 $('planSel').addEventListener('change', (e) => {
   const prev = assignMap(); stopPlay(); cancelGen(); clearPending();
   S.planIdx = clamp(e.target.value, 0, (S.resp?.plans.length || 1) - 1, 0); noteFrameChanges(prev); renderAll();
@@ -694,7 +702,7 @@ cv.addEventListener('pointermove', (e) => {
   if (drag.key !== keyOf(S.sceneId) || drag.variant !== S.variant || drag.pointerId !== e.pointerId) return endDrag();
   const a = shotData(S.sceneId)?.actors[drag.i]; if (!a) { drag = null; return; }
   const p = norm(e), x = r3(clamp(p.x, 0, 1, 0)), y = r3(clamp(p.y, 0, 1, 0));
-  invalidateProposal();
+  S.rev++; invalidateProposal();
   if (drag.end) { a.x1 = x; a.y1 = y; } else { a.x0 = x; a.y0 = y; if (drag.link) { a.x1 = x; a.y1 = y; } }
   syncActor(a); draw();
 });
