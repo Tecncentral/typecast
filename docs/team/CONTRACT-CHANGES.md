@@ -71,3 +71,20 @@ process; a deep failure caused by that limit must not retry through fixed.
 No credentials or raw provider responses are exposed in these events.
 `model_request` reports only provider-call and image-count accounting; it never
 contains the scene, image payload, property identifiers or credentials.
+
+## Aerial extent metadata — 2026-11-14, Job 6
+
+Owner: D, explicitly authorized by the inside-out descent brief; consumer: viewer.
+Additive `GET /api/aerial/{property_id}` returns only `property_id`,
+`crs: "EPSG:3857"`, `extent: [west,south,east,north]` in metres, actual PNG
+`width`/`height`, the matching `image_path`, and source `coordinates: [lat,lon]`.
+The route accepts only numeric property ids with a validated, bound local cache.
+Missing, stale, mismatched, symlinked or malformed metadata returns a sanitized
+404. Responses use `Cache-Control: no-store`; general `/cache/` JSON access stays
+blocked. No listing records, contacts or provider payloads are returned.
+
+The viewer projects standard GeoJSON `[lon,lat]` rings, including holes, or the
+legacy `[lat,lon]` ring into the matching unannotated image. It rejects unsupported
+or out-of-bounds geometry and falls back to revealing the supplied annotated
+aerial unchanged. No new polygon or building-centroid claim is inferred. No
+existing response schema or endpoint behavior changes.
