@@ -334,33 +334,33 @@ async function exportBook() {
     status.textContent = "Select at least one view first.";
     return;
   }
-  status.textContent = "Bundling selected images into lookbook…";
+  status.textContent = "Saving self-contained lookbook…";
   try {
-    const cards = [];
-    for (const p of picks.values()) {
-      const r = await fetch("/image/" + encodeURIComponent(p.shot.shot_id));
-      if (!r.ok) throw Error("Selected image unavailable");
-      const blob = await r.blob(),
-        data = await new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => resolve(reader.result);
-          reader.onerror = reject;
-          reader.readAsDataURL(blob);
-        });
-      const s = p.shot;
-      cards.push(
-        `<article><h2>${escapeHtml(p.scene)}</h2><img src="${data}"><p>${escapeHtml(p.notes)}</p><p>Property ${escapeHtml(s.property_id)} · Model ${escapeHtml(s.model_id)} · Scan ${escapeHtml(s.sweep_id)}</p><p>${escapeHtml(s.source_mode)} data · Similarity ${Number(s.score).toFixed(3)} · Area ${escapeHtml(s.room_area_m2 ?? "unknown")} m² / ceiling ${escapeHtml(s.ceiling_m ?? "unknown")} m (provider estimates)</p><p>${p.setup ? escapeHtml(`${p.setup.focal_mm} mm, sensor ${p.setup.sensor_width_mm} mm, FOV ${p.setup.horizontal_fov_deg.toFixed(1)}°, subject width ${p.setup.frame_width_m} m, distance ${p.setup.camera_distance_m.toFixed(2)} m, manual plan heading ${p.setup.heading_deg}°. ${p.setup.note}`) : "No lens setup recorded. Fit unverified."}</p></article>`,
-      );
-    }
-    download(
-      "typecast-lookbook.html",
-      `<!doctype html><meta charset="utf-8"><title>Typecast scene lookbook</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:20px;background:#111719;color:#eaf0ed}main{display:grid;grid-template-columns:1fr 1fr;gap:30px}img{width:100%}article{break-inside:avoid;border:1px solid #567;padding:16px}p{white-space:pre-wrap;font-size:13px}@media print{body{background:white;color:black}main{display:block}article{margin:20px 0}}</style><h1>Typecast / Scene lookbook</h1><p>Created ${escapeHtml(new Date().toISOString())}. Scouting evidence and estimates. Manual headings do not establish panorama alignment. Verify dimensions, access, obstructions and rigging on site.</p><main>${cards.join("")}</main>`,
-      "text/html",
+    const r = await fetch("/api/lookbooks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        picks: [...picks.values()].map((p) => ({
+          shot_id: p.shot.shot_id,
+          scene: p.scene,
+          notes: p.notes,
+          setup: p.setup,
+        })),
+      }),
+    });
+    if (!r.ok) throw Error();
+    const data = await r.json();
+    const a = el("a", "Download saved lookbook");
+    a.href = data.url;
+    a.download = "typecast-lookbook.html";
+    status.replaceChildren(
+      document.createTextNode("Lookbook saved locally. "),
+      a,
     );
-    status.textContent = "Lookbook exported with embedded images.";
+    a.click();
   } catch (e) {
     status.textContent =
-      "Could not export all selected images. The lookbook remains available here.";
+      "Could not save all selected images. The lookbook remains in this tab.";
   }
 }
 $("#bookToggle").onclick = () => {

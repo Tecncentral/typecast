@@ -79,3 +79,15 @@ configuration issues now fixed; Gemini supplied retrieval, ingestion and room
 drafts. Claude login works but quota blocks review. User explicitly authorized
 the sponsor agreement and confirmed hackathon-demo permission. Raw data/keys
 stay out of public GitHub; event-end deletion requirements still apply.
+
+
+Browser milestone: SDK connected at localhost; selected scan was confirmed against
+Camera.getPose().sweep after matching observed SDK IDs. Lens zoom returned an
+observed 58.1 degree FOV against 54.8 requested, displayed honestly; a live projection
+readout was added to reflect subsequent camera changes. Current SDK camera pose
+can be captured in lookbook JSON. Self-contained lookbook saved/inspected locally:
+567,910 bytes, embedded image, source facts and lens setup, no image-server dependency.
+76 index tests pass including export containment/escaping and reviewer attribution.
+The combined pre-export gate passed 185 tests; final gate is recorded next.
+Human labeling remains a requested teammate action, and image-heading alignment
+remains explicitly unverified. No accuracy metric has been fabricated.

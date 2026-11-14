@@ -9,6 +9,8 @@ from index.search import (ROOT, get_active_index, get_shot, search_shots,
 app = FastAPI(title='Typecast interior preview', docs_url=None, redoc_url=None)
 from index.labeling import router as evaluation_router
 app.include_router(evaluation_router)
+from index.lookbook import router as lookbook_router
+app.include_router(lookbook_router)
 
 
 @app.get('/evaluate', response_class=HTMLResponse)
