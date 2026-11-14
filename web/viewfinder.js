@@ -342,6 +342,14 @@ function buildDialog() {
   return dialog;
 }
 
+const AI_LABEL = "AI-imagined set dressing, not the real room";
+const DRESSED_URL = /^\/cache\/worlds\/[A-Za-z0-9_-]{1,80}\/[A-Za-z0-9_-]{1,80}\/dressed\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}\.(?:jpg|jpeg|png|webp)$/;
+function validDressedFace(face) {
+  return !!face && DRESSED_URL.test(face.dressed_url)
+    && [face.yaw_deg, face.pitch_deg, face.tan_h, face.tan_v].every((n) => typeof n === "number" && Number.isFinite(n))
+    && face.tan_h > 0 && face.tan_v > 0;
+}
+
 class Viewfinder {
   constructor() {
     this.dialog = buildDialog();
@@ -637,29 +645,39 @@ class Viewfinder {
     } catch {
       return;
     }
-    if (!current() || !data?.faces?.length) return;
-    this.dressed = data;
-    const slug = (data.scene || "").match(/^((?:INT\.?\/EXT|INT|EXT)\.\s*[^.]+)/i);
-    const scene = (slug ? slug[1] : (data.scene || "").split(".")[0]).trim();
-    this.$(".vf-ai-badge").textContent = `${data.label || "AI-imagined set dressing, not the real room"}${scene ? ` · dressed for “${scene}”` : ""}`;
+    if (!current() || !Array.isArray(data?.faces)) return;
+    // The server response is untrusted at this boundary: keep only well-formed faces from the
+    // dressed cache path, and never take the provenance label from the response.
+    const faces = data.faces.filter(validDressedFace).slice(0, 4);
+    if (!faces.length) return;
+    let loaded = 0;
     await Promise.all(
-      data.faces.slice(0, 4).map(async (face, i) => {
+      faces.map(async (face, i) => {
         const img = new Image();
         img.decoding = "async";
         img.src = face.dressed_url;
         try {
           await img.decode();
-          if (current()) renderer.setDressedFace(i, img, face);
+          if (!current()) return;
+          renderer.setDressedFace(i, img, face);
+          loaded += 1;
         } catch {
           /* a missing dressed frame leaves the real room visible there */
         }
       }),
     );
-    if (!current()) return;
+    // No usable dressed texture means no AI controls and no "ready" claim.
+    if (!current() || !loaded) return;
+    this.dressed = data;
+    const slug = (data.scene || "").match(/^((?:INT\.?\/EXT|INT|EXT)\.\s*[^.]+)/i);
+    const scene = (typeof data.scene === "string" ? (slug ? slug[1] : data.scene.split(".")[0]) : "").trim().slice(0, 120);
+    this.$(".vf-ai-badge").textContent = `${AI_LABEL}${scene ? ` · dressed for “${scene}”` : ""}`;
     const toggle = this.$(".vf-dress");
     toggle.hidden = false;
     if (!reducedMotion()) toggle.animate([{ transform: "scale(0.9)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: 420, easing: EASE_OUT });
-    this.$(".vf-status").textContent = "An AI-dressed version of this room is ready: press D or AI dressing.";
+    this.$(".vf-status").textContent = loaded === faces.length
+      ? "An AI-dressed version of this room is ready: press D or AI dressing."
+      : `AI dressing covers ${loaded} of ${faces.length} views; the real room shows dimmed elsewhere. Press D or AI dressing.`;
   }
 
   setWipe(value) {

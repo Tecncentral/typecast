@@ -18,7 +18,7 @@ The reveal is the same space: property → aerial → real room → imagined dre
 
 Lens controls and the D/G shortcuts come from [the viewfinder](../web/viewfinder.js). Descent behavior comes from [its implementation](../web/descent.js) and [browser acceptance](team/status-lane-d.md). Dressing scope comes from [the owning session's report](team/status-worlds.md). The grouping count must match the current plan; never read a memorized count over a different result.
 
-If the live run is late, shorten the composition segment and use the closing line; do not invent a finished step. If dressing is not offered, say so and show the real viewfinder. If the app falls back, name the displayed engine. Read the current skeptic note: a previous rail/freeway objection does not belong to a different pick. The in-app frame tray identifies AI dressing; saved JPEG labeling still awaits [PR #31](https://github.com/Tecncentral/typecast/pull/31) and verification. Frame grabs and recordings remain private pending a human's media approval.
+If the live run is late, shorten the composition segment and use the closing line; do not invent a finished step. If dressing is not offered, say so and show the real viewfinder. If the app falls back, name the displayed engine. Read the current skeptic note: a previous rail/freeway objection does not belong to a different pick. The in-app frame tray identifies AI dressing; saved JPEG labeling is stamped in this candidate but verified only with a canvas test double; do not claim it until [PR #31](https://github.com/Tecncentral/typecast/pull/31) is human-merged and a real-browser JPEG is inspected. Frame grabs and recordings remain private pending a human's media approval.
 
 ## Five validated scene choices
 

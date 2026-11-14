@@ -111,7 +111,11 @@ def dressed_client(tmp_path, monkeypatch):
     out.mkdir(parents=True)
     faces = [{"dressed": f"dressed_{i}.jpg", "real": f"real_{i}.jpg", "yaw_deg": i * 90.0, "pitch_deg": 0.0,
               "tan_h": 1.0, "tan_v": 0.56, "source_heading_deg": i * 90} for i in range(4)]
-    (out / "dressed.json").write_text(json.dumps({"scene": "INT. WAREHOUSE - DAY.", "scene_id": "w", "prompt": "p",
+    for face in faces:  # synthetic stand-in bytes: the route only advertises faces whose image file exists
+        (out / face["dressed"]).write_bytes(b"SYNTHETIC-QA")
+        (out / face["real"]).write_bytes(b"SYNTHETIC-QA")
+    (out / "dressed.json").write_text(json.dumps({"model_id": "m1", "sweep_id": "s1",
+                                                   "scene": "INT. WAREHOUSE - DAY.", "scene_id": "w", "prompt": "p",
                                                    "label": dress.LABEL, "faces": faces, "splat": None}))
     yield TestClient(app)
     search.configure_index(None)
