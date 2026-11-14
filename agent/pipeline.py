@@ -56,6 +56,19 @@ def _number(value, unit: str = "") -> str:
     return "unknown" if value is None else f"{value:g}{unit}"
 
 
+def _availability(prop: Property) -> str:
+    if prop.availability_status is not None:
+        return {"available": "available", "not_available": "not listed as available",
+                "unknown": "unknown"}[prop.availability_status]
+    return "available" if prop.available else "occupied"
+
+
+def _noise(logi: Logistics) -> str:
+    if logi.noise_flags:
+        return "; ".join(logi.noise_flags)
+    return "unknown; nearby sources not verified" if logi.noise_status == "unknown" else "no noise flags reported"
+
+
 def _fit(ctx: RunContext, req: Requirements, shot: Shot) -> ShotFit:
     raw = _call(ctx, "check_shot", check_shot, shot.shot_id, req.focal_mm, req.frame_width_m)
     data = raw.model_dump()
@@ -85,21 +98,25 @@ def _evidence(prop: Property, shot: Shot, fit: ShotFit, logi: Logistics) -> list
     def item(source, claim, value, status="measured"):
         return Evidence(source=source, claim=claim, status="unknown" if value is None else status)
 
-    return [
+    evidence = [
         item("costar", f"Property type: {prop.type}.", prop.type or None),
         item("costar", f"Year built: {_number(prop.year_built)}.", prop.year_built),
-        item("costar", f"Availability: {'available' if prop.available else 'occupied'}.", prop.available),
+        item("costar", f"Availability: {_availability(prop)}. {prop.availability_reason or ''}".strip(),
+             None if prop.availability_status == "unknown" else prop.available),
         item("matterport", f"Room area: {_number(shot.room_area_m2, ' m2')}.", shot.room_area_m2, geometry),
         item("matterport", f"Ceiling: {_number(shot.ceiling_m, ' m')}.", shot.ceiling_m, geometry),
         item("matterport", f"Room depth: {_number(shot.depth_m, ' m')}.", shot.depth_m, geometry),
         item("matterport", f"Shot fit: {fit.status}; {fit.note}",
              None if fit.status == "unknown" else fit.status, geometry),
-        item("vexcel", f"Truck spaces: {logi.truck_spaces}.", logi.truck_spaces, aerial),
-        item("vexcel", f"Car spaces: {logi.car_spaces}.", logi.car_spaces, aerial),
-        item("vexcel", f"Parking walk: {_number(logi.walk_m, ' m')}.", logi.walk_m, aerial),
-        item("vexcel", "Noise: " + ("; ".join(logi.noise_flags) or "no noise flags reported") + ".",
-             logi.noise_flags, aerial),
+        item("vexcel", f"Truck spaces: {_number(logi.truck_spaces)}.", logi.truck_spaces, logi.parking_status or aerial),
+        item("vexcel", f"Car spaces: {_number(logi.car_spaces)}.", logi.car_spaces, logi.parking_status or aerial),
+        item("vexcel", f"Parking walk: {_number(logi.walk_m, ' m')}.", logi.walk_m, logi.walk_status or aerial),
+        item("vexcel", f"Noise: {_noise(logi)}.", logi.noise_flags, logi.noise_status or aerial),
     ]
+    evidence.extend(item("costar", f"Recorded parking flag {name}: {str(value).lower()}.", value)
+                    for name, value in sorted(prop.parking_flags.items()))
+    evidence.extend(logi.source_evidence)
+    return list({(e.source, e.claim, e.status): e for e in evidence}.values())
 
 
 @dataclass
@@ -121,18 +138,30 @@ def _skeptic(prop: Property, fit: ShotFit, logi: Logistics, req: Requirements) -
     elif not fit.fits:
         notes.append(f"Shot is tight: {fit.note}")
         blockers += 1
-    if not enough_parking(logi, req.trucks, req.cars):
-        notes.append(f"Parking short: {logi.truck_spaces} truck / {logi.car_spaces} car spaces "
+    parking_unknown = (logi.parking_status == "unknown" or
+                       (req.trucks > 0 and logi.truck_spaces is None) or
+                       (req.cars > 0 and logi.car_spaces is None))
+    if parking_unknown and (req.trucks or req.cars):
+        notes.append("Parking capacity unknown; verify usable spaces and permission on site.")
+        blockers += 1
+    elif (req.trucks or req.cars) and not enough_parking(logi, req.trucks, req.cars):
+        notes.append(f"Parking short: {_number(logi.truck_spaces)} truck / {_number(logi.car_spaces)} car spaces "
                      f"against {req.trucks} / {req.cars} needed.")
         blockers += 1
     if not prop.available:
-        notes.append("Space is occupied, not listed as available.")
+        notes.append("Availability is unknown; confirm listing status before booking."
+                     if prop.availability_status == "unknown" else
+                     "Space is not listed as available." if prop.availability_status == "not_available" else
+                     "Space is occupied, not listed as available.")
         blockers += 1
     if logi.walk_m is None:
         notes.append("Parking walk distance is unknown; measure on site.")
         if req.trucks or req.cars:
             blockers += 1
     notes.extend(f"Noise: {noise}." for noise in logi.noise_flags)
+    if logi.noise_status == "unknown":
+        notes.append("Nearby noise sources are unverified; no sound-level claim is possible.")
+    notes.extend(logi.source_notes)
     return notes, blockers
 
 
@@ -189,10 +218,10 @@ def _reason(candidate: _Candidate, blocked: bool, relaxed_distance: bool) -> str
     if relaxed_distance and logi.walk_m is not None and logi.walk_m > MAX_PARKING_WALK_M:
         walk += " (parking distance relaxed)"
     return (f"{prefix}CoStar: {prop.type.lower() or 'type unknown'}, year built {_number(prop.year_built)}, "
-            f"{'available' if prop.available else 'occupied'}; Matterport: {_number(shot.room_area_m2, ' m2')} room, "
+            f"{_availability(prop)}; Matterport: {_number(shot.room_area_m2, ' m2')} room, "
             f"{_number(shot.ceiling_m, ' m')} ceiling, {_number(shot.depth_m, ' m')} depth, {fit_text}; "
-            f"Vexcel: {logi.truck_spaces} truck and {logi.car_spaces} car spaces, walk {walk}, "
-            f"noise: {', '.join(logi.noise_flags) or 'no flags reported'}.")
+            f"Vexcel: {_number(logi.truck_spaces)} truck and {_number(logi.car_spaces)} car spaces, walk {walk}, "
+            f"noise: {_noise(logi)}.")
 
 
 def _select(req: Requirements, candidates: list[_Candidate], gave_up: list[str]) -> tuple[list[Pick], int]:

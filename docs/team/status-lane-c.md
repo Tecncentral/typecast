@@ -81,3 +81,10 @@ Installed source verified: deepagents middleware/subagents.py:155/652/673 suppor
 ## Handoff
 
 No Job 2 implementation or verification remains. PR #7 contains the reviewed work and current evidence. Jobs 1 and 3 own real-data and viewer completion; this report makes no claim about their progress or real-property retrieval quality. No deployment, main merge, inquiry delivery or external submission occurred.
+
+## Lane B integration support — 2026-11-14
+
+- User reassigned this chat to Lane B data; viewer remains in another chat. Lane C supports shared contracts/dependency integration.
+- Reviewed incoming PR8/6/10 together. Repaired Matterport token alias, cached model/property remapping, shared-cache image URLs, and bridge uncertainty/local-draft approval state. Combined gate: 193 Python tests plus 6 bridge tests passed. Actual index bootstrap downloaded and encoded 608 views / 19 properties; no private data committed.
+- Added availability status/reason, CoStar parking flags, nullable logistics capacity and per-field evidence statuses. Pipeline preserves unknown availability, parking and noise in reasons/evidence/skeptic notes; 135 current lane-C tests and smoke/E2E pass.
+- Baseline adds DuckDB 2.0.0, PyArrow 26.0.1 and Shapely 2.2.0. Optional full CLIP environment is pinned separately in requirements-index.lock.txt. Shared environment pip check passes; clean baseline lock installation and final real-data E2E are in progress.
