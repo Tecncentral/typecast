@@ -195,7 +195,7 @@ def test_events_are_emitted_in_order_during_tools_and_rerank(monkeypatch):
         return original_search(**kwargs)
 
     def rerank_while_running(ctx, req, shots, k):
-        assert k == 10
+        assert k == 20
         assert any(e.agent == "search_shots" and e.type == "tool" for e in observed)
         ctx.event(Event(type="fallback", agent="rerank", text="Vision skipped in test."))
         assert observed[-1].text == "Vision skipped in test."
