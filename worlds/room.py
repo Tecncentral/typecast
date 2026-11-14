@@ -236,7 +236,8 @@ def scan_azimuth(rotation: dict) -> float:
     """Degrees clockwise from Matterport's +y, seen from above, of a scan point's cube heading 0."""
     x, y, z, w = (rotation[k] for k in "xyzw")
     forward = (1 - 2 * (y * y + z * z), 2 * (x * y + w * z))  # the local +x axis in the floor plane
-    return math.degrees(math.atan2(forward[0], forward[1])) % 360
+    # Round first: a -1e-15 float error must read 0 degrees, not wrap to 360.
+    return round(math.degrees(math.atan2(forward[0], forward[1])), 9) % 360
 
 
 def scan_cameras(manifest: dict, units_per_m: float) -> list[dict]:
