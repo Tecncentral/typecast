@@ -9,6 +9,12 @@ Base: origin/dev dbceec2 (PR22 Director + PR30 dressed sets). Mock/synthetic onl
 3. **In-flight project import overwrote newer user work** (index/director.js). `importProject` awaited the plan request, then replaced `S.edits`, frame overrides and the script textarea; staging or script typed meanwhile was lost silently. Fix: monotonically increasing `S.rev`, bumped by every staging/frame/script mutation (editor inputs, drag, keyboard, Apply/Undo, frame picker, frame-change notice, script input, demo load); the import compares `S.rev` and the script text before committing and, if changed, replaces nothing and says so. Regression tests in index/tests/director-audit.mjs: typed-while-loading is preserved (fails without the fix), untouched import still commits exact-frame staging. Harness note: the vm injects host Object/Array/JSON, so the test removes them to get same-realm plain objects as in a browser.
 4. **Windows symlink test portability** (agent/tests/test_aerial_metadata.py; no production change). Directory-alias tests now use a real symlink when allowed, else a Windows junction (`mklink /J`, no privilege needed); they also assert the alias really resolves elsewhere, so containment is still exercised. File-symlink tests skip with a stated reason when the privilege is missing (junctions cannot alias files) and are backed by new portable `test_rejects_aliased_cache_file` (resolve() seam making one cache file resolve elsewhere). Mutation check: removing the file or directory resolve checks in agent/aerial_metadata.py made those tests fail (4 and 6 failures); production code restored byte-for-byte. Privileges/settings untouched. On Linux/macOS or with symlink privilege all original symlink tests still run for real.
 
+5. **Coordinator review round (all three hypotheses tested).**
+   - *Reproduced:* `applyForbidden` assumed `plan.locations` is an array, but the real solver publishes `locations` as a count and the list as `property_ids`. With solver-shaped plans `(p.locations||[]).filter` threw a TypeError (also inside the replan-failure handler), so my earlier fix only worked against the audit's array-shaped mocks. Now `assignments`, `property_ids`, numeric `locations` and `uncovered_scene_ids` are rederived from what remains; `company_moves`/`mean_similarity` become null and `optimal_within_pool` false for changed plans; unrelated plans are returned untouched. `evaluated_subsets` is left as the backend's report of its run. Exports checked: no rejected id, locations=1, null similarity.
+   - *Reproduced:* the import snapshot was taken after `await file.text()`, so staging typed during a slow read was overwritten, and a second file choice or Build could run concurrently. Now the operation claims `planBusy` and snapshots rev/script/constraints before the first await; overlapping imports/builds are refused with a status message.
+   - *Reproduced:* max_locations/trucks/cars/require_available could change while evidence loaded and the committed result would not match the visible controls. The import now sends the snapshot and rejects the commit (nothing replaced) if any of those four differ at commit time; unchanged constraints still commit (tested for each control and the untouched case).
+   - Four new tests fail on the previous commit and pass now. The Gemini draft was not used.
+
 ## Reviewed, no defect reproduced
 Stale brainstorm/apply/undo guards, reel snapshot immutability and abort/cleanup, project normalize/restore (exact eligible frame only), evidence export (unknown vs estimated vs measured vocabulary), shoot-pack escaping.
 
@@ -18,8 +24,8 @@ Stale brainstorm/apply/undo guards, reel snapshot immutability and abort/cleanup
 - Project export keeps only drafts for the current frame plus `review_needed`; staging on frames no longer assigned is not exported.
 
 ## Checks (Windows, existing venv)
-- `scripts/verify.py`: exit 0; 596 passed, 5 skipped (4 file-symlink skips above + 1 pre-existing), smoke/SSE/refinement/approval PASS, 20/20 unlabeled mock attempts. (Before the portability fix: 590 passed, 6 failed with WinError 1314.) Node suites run separately:
-- `node --test index/tests/director-audit.mjs`: 25 pass / 0 fail
+- `scripts/verify.py`: exit 0; see final numbers in the commit message / chat report (Python 596 passed, 5 skipped; smoke, SSE/refinement/approval PASS; 20/20 unlabeled mock attempts).
+- `node --test index/tests/director-audit.mjs`: 29 pass / 0 fail
 - director-project.test.cjs 29/0; director_reel.test.js 16/0; web/tests/viewfinder.test.cjs 4/0; web/tests/lib.test.mjs 12/0.
 
 ## Still unverified (genuine human/browser work)

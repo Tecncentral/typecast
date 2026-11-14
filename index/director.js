@@ -101,14 +101,19 @@ function applyForbidden(data) {
   const forbidden = new Set(S.forbidden);
   data.scenes = data.scenes.map((scene) => ({ ...scene,
     candidates: (scene.candidates || []).filter((c) => !forbidden.has(c.shot?.property_id)) }));
+  let changed = false;
   data.plans = data.plans.map((p) => {
     const removed = (p.assignments || []).filter((a) => forbidden.has(a.property_id));
-    if (!removed.length) return p;
-    return { ...p, assignments: p.assignments.filter((a) => !forbidden.has(a.property_id)),
-      locations: (p.locations || []).filter((id) => !forbidden.has(id)),
+    if (!removed.length && !(p.property_ids || []).some((id) => forbidden.has(id))) return p;
+    changed = true;
+    // The solver publishes property_ids and a numeric locations count; rederive both from what remains.
+    const assignments = (p.assignments || []).filter((a) => !forbidden.has(a.property_id));
+    const property_ids = [...new Set(assignments.map((a) => a.property_id))].sort();
+    return { ...p, assignments, property_ids, locations: property_ids.length,
       uncovered_scene_ids: [...new Set([...(p.uncovered_scene_ids || []), ...removed.map((a) => a.scene_id)])],
       company_moves: null, mean_similarity: null };
   });
+  if (changed && 'optimal_within_pool' in data) data.optimal_within_pool = false;
   if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
   return data;
 }
@@ -591,26 +596,28 @@ function renderProjectReview() {
   for (const draft of S.importReview) box.append(el('p', { class: 'meta', text:
     `${draft.scene_id}: saved frame ${draft.frame.shot_id}, property ${draft.frame.property_id}. Both variants retained.` }));
 }
+const constraints = () => ({ max_locations: Math.floor(clamp($('maxLoc').value, 1, 4, 3)), require_available: $('reqAvail').checked,
+  trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)), cars: Math.floor(clamp($('cars').value, 0, 50, 0)) });
 async function importProject(file) {
   $('impProject').value = '';
-  if (!file || S.planBusy) return;
-  let project;
+  if (!file) return;
+  if (S.planBusy) return status('Wait for the current plan or project import to finish.', true);
+  // Claim the operation and snapshot the user's state before the first await, so nothing
+  // typed during a slow file read or evidence request can be overwritten.
+  busy(true);
+  const rev = S.rev, scriptAtStart = $('script').value, limits = constraints();
   try {
     if (file.size > TypecastProject.MAX_BYTES) throw new Error('Project file exceeds 1 MB.');
-    project = TypecastProject.normalizeProject(await file.text());
-  } catch (e) { return status(`Project not loaded: ${e.message}`, true); }
-  stopPlay(); cancelGen(); clearPending(); busy(true);
-  const rev = S.rev, scriptAtStart = $('script').value;
-  status('Rebuilding project evidence using the current visible location and vehicle constraints…');
-  try {
+    const project = TypecastProject.normalizeProject(await file.text());
+    stopPlay(); cancelGen(); clearPending();
+    status('Rebuilding project evidence using the current visible location and vehicle constraints…');
     const scenes = project.scenes.map(({ id, heading, description }) => ({ id, heading, description }));
-    const data = await api('/api/production/plan', { scenes,
-      max_locations: Math.floor(clamp($('maxLoc').value, 1, 4, 3)), forbidden_property_ids: [],
-      require_available: $('reqAvail').checked, trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)),
-      cars: Math.floor(clamp($('cars').value, 0, 50, 0)) });
+    const data = await api('/api/production/plan', { scenes, forbidden_property_ids: [], ...limits });
     // Newer user work must never be silently overwritten by a slow import.
     if (S.rev !== rev || $('script').value !== scriptAtStart)
       throw new Error('you changed the script or staging while the project was loading, so nothing was replaced. Import again when ready');
+    if (JSON.stringify(constraints()) !== JSON.stringify(limits))
+      throw new Error('location or vehicle constraints changed while evidence was loading, so the result would not match the visible controls. Import again');
     const restored = TypecastProject.restoreEdits(project, data);
     // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
     Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
@@ -623,7 +630,7 @@ async function importProject(file) {
     renderAll();
     status(`Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, !!restored.reviewNeeded.length);
   } catch (e) { status(`Project not loaded; existing work kept: ${e.message}`, true); }
-  finally { busy(false); $('impProject').value = ''; }
+  finally { busy(false); }
 }
 $('impProject').addEventListener('change', (event) => importProject(event.target.files[0]));
 

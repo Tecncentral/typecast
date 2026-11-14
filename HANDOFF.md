@@ -1,6 +1,6 @@
 # HANDOFF
 1. Goal: harsh-judge release QA of Director/reel/import/viewfinder/AI-dressing; fix reproducible bugs, mock-only, no push/merge.
-2. State (update 2): symlink-test portability fixed (junction/skip+portable seam), import edit-overwrite race fixed with S.rev guard + 2 tests; verify.py green 596/5 skipped. Earlier: fixed rejected-location-after-failed-replan bug in index/director.js + regression in index/tests/director-audit.mjs; import input reset. Details/checks: index/CLAUDE-RELEASE-REVIEW.md.
+2. State (update 3: solver-shaped Reject cleanup, import snapshot before first await, constraint guard; see review item 5). (update 2): symlink-test portability fixed (junction/skip+portable seam), import edit-overwrite race fixed with S.rev guard + 2 tests; verify.py green 596/5 skipped. Earlier: fixed rejected-location-after-failed-replan bug in index/director.js + regression in index/tests/director-audit.mjs; import input reset. Details/checks: index/CLAUDE-RELEASE-REVIEW.md.
 3. Decisions: filter extracted to applyForbidden(); no schema/dependency changes.
 4. Risks: browser import, mic, live trace unverified.
 5. Next: integration captain reviews diff, runs verify on Linux/demo laptop, browser-test import and Reject with backend down; push when authorized.

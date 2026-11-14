@@ -904,6 +904,120 @@ test('an untouched in-flight project import still commits exact-frame staging', 
   assert.equal(env.api.shotData('s1').dialogue, 'IMPORTED_LINE', env.$('status').textContent);
 });
 
+// The real solver publishes locations as a COUNT and the property list as property_ids.
+function solverShaped(body, rows, extraPlans = []) {
+  const resp = planFor(body, rows);
+  const shape = (assignments) => {
+    const ids = [...new Set(assignments.map((a) => a.property_id))].sort();
+    const covered = new Set(assignments.map((a) => a.scene_id));
+    return { property_ids: ids, assignments, locations: ids.length,
+      uncovered_scene_ids: body.scenes.map((x) => x.id).filter((id) => !covered.has(id)),
+      company_moves: Math.max(0, ids.length - 1), mean_similarity: 0.5 };
+  };
+  resp.plans = [shape(rows), ...extraPlans.map(shape)];
+  resp.optimal_within_pool = true;
+  return resp;
+}
+const TWO = [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')];
+
+test('real solver-shaped plans: replan failure after Reject leaves no rejected ids or stale claims', async () => {
+  const env = boot();
+  env.$('script').value = 'INT. KITCHEN | first\nINT. OFFICE | second';
+  env.$('build').click();
+  let job = env.take('/api/production/plan');
+  const body0 = JSON.parse(job.opts.body);
+  const other = [assignment('s1', 'prop_c', 'shot_c'), assignment('s2', 'prop_c', 'shot_c2')];
+  job.resolve(jsonResponse(solverShaped(body0, TWO, [other])));
+  await drain();
+  env.$('reject').click();
+  env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503));
+  await drain();
+  const [p0, p1] = env.api.S.resp.plans;
+  assert.deepEqual(copied(p0.property_ids), ['prop_b']);
+  assert.equal(p0.locations, 1);
+  assert.deepEqual(copied(p0.uncovered_scene_ids), ['s1']);
+  assert.equal(p0.mean_similarity, null);
+  assert.equal(p0.company_moves, null);
+  assert.deepEqual(copied(p1.property_ids), ['prop_c']);       // unrelated plan untouched
+  assert.equal(p1.mean_similarity, 0.5);
+  assert.equal(env.api.S.resp.optimal_within_pool, false);
+  const exported = JSON.stringify(env.api.exportSnapshot());
+  assert.equal(exported.includes('prop_a'), false);
+  assert.equal(JSON.parse(exported).locations, 1);
+  assert.equal(JSON.parse(exported).mean_similarity, null);
+  assert.match(env.$('planSel').childNodes[0].textContent, /1\/2 covered/);
+});
+
+test('real solver-shaped plans: a backend that still returns the rejected property is cleaned', async () => {
+  const env = boot();
+  env.$('script').value = 'INT. KITCHEN | first\nINT. OFFICE | second';
+  env.$('build').click();
+  let job = env.take('/api/production/plan');
+  job.resolve(jsonResponse(solverShaped(JSON.parse(job.opts.body), TWO)));
+  await drain();
+  env.$('reject').click();
+  job = env.take('/api/production/plan');
+  job.resolve(jsonResponse(solverShaped(JSON.parse(job.opts.body), TWO)));
+  await drain();
+  const plan = env.api.S.resp.plans[0];
+  assert.deepEqual(copied(plan.property_ids), ['prop_b']);
+  assert.equal(plan.locations, 1);
+  assert.equal(/Plan request failed/.test(env.$('status').textContent), false);
+});
+
+function slowFile(text) {
+  let release; const gate = new Promise((r) => { release = r; });
+  return { file: { size: text.length, text: async () => { await gate; return text; } }, release };
+}
+function prepImportEnv(env) {
+  for (const name of ['Object', 'Array', 'JSON']) delete env.context[name];
+  vm.runInContext(PROJECT_JS, env.context, { filename: 'director-project.js' });
+}
+const ONE = [assignment('s1', 'prop_a', 'shot_a')];
+
+test('staging typed during a slow project-file read is not overwritten, and overlapping imports are refused', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', ONE);
+  prepImportEnv(env);
+  const slow = slowFile(savedProject('IMPORTED_LINE'));
+  env.$('impProject').files = [slow.file];
+  env.$('impProject').dispatchEvent({ type: 'change' });
+  await drain();
+  env.$('dlg').value = 'TYPED_DURING_READ';
+  env.$('dlg').dispatchEvent({ type: 'input' });
+  const second = slowFile(savedProject('SECOND'));
+  env.$('impProject').files = [second.file];
+  env.$('impProject').dispatchEvent({ type: 'change' });
+  await drain();
+  assert.match(env.$('status').textContent, /Wait for the current/);
+  assert.equal(env.$('build').disabled, true);
+  slow.release();
+  await drain();
+  const job = env.take('/api/production/plan');
+  assert.equal(env.jobs.length, 0);
+  job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), ONE)));
+  await drain();
+  assert.equal(env.api.shotData('s1').dialogue, 'TYPED_DURING_READ');
+  assert.match(env.$('status').textContent, /nothing was replaced/);
+});
+
+test('constraints changed while import evidence loads reject the import; unchanged constraints commit', async () => {
+  for (const change of ['maxLoc', 'trucks', 'cars', 'reqAvail', null]) {
+    const env = boot();
+    await buildScript(env, 'INT. KITCHEN | first', ONE);
+    const { job, body } = await startImport(env, savedProject('IMPORTED_LINE'));
+    if (change === 'reqAvail') env.$('reqAvail').checked = !env.$('reqAvail').checked;
+    else if (change) env.$(change).value = '2';
+    assert.equal(body.max_locations !== undefined && body.trucks !== undefined && body.cars !== undefined, true);
+    job.resolve(jsonResponse(planFor(body, ONE)));
+    await drain();
+    if (change) {
+      assert.match(env.$('status').textContent, /constraints changed/, change);
+      assert.notEqual(env.api.shotData('s1').dialogue, 'IMPORTED_LINE', change);
+    } else assert.equal(env.api.shotData('s1').dialogue, 'IMPORTED_LINE');
+  }
+});
+
 test('explicit unknown parking and availability render as unknown', async () => {
   const env = boot();
   await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
