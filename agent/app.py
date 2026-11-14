@@ -12,13 +12,25 @@ from dotenv import load_dotenv
 load_dotenv(pathlib.Path(__file__).resolve().parents[1] / ".env", override=False)
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from contracts.schemas import Pick, ScoutRequest, ScoutResponse
 from agent import runtime, state, tracing
 
 app = FastAPI(title="Typecast")
+
+
+@app.get("/api/aerial/{property_id}")
+def aerial_metadata(property_id: str):
+    """Small validated image extent for the viewer; general cache JSON stays private."""
+    from agent.aerial_metadata import AerialMetadataUnavailable, read_aerial_metadata
+    try:
+        metadata = read_aerial_metadata(property_id, _ROOT / "cache")
+    except AerialMetadataUnavailable:
+        raise HTTPException(404, "Aerial metadata unavailable.",
+                            headers={"Cache-Control": "no-store"}) from None
+    return JSONResponse(metadata, headers={"Cache-Control": "no-store"})
 
 
 class RefineRequest(BaseModel):
