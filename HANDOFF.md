@@ -10,6 +10,8 @@ Branch `ai/claude-release-audit` (PR #31), base origin/dev dbceec2. Code head: c
 
 > Fourth pass: authored-sample origin now follows the take (card, JSON, import, pack, PNG, WebM); mobile compare captions; film anecdote recorded as unverified in index/FILM-VALIDATION-HANDOFF.md. Main code phase ends; not pushed.
 
+> Docs freeze: job8 story 4f62f3b merged (f462f6d, no conflicts, frozen); AI-CONTINUATION/DEMO-SCRIPT refreshed; film contact recorded as pending/unverified (Mahimn Dave, Lagaan mentioned; no claim he worked on it, not Emmy-winning); PR35 audit superseded; submission window starts 06:30 ET. Code head 5519c78. See index/UNIFIED-INTEGRATION-HANDOFF.md. Not pushed.
+
 ## 1. Goal
 Release QA for HackPrinceton Typecast (Director, reel, project import, viewfinder, AI dressing). Fix reproduced failures only; mock/synthetic data only; no push/merge/provider calls/private data. Interior labeling is complete; no more labeling.
 
