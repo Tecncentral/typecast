@@ -40,6 +40,7 @@ Meanings come from kit `index.md`, `models/commercial-property.md`,
 | `year_built` | `constructionEvents[].year`, `eventType=2` (`ConstructionComplete`) | May be approximate in source research. Missing/conflicting completion years stay null; renovations do not replace completion |
 | `size_sqft` | `grossBuildingAreaSquareFeet` | Whole exterior building envelope (GBA), not rentable area or room area. Missing/nonpositive is null; no mixed-measure fallback |
 | `available`, `availability_status`, `availability_reason` | Rules below | Marketed lease-space availability with reason; no claim of vacancy or filming permission |
+| `listing_types` | Linked Active listings’ `listingType` via `ListingType` | Distinct lease/sale/auction categories; multiple may coexist. Empty means missing/unrecognized, not off-market. Independent of verified lease availability |
 | `contact` | `contacts[].contactRole`, `listingContacts[].contactRole`, `propertyContacts[].contactRole` via `ContactRole` | Enum role labels only; names, free text, phones, emails and company/person details never copied |
 | `parking_flags` | `propertyApartment.residentialProfile.hasNoParkingAvailable`, `hasVisitorParkingAvailable` | Exact supplied booleans; missing/null omitted. Amenities, not truck counts or parking permission |
 | `size_source`, `year_source`, `year_status`, `join_method` | Static provenance labels | Private measure, year uncertainty and exact-ID method metadata |
