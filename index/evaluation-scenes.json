@@ -1,0 +1,102 @@
+[
+  {
+    "id": "interior-01",
+    "scene": "bright kitchen with cabinets and countertops",
+    "split": "test"
+  },
+  {
+    "id": "interior-02",
+    "scene": "narrow dim corridor with doors",
+    "split": "test"
+  },
+  {
+    "id": "interior-03",
+    "scene": "open empty room with large windows",
+    "split": "test"
+  },
+  {
+    "id": "interior-04",
+    "scene": "bathroom with a sink and mirror",
+    "split": "test"
+  },
+  {
+    "id": "interior-05",
+    "scene": "bedroom with a bed",
+    "split": "test"
+  },
+  {
+    "id": "interior-06",
+    "scene": "office workspace with desks",
+    "split": "test"
+  },
+  {
+    "id": "interior-07",
+    "scene": "staircase and landing",
+    "split": "test"
+  },
+  {
+    "id": "interior-08",
+    "scene": "living room with a sofa",
+    "split": "test"
+  },
+  {
+    "id": "interior-09",
+    "scene": "dining room with a table",
+    "split": "test"
+  },
+  {
+    "id": "interior-10",
+    "scene": "white tiled shower",
+    "split": "test"
+  },
+  {
+    "id": "interior-11",
+    "scene": "room with wooden flooring",
+    "split": "test"
+  },
+  {
+    "id": "interior-12",
+    "scene": "small kitchen with appliances",
+    "split": "test"
+  },
+  {
+    "id": "interior-13",
+    "scene": "room with exposed beams",
+    "split": "test"
+  },
+  {
+    "id": "interior-14",
+    "scene": "closet with shelving",
+    "split": "test"
+  },
+  {
+    "id": "interior-15",
+    "scene": "lobby or reception area",
+    "split": "test"
+  },
+  {
+    "id": "interior-16",
+    "scene": "long hallway with ceiling lights",
+    "split": "tune"
+  },
+  {
+    "id": "interior-17",
+    "scene": "sunlit room with glass doors",
+    "split": "tune"
+  },
+  {
+    "id": "interior-18",
+    "scene": "kitchen with an island",
+    "split": "tune"
+  },
+  {
+    "id": "interior-19",
+    "scene": "room with a fireplace",
+    "split": "tune"
+  },
+  {
+    "id": "interior-20",
+    "scene": "empty room with carpet",
+    "split": "tune"
+  }
+]
