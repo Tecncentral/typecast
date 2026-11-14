@@ -89,3 +89,15 @@ No Job 2 implementation or verification remains. PR #7 contains the reviewed wor
 - Added availability status/reason, CoStar parking flags, nullable logistics capacity and per-field evidence statuses. Pipeline preserves unknown availability, parking and noise in reasons/evidence/skeptic notes; 135 current lane-C tests and smoke/E2E pass.
 - Baseline adds DuckDB 2.0.0, PyArrow 26.0.1 and Shapely 2.2.0. Optional full CLIP environment is pinned separately in requirements-index.lock.txt. Shared environment pip check passes; clean baseline lock installation and final real-data E2E are in progress.
 - Follow-up: the live market pool is limited to genuinely indexed PropertyIds before logistics fan-out; Lane B prioritizes these IDs before its 500-row search limit. Deep tool summaries now carry explicit availability/parking/noise uncertainty. Verified 196 tests plus smoke/E2E on Python 3.13; prior clean Python 3.14 baseline gate passed 195 before this added market-pool regression test.
+
+## Integration captain: OSM repair — 2026-11-14 16:00 UTC
+
+Started from dev `9bcc444`; lane-c already contains that exact revision. The current private join and existing 608 views are retained. Viewer and exterior checkouts remain owned by other chats. Subagents use GPT-6.1 Sol with xhigh reasoning.
+
+The documented North America Overpass instance `https://ovp.dresel.systems/api-na/interpreter` returned HTTP 200 in 2.263 s after Private.coffee timed out. Requests are sequential, identify Typecast, never rotate automatically, and send no Vexcel credentials to OSM.
+
+`TYPECAST_USE_MOCKS=0 .venv/bin/python -m data.vexcel_precompute` exited 0: 19/19 OSM sources, 3,688 elements, zero provider failures or partial results. Parking estimates rose 9 to 14 through five real mapped parking polygons. Noise screening completed for all 19: six flagged properties (three freeway, one rail, two airport/runway). No flag does not establish quiet. All 19 walking distances remain unknown because no qualifying connected entrance route exists. All 19 annotated aerials validate; hashes confirm all 95 successful Vexcel source files unchanged. Private report: `cache/vexcel/osm-repair-report.json`.
+
+Reviewed client, docs and regression cases. `scripts/verify.py`: 248 tests plus smoke, SSE/refine/local-draft and mock evaluation gates passed. Independent root rerun: eight OSM tests passed. Vexcel HTTP 403 now reports “outside Vexcel coverage”; missing evidence remains unknown.
+
+Next: 307 mapped available commercial properties plus about 20 available multifamily properties, retaining existing shots. Sixteen additional available commercial properties lack supplied model mappings. Then precompute, inspect frames, validate both engines and obtain human held-out labels.
