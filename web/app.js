@@ -1,3 +1,7 @@
+import {
+  SOURCES, availabilityInfo, evidenceBySource, fitInfo, imageUrl, moveLabel, noiseInfo, objections,
+  parkingInfo, sourceStatus,
+} from "./lib.js";
 import { laneStates, latestTodos, stepStates, secs, toolMs } from "./lib.js";
 
 const $ = (id) => document.getElementById(id);
@@ -211,26 +215,124 @@ function renderTrace() {
   }
 }
 
-/* ---------------- results (placeholder until cards land) ---------------- */
+/* ---------------- results ---------------- */
 
 function renderResultsHead() {
   const head = $("results-head");
   if (state.running) {
     const t = elapsed();
     head.replaceChildren(h("p", { class: "loading" }, `Scouting… ${secs(t)}`,
-      t > 20 ? h("span", { class: "slow" }, "  Real runs take up to two minutes.") : null));
+      t > 20 ? h("span", { class: "slow" }, "  Still working. Real runs can take up to two minutes.") : null));
     return;
   }
   const res = state.response;
   if (!res) { head.replaceChildren(); return; }
-  head.replaceChildren(h("h2", {}, res.picks.length ? `${res.picks.length} picks` : "No building fits"));
+  head.replaceChildren(h("h2", {}, res.picks.length ? `${res.picks.length} pick${res.picks.length === 1 ? "" : "s"}` : "No building fits"));
 }
 
 function renderResults() {
   renderResultsHead();
   const cards = $("cards");
   cards.replaceChildren();
-  for (const p of state.response?.picks || []) cards.append(h("p", {}, `#${p.rank} ${p.property.address}`));
+  for (const p of state.response?.picks || []) cards.append(card(p));
+}
+
+/** A frame that degrades to a labelled placeholder if the image is missing or fails. */
+function frameImg(shot, alt) {
+  const url = imageUrl(shot?.image_path);
+  const missing = () => h("div", { class: "missing" }, "Frame unavailable");
+  if (!url) return missing();
+  const img = h("img", { src: url, alt, loading: "lazy", decoding: "async" });
+  img.addEventListener("error", () => img.replaceWith(missing()), { once: true });
+  return img;
+}
+
+function frame(pick, { mini = false } = {}) {
+  const shots = pick.shots || [];
+  let i = 0;
+  const box = h("div", { class: "frame" });
+  const draw = () => {
+    const shot = shots[i];
+    box.replaceChildren(
+      frameImg(shot, `Camera view ${i + 1} inside ${pick.property.address}`),
+      h("span", { class: "rank" }, `#${pick.rank}`),
+      !mini && shot ? h("span", { class: "frame-id" }, shot.shot_id) : null,
+      !mini && shots.length > 1 ? h("div", { class: "frame-nav" },
+        h("button", { type: "button", "aria-label": "Previous frame", onclick: () => { i = (i - 1 + shots.length) % shots.length; draw(); } }, "←"),
+        h("span", { class: "count" }, `${i + 1}/${shots.length}`),
+        h("button", { type: "button", "aria-label": "Next frame", onclick: () => { i = (i + 1) % shots.length; draw(); } }, "→")) : null);
+  };
+  draw();
+  return box;
+}
+
+function pill(status, text) { return h("span", { class: `pill ${status}` }, text); }
+
+function fitLine(fit) {
+  return h("div", { class: "fit-line" },
+    "Needs ", h("b", {}, fit.need == null ? "unknown" : `${fit.need} m`), " depth · room has ",
+    h("b", {}, fit.have == null ? "unknown" : `${fit.have} m`), " · ceiling ",
+    h("b", {}, fit.ceiling == null ? "unknown" : `${fit.ceiling} m`));
+}
+
+function evidenceChips(pick) {
+  const by = evidenceBySource(pick);
+  return h("div", { class: "chips", "aria-label": "Evidence by source" },
+    SOURCES.map((s) => {
+      const st = sourceStatus(by[s.id]);
+      return h("span", { class: `chip ${st}`, title: by[s.id].map((e) => `${e.status}: ${e.claim}`).join("\n") || "No evidence returned" },
+        s.label, h("small", {}, st));
+    }));
+}
+
+function logistics(pick) {
+  const lg = pick.logistics;
+  const park = parkingInfo(lg);
+  const noise = noiseInfo(lg);
+  const aerial = imageUrl(lg?.aerial_image_path);
+  return h("div", { class: "logi" },
+    h("div", {},
+      h("div", { class: "k" }, `Crew parking (${park.status})`),
+      h("div", {}, park.label, h("span", { class: "muted" }, ` · ${park.walk}`)),
+      h("div", { class: "k", style: "margin-top:6px" }, `Noise (${noise.status})`),
+      h("div", { class: noise.flags.length ? "loud" : "" }, noise.label)),
+    aerial ? h("img", { class: "aerial", src: aerial, alt: `Aerial view of parking near ${pick.property.address}`,
+      onerror: (e) => e.target.remove() }) : null);
+}
+
+const CARD_OBJECTIONS = 2;
+
+function objectionList(pick, fresh = [], limit = Infinity) {
+  // New objections from a follow-up come first, so the change is visible on the card.
+  const list = objections(pick).sort((a, b) => fresh.includes(b) - fresh.includes(a));
+  const shown = list.slice(0, limit);
+  return h("ul", { class: "objections", "aria-label": "Skeptic notes" },
+    list.length ? shown.map((n) => h("li", { class: fresh.includes(n) ? "new" : "" }, fresh.includes(n) ? `New: ${n}` : n))
+      : h("li", { class: "none" }, "Skeptic: no objection"),
+    list.length > shown.length ? h("li", { class: "more" }, `+${list.length - shown.length} more in details`) : null);
+}
+
+function card(pick, move = null) {
+  const p = pick.property;
+  const fit = fitInfo(pick.shot_fit);
+  const avail = availabilityInfo(p);
+  const facts = [p.type, p.year_built ? `built ${p.year_built}` : "year unknown",
+    p.size_sqft ? `${Math.round(p.size_sqft).toLocaleString()} sq ft` : null, p.city].filter(Boolean).join(" · ");
+  return h("article", { class: `card${move && move.move !== "same" ? " moved" : ""}`, "data-property": p.property_id },
+    frame(pick),
+    h("div", { class: "info" },
+      h("div", {},
+        h("div", { class: "addr" }, p.address),
+        h("div", { class: "facts" }, facts)),
+      h("div", { class: "row-badges" },
+        move ? pill("move", moveLabel(move)) : null,
+        pill(fit.status, fit.label),
+        pill(avail.status, avail.label)),
+      fitLine(fit),
+      h("p", { class: "reason", title: pick.reason }, pick.reason),
+      evidenceChips(pick),
+      logistics(pick),
+      objectionList(pick, move?.newNotes || [], CARD_OBJECTIONS)));
 }
 
 /* ---------------- boot ---------------- */
