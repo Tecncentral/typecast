@@ -116,6 +116,19 @@ def _load_shots_file(path: Path, *, error_cls: type[Exception]) -> list[Shot]:
     shots: list[Shot] = []
     seen_ids: set[str] = set()
     for item in items:
+        if isinstance(item, dict):
+            item = dict(item)
+            for field in ('room_area_m2', 'ceiling_m', 'depth_m'):
+                raw = item.get(field)
+                if raw is None:
+                    continue
+                try:
+                    valid = not isinstance(raw, bool) and np.isfinite(float(raw)) and float(raw) > 0
+                except (TypeError, ValueError, OverflowError):
+                    valid = False
+                if not valid:
+                    item[field] = None
+                    item['measure_on_site'] = True
         try:
             shot = Shot.model_validate(item)
         except Exception as exc:  # noqa: BLE001

@@ -508,7 +508,7 @@ def _validate_skybox_children(pano: Mapping[str, Any], *, model_id: str, sweep_i
     status = skybox.get("status")
     if not isinstance(status, str) or status.lower() not in {"available", "ready", "complete", "completed", "ok"}:
         raise MatterportIngestionError(
-            f"Sweep '{sweep_id}' in model '{model_id}' has non-ready skybox status '{status}'"
+            f"Sweep '{sweep_id}' in model '{model_id}' has non-ready skybox status"
         )
     children = skybox.get("children")
     if not isinstance(children, list) or len(children) != 6:

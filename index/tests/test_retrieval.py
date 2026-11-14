@@ -308,3 +308,12 @@ def test_reader_honors_custom_index_directory(tmp_path, monkeypatch):
     monkeypatch.setenv('TYPECAST_USE_MOCKS', '0')
     monkeypatch.setenv('TYPECAST_INDEX_DIR', str(path))
     assert get_shot('custom').shot_id == 'custom'
+
+
+@pytest.mark.parametrize('bad', ['unknown', '3.1m', True, [], {}])
+def test_malformed_catalog_dimensions_never_abort_retrieval(tmp_path, bad):
+    path = _write_cache(tmp_path / 'index',
+        [_shot_dict('s', 'm', 'p', ceiling_m=bad)], np.array([[1, 0]], dtype=np.float32))
+    idx = ShotRetrievalIndex.from_cache_dir(path)
+    assert idx.get_shot('s').ceiling_m is None
+    assert idx.check_shot('s').status == 'unknown'
