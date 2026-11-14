@@ -75,7 +75,7 @@ function harness() {
     waits.forEach((wait, i) => decodes.set(`/cache/views/${id}-${i * 90}.jpg`, wait));
     return () => waits.forEach(wait => wait.resolve());
   }
-  return { vf, classes, uploads, reveals, nodes, requests, open, respond, delayImages, isLost: () => lost };
+  return { vf, context, decodes, classes, uploads, reveals, nodes, requests, open, respond, delayImages, isLost: () => lost };
 }
 
 test('closing before fetch resolves cannot overwrite a newly opened scan', async () => {
@@ -149,4 +149,65 @@ test('a late AI-dressing response for a closed scan never dresses the next room'
   assert.equal(h.vf.dressed ?? null, null);
   assert.ok(h.uploads.every(url => !url.includes('/worlds/old/')));
   assert.equal(h.uploads.length, 8);
+});
+
+// Provenance of saved frames: AI-imagined pixels must stay labelled once they leave the dialog.
+function grabbed(wipe) {
+  const h = harness();
+  const calls = [];
+  const out = { width: 0, height: 0, toDataURL: () => 'data:image/jpeg;base64,AA==',
+    getContext: () => ({ drawImage() {}, save() {}, restore() {}, measureText: () => ({ width: 10 }),
+      fillRect: () => calls.push('fillRect'), fillText: (text) => calls.push(String(text)), set fillStyle(v) {}, set font(v) {}, set textBaseline(v) {} }) };
+  h.context.document.createElement = () => out;
+  const rect = () => ({ left: 0, top: 0, width: 100, height: 50 });
+  Object.assign(h.vf, { wipe, shots: [], renderer: {}, sweep: { shot_id: 'shot1' }, frame: { getBoundingClientRect: rect },
+    canvas: { width: 100, height: 50, getBoundingClientRect: rect, style: {} }, renderShotList() {}, draw() {} });
+  h.vf.state = { lens: 35, pitch: 0, yaw: 90, aspect: { id: 'wide', label: 'Wide', ratio: 2 } };
+  h.classes.add('is-live'); h.vf.dialog.open = true;
+  h.vf.grab();
+  return { shot: h.vf.shots[0], calls, h };
+}
+
+test('a grab taken with AI dressing visible stamps the pixels and is recorded as AI', () => {
+  const { shot, calls } = grabbed(0);
+  assert.equal(shot.ai, true);
+  assert.ok(calls.some((t) => /AI-imagined/i.test(t) && /not the real room/i.test(t)), `stamp missing: ${calls}`);
+});
+
+test('a plain real-scan grab is not stamped or labelled AI', () => {
+  const { shot, calls } = grabbed(-1);
+  assert.equal(shot.ai, false);
+  assert.equal(calls.some((t) => /AI/.test(t)), false);
+});
+
+test('saved-frame filenames carry the AI marker and stay filesystem-safe', () => {
+  const { h } = grabbed(-1);
+  const name = h.context.shotFilename;
+  assert.equal(name({ lens: 35, yaw: 90, ai: false }), 'typecast-shot-35mm-90deg.jpg');
+  assert.equal(name({ lens: 35, yaw: 90, ai: true }), 'typecast-shot-35mm-90deg-ai-dressed.jpg');
+  assert.equal(/[\/:"<>|]/.test(name({ lens: '../x"', yaw: '<y>', ai: true })), false);
+});
+
+test('closing while AI-dressed faces are still decoding never uploads them to the next scan', async () => {
+  const h = harness();
+  const old = h.open('old');
+  h.respond('old');
+  await old;
+  const dressedReq = h.requests.get('old');
+  const faces = [0, 90, 180, 270].map((yaw) => ({ yaw_deg: yaw, pitch_deg: 0, tan_h: 1, tan_v: 0.56, dressed_url: `/cache/worlds/old/d${yaw}.jpg` }));
+  const waits = faces.map(() => deferred());
+  faces.forEach((f, i) => h.decodes.set(f.dressed_url, waits[i]));
+  dressedReq.resolve({ ok: true, json: async () => ({ scene: 'INT. OLD.', label: 'AI', faces }) });
+  await tick();
+  await h.vf.close();
+  const fresh = h.open('fresh');
+  h.respond('fresh');
+  await fresh;
+  await tick(); await tick();
+  assert.equal(h.vf.dressed ?? null, null);
+  assert.equal(h.vf.$('.vf-dress').hidden === false, false);
+  waits.forEach((wait) => wait.resolve());
+  await tick(); await tick();
+  assert.ok(h.uploads.every((url) => !url.includes('/worlds/old/')));
+  assert.equal(h.vf.$('.vf-dress').hidden === false, false);
 });

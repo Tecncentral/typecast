@@ -32,3 +32,10 @@ Stale brainstorm/apply/undo guards, reel snapshot immutability and abort/cleanup
 Browser file-picker project import, microphone, live-provider trace for `plan_production_shoot`, real WebGL/WebM on the demo laptop, expanded private cache behaviour.
 
 Head: see `git log -1` of ai/claude-release-audit (not pushed).
+
+## Grok Worker4 leads (viewfinder/dressing provenance), tested offline
+1. **Reproduced and fixed: AI-dressed grabs lost their provenance once saved.** `grab()` crops only the WebGL canvas, so the JPEG for a dressed grab had no mark in its pixels, and the Save link was always `typecast-shot-{lens}mm-{yaw}deg.jpg`. Now (web/viewfinder.js): when any dressing is visible (`wipe > -1`) the saved frame is stamped "AI-imagined set dressing · not the real room", and `shotFilename()` appends `-ai-dressed` (also for older stored shots flagged `ai`, and sanitises lens/yaw). Real-scan grabs are unchanged (no stamp). Heading text stays scan-relative. Tests (web/tests/viewfinder.test.cjs) failed before: stamped-pixels, real-grab-unstamped, filename. Limits: thumbnails already in a browser's localStorage from before this change keep their unstamped pixels (their list label and, now, filename say AI-dressed); stamp pixels were checked only through a recording canvas double, not rasterised.
+2. **Saved thumbnails lacking AI labels:** same root cause as 1 for the image pixels; the list caption "· AI-dressed" already existed. Covered by the fix.
+3. **Close-during-load race: not reproduced.** Existing guards (generation + dialog state + renderer identity) hold; added a regression where dressed faces are still decoding when the scan closes and a new scan opens: nothing from the old dressed set is uploaded, `dressed` stays null, toggle stays hidden.
+4. **Director "Matterport" label on every frame: not a bug.** director.js only loads `/image/{shot_id}` (real indexed frames) and never `/api/dressed`; dressing exists only in the viewfinder.
+Checks: scripts/verify.py exit 0 (596 passed, 5 skipped on this Windows box); director-audit 29, director-project 29, director_reel 16, viewfinder 8, lib 12, all 0 failures.

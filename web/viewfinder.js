@@ -42,6 +42,26 @@ function addressFromAlt(alt) {
   return at >= 0 ? alt.slice(at + 4) : "";
 }
 
+const AI_STAMP = "AI-imagined set dressing · not the real room";
+
+// Saved frames leave the dialog, so AI provenance must live in the filename and the pixels themselves.
+function shotFilename(shot) {
+  const part = (v) => String(v).replace(/[^\w.-]/g, "");
+  return `typecast-shot-${part(shot.lens)}mm-${part(shot.yaw)}deg${shot.ai ? "-ai-dressed" : ""}.jpg`;
+}
+
+function stampAiLabel(ctx, width, height) {
+  const band = Math.max(18, Math.round(height * 0.07));
+  ctx.save();
+  ctx.fillStyle = "rgba(10, 7, 5, 0.78)";
+  ctx.fillRect(0, height - band, width, band);
+  ctx.fillStyle = "#ffb547";
+  ctx.font = `600 ${Math.round(band * 0.55)}px system-ui, sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.fillText(AI_STAMP, Math.round(band * 0.4), height - band / 2, width - band * 0.8);
+  ctx.restore();
+}
+
 function loadShotList() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
@@ -902,7 +922,10 @@ class Viewfinder {
     const out = document.createElement("canvas");
     out.width = 480;
     out.height = Math.round(480 / this.state.aspect.ratio);
-    out.getContext("2d").drawImage(c, sx, sy, sw, sh, 0, 0, out.width, out.height);
+    const outCtx = out.getContext("2d");
+    outCtx.drawImage(c, sx, sy, sw, sh, 0, 0, out.width, out.height);
+    const ai = this.wipe > -1;
+    if (ai) stampAiLabel(outCtx, out.width, out.height);
     const shot = {
       id: `${Date.now()}`,
       thumb: out.toDataURL("image/jpeg", 0.82),
@@ -912,7 +935,7 @@ class Viewfinder {
       pitch: Math.round(this.state.pitch),
       shotId: this.sweep?.shot_id,
       address: this.$(".vf-address").textContent,
-      ai: this.wipe > -1,
+      ai,
     };
     this.shots = [shot, ...this.shots].slice(0, 12);
     saveShotList(this.shots);
@@ -955,7 +978,7 @@ class Viewfinder {
       });
       const save = el("a", "vf-shot-save", "Save");
       save.href = shot.thumb;
-      save.download = `typecast-shot-${shot.lens}mm-${shot.yaw}deg.jpg`;
+      save.download = shotFilename(shot);
       li.append(button, save);
       if (shot.id === freshId && !reducedMotion()) {
         li.animate(
