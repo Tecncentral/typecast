@@ -1,7 +1,21 @@
 import * as L from "./vendor/leaflet/leaflet-src.esm.js";
 
 const mountedMaps = new WeakMap();
+const stagedMaps = new WeakMap();
 let mapSequence = 0;
+
+// Borrow the actual map for the descent, then restore its DOM and overview.
+export function stageMap(
+  host,
+  destination,
+  pick,
+  { duration = 900, reducedMotion = false } = {},
+) {
+  return (
+    stagedMaps.get(host)?.(destination, pick, { duration, reducedMotion }) ||
+    null
+  );
+}
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -134,6 +148,7 @@ export function renderMap(host, picks = [], { onSelect } = {}) {
   let resizeObserver;
   let selectedOutline;
   let initialFrame;
+  let restoreStage = null;
   const markerByPick = new Map();
   const selectionButtons = [];
   const listeners = [];
@@ -427,6 +442,47 @@ export function renderMap(host, picks = [], { onSelect } = {}) {
       if (!disposed) map.invalidateSize({ pan: false });
     });
     loadTiles();
+    stagedMaps.set(host, (destination, pick, options) => {
+      const point = coordinates(pick);
+      if (disposed || !point || !map) return null;
+      restoreStage?.();
+      const center = map.getCenter(),
+        zoom = map.getZoom();
+      const sibling = canvas.nextSibling;
+      map.closePopup();
+      destination.append(canvas);
+      map.invalidateSize({ pan: false });
+      map.fitBounds(bounds, { padding: [75, 75], maxZoom: 15, animate: false });
+      for (const [candidate, marker] of markerByPick)
+        marker.setOpacity(
+          candidate.property.property_id === pick.property.property_id
+            ? 1
+            : 0.24,
+        );
+      let restored = false;
+      restoreStage = () => {
+        if (restored) return;
+        restored = true;
+        map.stop();
+        if (sibling?.parentNode === section)
+          section.insertBefore(canvas, sibling);
+        else section.append(canvas);
+        for (const marker of markerByPick.values()) marker.setOpacity(1);
+        map.invalidateSize({ pan: false });
+        map.setView(center, zoom, { animate: false });
+        restoreStage = null;
+      };
+      return {
+        fly() {
+          if (restored || disposed) return;
+          map.flyTo(point, Math.max(17, Math.min(19, zoom + 3)), {
+            duration: options.duration / 1000,
+            animate: !options.reducedMotion,
+          });
+        },
+        restore: restoreStage,
+      };
+    });
   } else {
     canvas.hidden = true;
     legend.hidden = true;
@@ -444,6 +500,7 @@ export function renderMap(host, picks = [], { onSelect } = {}) {
 
   function cleanup() {
     if (disposed) return;
+    restoreStage?.();
     disposed = true;
     stopTiles();
     window.cancelAnimationFrame(initialFrame);
@@ -452,6 +509,7 @@ export function renderMap(host, picks = [], { onSelect } = {}) {
     map?.remove();
     section.remove();
     if (mountedMaps.get(host) === cleanup) mountedMaps.delete(host);
+    stagedMaps.delete(host);
   }
   mountedMaps.set(host, cleanup);
   return cleanup;

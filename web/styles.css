@@ -365,7 +365,7 @@ textarea {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 14px;
-  line-height: 20px;
+  line-height: 21px;
 }
 .api-error {
   margin: 14px 0;
@@ -379,7 +379,7 @@ textarea {
 }
 
 .run-section {
-  padding-block: 2px;
+  padding-block: 6px;
   margin-top: 8px;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);

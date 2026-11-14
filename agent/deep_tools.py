@@ -75,6 +75,7 @@ class ToolSession:
     failures: list[str] = field(default_factory=list)
     deadline: float = field(default_factory=lambda: monotonic() + 90.0)
     lock: RLock = field(default_factory=RLock)
+    production_plan: dict[str, Any] | None = None
 
     def check_deadline(self) -> None:
         cancelled = getattr(self.ctx, "cancelled", None)
@@ -266,6 +267,39 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
             return shortlist_summary()
         return session.call("get_shortlist", read)
 
+    def plan_production_shoot(**kwargs) -> str:
+        """Plan 1..8 scenes with the shared bounded production solver and source evidence."""
+        from index.production_integration import run_production_plan
+
+        def plan():
+            result = run_production_plan(kwargs)
+            if result["mode"] != session.ctx.source_mode:
+                raise ValueError("Production source mode differs from the scouting run")
+            with session.lock:
+                session.production_plan = result
+            # Preserve every selected id and assignment; detailed candidate evidence
+            # stays in the run's authoritative result rather than bloating context.
+            selected = {pid for row in result["plans"] for pid in row["property_ids"]}
+            warnings = [
+                {"scene_id": scene["id"], "shot_id": candidate["shot"]["shot_id"],
+                 "warnings": candidate["warnings"]}
+                for scene in result["scenes"] for candidate in scene["candidates"]
+                if candidate["shot"]["property_id"] in selected
+            ]
+            return json.dumps({key: result[key] for key in (
+                "mode", "plans", "pool_properties", "pool_note", "evaluated_subsets",
+                "optimal_within_pool") } | {
+                    "evidence_note": "Candidate evidence is retained in the run; unknown and estimated facts require verification.",
+                    "warning_count": sum(len(row["warnings"]) for row in warnings),
+                    "warnings": warnings[:8],
+                    "omitted_warning_candidates": max(0, len(warnings) - 8),
+                }, separators=(",", ":"))
+        return session.call("plan_production_shoot", plan)
+
     functions = [search_costar, get_property, search_shots, rerank_shots, check_shot,
                  plan_logistics, build_shortlist, get_shortlist]
-    return {fn.__name__: StructuredTool.from_function(fn) for fn in functions}
+    tools = {fn.__name__: StructuredTool.from_function(fn) for fn in functions}
+    from index.production import PlanRequest
+    tools["plan_production_shoot"] = StructuredTool.from_function(
+        plan_production_shoot, args_schema=PlanRequest)
+    return tools

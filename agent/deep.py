@@ -177,7 +177,13 @@ def _build_graph(model, session: ToolSession):
                   "middleware": [FilesystemMiddleware(tools=["read_file"])]}
                  for name, description, prompt, names in specs]
     return create_deep_agent(
-        model=model, system_prompt=_prompt("director"), tools=[tools["build_shortlist"]],
+        model=model, system_prompt=_prompt("director") + (
+            "\nFor requests to plan multiple production scenes, call plan_production_shoot after "
+            "build_shortlist and before the skeptic. Supply 1..8 scene descriptions and the user's "
+            "location/vehicle constraints. It runs the shared exact solver over a bounded retrieval "
+            "pool; its plans and evidence are authoritative. Keep unknown evidence unknown. "
+            "This optional production plan does not replace or reorder the scouting shortlist."),
+        tools=[tools["build_shortlist"], tools["plan_production_shoot"]],
         subagents=subagents, backend=StateBackend(), checkpointer=InMemorySaver(),
         middleware=[FilesystemMiddleware(tools=["read_file"]), InitialPlanTodoMiddleware(
             system_prompt=("Create the initial persisted plan with write_todos exactly once, as the FIRST "

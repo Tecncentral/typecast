@@ -12,13 +12,28 @@ from dotenv import load_dotenv
 load_dotenv(pathlib.Path(__file__).resolve().parents[1] / ".env", override=False)
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse, RedirectResponse
+from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from contracts.schemas import Pick, ScoutRequest, ScoutResponse
 from agent import runtime, state, tracing
 
 app = FastAPI(title="Typecast")
+
+from index.production_integration import shared_router
+app.include_router(shared_router())
+
+
+@app.get("/api/aerial/{property_id}")
+def aerial_metadata(property_id: str):
+    """Small validated image extent for the viewer; general cache JSON stays private."""
+    from agent.aerial_metadata import AerialMetadataUnavailable, read_aerial_metadata
+    try:
+        metadata = read_aerial_metadata(property_id, _ROOT / "cache")
+    except AerialMetadataUnavailable:
+        raise HTTPException(404, "Aerial metadata unavailable.",
+                            headers={"Cache-Control": "no-store"}) from None
+    return JSONResponse(metadata, headers={"Cache-Control": "no-store"})
 
 
 class RefineRequest(BaseModel):
@@ -191,15 +206,49 @@ def approve(req: ApproveRequest):
     return {"status": "draft_saved", "sent": False, "path": path, **metadata}
 
 
-_SHOT_ID = re.compile(r"[A-Za-z0-9._-]{1,200}")
+_SHOT_ID = re.compile(r"[A-Za-z0-9._-]{1,440}")
+
+
+def _sweep_provenance():
+    root = pathlib.Path(__file__).resolve().parents[1]
+    try:
+        data = json.loads((root / "cache/view-provenance.json").read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _cube_face(shot, provenance):
+    """Only known, indexed, square horizon cube images are renderer inputs."""
+    context = provenance.get(shot.shot_id, {})
+    if not isinstance(context, dict):
+        return None
+    face = context.get("cube_face_index")
+    if type(face) is not int or face not in (1, 2, 3, 4):
+        return None
+    heading = (face - 1) * 90
+    if shot.heading_deg != heading or not _SHOT_ID.fullmatch(shot.shot_id):
+        return None
+    expected = f"/cache/views/{shot.shot_id}.jpg"
+    if shot.image_path != expected:
+        return None
+    root = pathlib.Path(__file__).resolve().parents[1]
+    path = (root / expected.lstrip("/")).resolve()
+    if not path.is_relative_to((root / "cache/views").resolve()):
+        return None
+    try:
+        from PIL import Image
+        with Image.open(path) as image:
+            if image.width != image.height or image.width < 1:
+                return None
+    except (OSError, ValueError):
+        return None
+    return heading
 
 
 @app.get("/api/sweep/{shot_id}")
 def sweep_faces(shot_id: str):
-    """Every indexed view captured at the same scan point as a shot, for the 360-degree viewfinder.
-
-    Views are cube faces with scan-relative headings, not compass bearings; geometry stays as indexed.
-    """
+    """Known horizon cube faces at an indexed scan point; headings are scan-relative."""
     if not _SHOT_ID.fullmatch(shot_id):
         raise HTTPException(422, "Invalid shot id")
     from index.search import get_active_index
@@ -210,16 +259,24 @@ def sweep_faces(shot_id: str):
         raise HTTPException(404, "Unknown shot") from None
     except Exception:
         raise HTTPException(503, "Shot index unavailable") from None
-    faces: dict[int, object] = {}
+    provenance = _sweep_provenance()
+    if _cube_face(shot, provenance) is None:
+        raise HTTPException(422, "This view has no verified horizon cube geometry")
+    faces = {}
     for candidate in index.shots:
-        if candidate.model_id == shot.model_id and candidate.sweep_id == shot.sweep_id:
-            faces.setdefault(round(candidate.heading_deg) % 360, candidate)
+        if (candidate.property_id, candidate.model_id, candidate.sweep_id) != (shot.property_id, shot.model_id, shot.sweep_id):
+            continue
+        heading = _cube_face(candidate, provenance)
+        if heading is not None:
+            faces.setdefault(heading, candidate)
     return {
         "shot_id": shot.shot_id,
         "model_id": shot.model_id,
         "sweep_id": shot.sweep_id,
         "property_id": shot.property_id,
         "heading_deg": shot.heading_deg,
+        "heading_reference": "scan-relative; not compass or SDK orientation",
+        "projection": "horizon-cube-90deg",
         "room_area_m2": shot.room_area_m2,
         "ceiling_m": shot.ceiling_m,
         "depth_m": shot.depth_m,

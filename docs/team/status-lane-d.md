@@ -1,5 +1,37 @@
 # Lane D — viewer
 
+## Job 6 — inside-out descent complete
+
+Updated: 2026-11-14 21:22 UTC.
+
+Implementation: `656ec09`; validated aerial metadata: `e72b32a`; latest dev (`886762b`) integrated in `39bdf8f`. Work remains isolated in `../typecast-d` on `lane-d`. Review target: [PR #23 into dev](https://github.com/Tecncentral/typecast/pull/23). No new runtime dependency.
+
+- Fresh live scouts play one approximately three-second map → Vexcel aerial → real Matterport frame → first-card View Transition. Click or any key skips; replay does not rescout. Refinement retains its change summary without automatic descent. Reduced motion uses short fades with no flight or zoom; mocks and missing imagery/georeferencing degrade honestly.
+- Supplied parking geometry projects against validated EPSG:3857 extent and exact image dimensions, including holes. Independent comparison checked 7,894 vertices across the three top-pick properties within two pixels. Unreliable metadata uses the existing supplied aerial image; no invented outline. Job 6's explicitly authorized narrow `GET /api/aerial/{property_id}` is documented in `CONTRACT-CHANGES.md`; general cache JSON remains inaccessible.
+- Reviewed PR #25 at `6660265`, verified it, and merged it with separate compatibility fixes in `ffac1d0` / `a4f9ca4`. Reopening, stale dismissed loads and mobile controls pass. Original `web/viewfinder.js` and `web/viewfinder.css` remain byte-identical to that PR. Compatibility also keeps `Look around` clear of the frame counter.
+- Impeccable animate/overdrive guided the sequence. Run-section padding and source-note line height are corrected. Fresh independent finish review: ship, no blocking visual or interaction findings at 1440×900 and 1280×720. Private design records remain in ignored `cache/viewer-design/`.
+
+### Verification
+
+- Latest integrated branch: `.venv/bin/python scripts/verify.py` — **401 passed**, fixed mock end-to-end passed, 20 unlabeled mock evaluation scenes completed (not an accuracy score). `node --test web/tests/*.test.mjs` — **12 passed**.
+- Descent browser: **10 genuine live runs**, five scenes × both desktop sizes; all passed. **30 controlled cases** passed for skip, replay, reduced motion, missing imagery/extent/geometry, unsupported View Transitions, mocks and refinement. Four additional headed checks covered replay from another supplied frame and simulated visibility cleanup. Chrome **157.0.8103.52**, Playwright **1.65.2**.
+- After merging the latest backend, **all five genuine live scenes passed again at 1440×900**. Animation duration **2.970–3.010 s**, RAF p95 **16.7–16.8 ms**, maximum sampled interval **33.3–33.4 ms**, no observed long tasks or application JavaScript errors. Initial two-size runs took **2.974–3.079 s**; isolated longer frame gaps were observed. These are animation measurements excluding scouting/preparation, not a guarantee of uninterrupted 60 fps.
+- Final viewer regression on a separate mock server: **7/7 passed**, including both desktop sizes, 390×844, same-thread five-truck refinement, unsent drafts, API failure, no matches, unavailable images and pending connection.
+- Pre-merge viewfinder gate: **8 fixture / 9 real-cache checks passed**, including normal/reduced motion, reopen and stale-load handling. General mock viewer baseline also passed before the merge.
+
+Reproduce the live descent with private prerequisites:
+
+```sh
+TYPECAST_USE_MOCKS=0 TYPECAST_ENGINE=fixed .venv/bin/python -m uvicorn agent.app:app --port 8001 --no-access-log
+cache/browser-venv/bin/python web/tests/check_descent.py --base-url http://localhost:8001 --mode live --output cache/screens/descent --executable '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+```
+
+Private proof: `cache/screens/descent-first/`, `descent-controls-final/`, `descent-headed-final/`, `descent-latest-dev/`, `job6-viewer-final/`, and `job6-pr25-compat-real-final/`. Phase captures explicitly identify controlled UI replays of real cached responses; they are not fresh engine runs. Reports, screenshots and licensed data are uncommitted.
+
+Next: integrator review and merge of PR #23 into dev. The verified live preview is [localhost:8001/app/](http://localhost:8001/app/). No blocking Job 6 issue remains. Visibility cleanup passed a labelled simulation; actual background-tab visibility could not be established by the local browser runner. The imported viewfinder's uncancellable load must settle before reopening. Heading alignment remains unverified. No deployment, main merge or external contact occurred.
+
+## Earlier viewer handoff — historical
+
 Updated: 2026-11-14 19:53 UTC.
 
 Viewer implementation: `d871894`; shared lane-d history and dev integrated in `a5801a1`. Earlier asset/progress milestone: `de84d15`. Work is isolated in `../typecast-d`; the other session's main checkout is untouched. No bridge, index, backend, contract or API dependency edits.

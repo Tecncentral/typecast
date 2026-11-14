@@ -365,7 +365,7 @@ class ShotRetrievalIndex:
         if self.embeddings is None:
             # Preserve shared fixture ranking so offline demos remain reproducible.
             # These supplied scores are not measured semantic similarities.
-            scores = np.array([self.shots[idx].score or 0.0 for idx in candidates], dtype=np.float32)
+            scores = [self.shots[idx].score for idx in candidates]
         else:
             if src_idx is not None:
                 query_vec = self.embeddings[src_idx]
@@ -375,8 +375,8 @@ class ShotRetrievalIndex:
             scores = self.embeddings[candidates] @ query_vec
 
         ranked = sorted(
-            zip(candidates.tolist(), scores.tolist()),
-            key=lambda pair: (-pair[1], self.shots[pair[0]].shot_id),
+            zip(candidates.tolist(), scores if isinstance(scores, list) else scores.tolist()),
+            key=lambda pair: (float("inf") if pair[1] is None else -pair[1], self.shots[pair[0]].shot_id),
         )[:k]
 
         results: list[Shot] = []
@@ -392,7 +392,7 @@ class ShotRetrievalIndex:
             results.append(
                 base.model_copy(
                     update={
-                        "score": float(score),
+                        "score": None if score is None else float(score),
                         "reason": base.reason or reason,
                     }
                 )

@@ -21,6 +21,7 @@ def isolated(tmp_path, monkeypatch):
                  "TYPECAST_RERANK_CACHE_DIR", "TYPECAST_FALLBACK_PROVIDER", "TYPECAST_FALLBACK_MODEL", "FALLBACK_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("TYPECAST_ENABLE_VISION_RERANK", "1")
+    monkeypatch.setenv("TYPECAST_VISION_BATCH_SIZE", "1")
     monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "1")
     monkeypatch.setenv("TYPECAST_LLM_PROVIDER", "openai")
     monkeypatch.setenv("TYPECAST_VISION_MODEL", "test-only-model")
@@ -86,6 +87,24 @@ def install(monkeypatch, provider):
 
 def counters(events):
     return json.loads(events[-1].text.split("accounting=", 1)[1])
+
+
+def test_selected_production_defaults_and_explicit_pool_override(monkeypatch):
+    for name in ("TYPECAST_RERANK_POOL", "TYPECAST_VISION_CONCURRENCY", "TYPECAST_VISION_BATCH_SIZE"):
+        monkeypatch.delenv(name, raising=False)
+    assert rerank.configured_pool_size() == 20
+    original, fake, events = shots(), FakeVision(), []
+    install(monkeypatch, fake)
+    ctx, req = RunContext("selected-defaults", emit=events.append), Requirements(scene="Selected visual brief")
+    ranked = rerank.rerank_shots(ctx, req, original, k=rerank.configured_pool_size())
+    stats = counters(events)
+    assert (stats["pool"], stats["concurrency"], stats["batch_size"], stats["mode"]) == (20, 5, 5, "batch")
+    assert stats["images_scored"] == 20 and stats["provider_calls"] == 4
+    assert all(len(images) == 5 for _, images in fake.calls)
+    assert ranked[20:] == original[20:]
+    overridden = rerank.rerank_shots(ctx, req, original, k=10)
+    assert counters(events)["pool"] == counters(events)["images_scored"] == 10
+    assert overridden[10:] == original[10:]
 
 
 @pytest.mark.parametrize("batch_size", [1, 5, 10])

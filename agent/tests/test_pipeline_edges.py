@@ -24,7 +24,9 @@ def dataset(monkeypatch, rows):
         pid = row.get("pid", f"p{index}")
         properties[pid] = Property(property_id=pid, address=f"{pid} Test St", city="Los Angeles", lat=0, lon=0,
                                    type="Office", year_built=row.get("year", 1980),
-                                   available=row.get("available", True), model_id=f"m-{pid}")
+                                   available=row.get("available", True), model_id=f"m-{pid}",
+                                   availability_status=row.get("availability_status",
+                                       "available" if row.get("available", True) else "not_available"))
         shots.append(Shot(shot_id=f"s{index}", model_id=f"m-{pid}", sweep_id=f"sw{index}", heading_deg=0,
                           image_path="mocks/image.jpg", property_id=pid, depth_m=row.get("depth", 20),
                           ceiling_m=row.get("ceiling", 3), room_area_m2=row.get("area", 100),
@@ -89,13 +91,14 @@ def test_missing_precomputed_logistics_is_an_error_without_hidden_fetch(monkeypa
     assert any(event.type == "error" for event in events)
 
 
-def test_estimated_geometry_is_at_most_tight(monkeypatch):
+def test_estimated_geometry_retains_unknown_fit(monkeypatch):
     dataset(monkeypatch, [{"estimated": True}])
     result = pipeline.scout(RunContext(thread_id="estimated-geometry"), Requirements(scene="Office"))
     pick = result.picks[0]
-    assert pick.shot_fit.status == "tight" and pick.shot_fit.fits is False
+    assert pick.shot_fit.status == "unknown" and pick.shot_fit.fits is False
     assert "measure on site" in pick.shot_fit.note
-    assert all(e.status == "estimated" for e in pick.evidence if e.source == "matterport")
+    assert all(e.status == "estimated" for e in pick.evidence if e.source == "matterport" and not e.claim.startswith("Shot fit:"))
+    assert next(e for e in pick.evidence if e.claim.startswith("Shot fit:")).status == "unknown"
 
 
 def test_rounded_display_depth_does_not_admit_a_measured_failure(monkeypatch):
@@ -139,7 +142,7 @@ def test_occupied_unknown_fit_and_parking_short_are_blocking_not_small_score_pen
     assert not result.picks[0].reason.startswith("Blocked alternative;")
     assert all(p.reason.startswith("Blocked alternative;") for p in result.picks[1:])
     assert any("Parking short" in e.text for e in result.events)
-    assert any("occupied" in e.text for e in result.events)
+    assert any("not listed as available" in e.text for e in result.events)
     assert any("Shot fit unknown" in e.text for e in result.events)
     assert "explicitly blocked alternatives" in result.events[-1].text
 
@@ -195,7 +198,7 @@ def test_events_are_emitted_in_order_during_tools_and_rerank(monkeypatch):
         return original_search(**kwargs)
 
     def rerank_while_running(ctx, req, shots, k):
-        assert k == 10
+        assert k == 20
         assert any(e.agent == "search_shots" and e.type == "tool" for e in observed)
         ctx.event(Event(type="fallback", agent="rerank", text="Vision skipped in test."))
         assert observed[-1].text == "Vision skipped in test."
