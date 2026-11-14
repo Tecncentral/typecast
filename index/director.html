@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typecast Director · Location Animatic</title>
+<link rel="stylesheet" href="director.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot" aria-hidden="true"></span><h1>Typecast <em>Director</em></h1></div>
+  <p class="tag">Real indexed locations. Honest 2D rehearsal. Logistics from source data; unknowns stay unknown.</p>
+</header>
+<p id="status" class="status" role="status" aria-live="polite"></p>
+<main class="grid">
+  <section class="panel" aria-labelledby="h-script">
+    <h2 id="h-script">Script</h2>
+    <label for="script">One scene per line: <code>HEADING | description</code> (max 8)</label>
+    <textarea id="script" rows="7" spellcheck="false"></textarea>
+    <div class="row">
+      <label>Max locations <select id="maxLoc"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
+      <label>Trucks <input id="trucks" type="number" min="0" max="20" value="0"></label>
+      <label>Cars <input id="cars" type="number" min="0" max="50" value="0"></label>
+    </div>
+    <label class="check"><input id="reqAvail" type="checkbox"> Require available listing</label>
+    <div class="row"><button id="build" class="primary" type="button">Build plan</button><button id="demo" type="button">Demo script</button></div>
+    <label for="planSel">Candidate plan</label>
+    <select id="planSel" disabled></select>
+    <p id="planMeta" class="meta"></p>
+    <div class="row"><p id="forbidden" class="meta"></p><button id="clearRej" type="button" class="ghost" disabled>Clear rejections</button></div>
+    <h2>Scenes</h2>
+    <ol id="rail" class="rail"></ol>
+  </section>
+  <section class="panel stagecol" aria-labelledby="h-stage">
+    <div class="stagehead">
+      <h2 id="h-stage">Stage</h2>
+      <span class="badge amber">Uncalibrated screen-space rehearsal</span>
+      <span class="badge">Geometric fit: unknown</span>
+      <div class="seg" role="group" aria-label="Variant">
+        <button id="varA" type="button" aria-pressed="true">A</button><button id="varB" type="button" aria-pressed="false">B</button>
+      </div>
+    </div>
+    <div id="frameNotice" class="notice" hidden></div>
+    <div id="framePicker"></div>
+    <div class="screen"><canvas id="stage" width="1280" height="720" tabindex="0" aria-label="Stage. Drag an actor body to set start, the lime ring to set end. Arrow keys nudge selected actor start, Shift plus arrows nudge end."></canvas></div>
+    <div class="transport">
+      <button id="play" type="button" class="primary">Play</button><button id="pause" type="button">Pause</button><button id="reset" type="button">Reset</button>
+      <progress id="prog" max="1" value="0" aria-label="Playback progress"></progress><span id="clock" class="mono">0.0s</span>
+      <button id="reject" type="button" class="danger" disabled>Reject location</button>
+    </div>
+    <ol id="timeline" class="timeline" aria-label="Shot timeline"></ol>
+  </section>
+  <section class="panel" aria-labelledby="h-shot">
+    <h2 id="h-shot">Shot · variant <span id="varLbl">A</span></h2>
+    <fieldset id="shotForm" disabled>
+      <legend class="sr">Shot settings</legend>
+      <label>Duration (s) <input id="dur" type="number" min="1" max="30" step="0.5"></label>
+      <label for="dlg">Dialogue / action <small>(800 max)</small></label>
+      <textarea id="dlg" rows="3" maxlength="800"></textarea>
+      <div class="row"><label>Actor <select id="actorSel"></select></label><button id="addActor" type="button">Add</button><button id="delActor" type="button">Remove</button></div>
+      <fieldset id="actorForm" class="actor"><legend>Selected actor (screen space 0–1)</legend>
+        <div class="coords">
+          <label>Name <input id="aName" maxlength="24"></label>
+          <label>Pose <select id="aPose"><option>stand</option><option>sit</option><option>walk</option></select></label>
+          <label>Start x0 <input id="ax0" type="number" min="0" max="1" step="0.01"></label>
+          <label>Start y0 <input id="ay0" type="number" min="0" max="1" step="0.01"></label>
+          <label>End x1 <input id="ax1" type="number" min="0" max="1" step="0.01"></label>
+          <label>End y1 <input id="ay1" type="number" min="0" max="1" step="0.01"></label>
+          <label>Scale <input id="aScale" type="number" min="0.3" max="2" step="0.05"></label>
+        </div>
+      </fieldset>
+    </fieldset>
+    <h3>Brainstorm alternative</h3>
+    <p id="micNote" class="meta">Mic is off by default. If you start it, your browser's speech service may process the audio.</p>
+    <div class="row"><button id="micStart" type="button">Start mic</button><button id="micStop" type="button" disabled>Stop mic</button></div>
+    <label for="instr">Instruction (edit before generating)</label>
+    <textarea id="instr" rows="3" maxlength="600"></textarea>
+    <div class="row"><button id="gen" type="button" class="primary">Generate alternative</button><button id="undo" type="button" disabled>Undo apply</button></div>
+    <div id="proposal" class="proposal" hidden>
+      <p id="pSum" class="strong"></p><p id="pNote" class="meta"></p>
+      <p class="meta">Changes versus current B:</p><ul id="pDiff" class="diff"></ul>
+      <div class="row"><button id="applyB" type="button" class="primary">Apply to B</button><button id="discard" type="button">Discard</button></div>
+    </div>
+    <h3>Evidence</h3>
+    <div id="evidence"></div>
+    <a id="planner" class="link" target="_blank" rel="noopener" hidden>Open existing camera planner (separate metric panel; heading 0° assumed, unverified)</a>
+    <h3>Export</h3>
+    <div class="row"><button id="expPng" type="button">Stage PNG</button><button id="expJson" type="button">Project JSON</button><button id="expPack" type="button" disabled>Shoot pack</button></div>
+  </section>
+</main>
+<script src="director.js"></script>
+</body>
+</html>

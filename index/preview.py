@@ -1,6 +1,10 @@
 """Team-local real-image retrieval preview. Run on 127.0.0.1, never expose credentials."""
 import json
 from pathlib import Path
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parents[1] / '.env', override=False)
+
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse
 from index.search import (ROOT, get_active_index, get_shot, search_shots,
@@ -11,6 +15,8 @@ from index.labeling import router as evaluation_router
 app.include_router(evaluation_router)
 from index.lookbook import router as lookbook_router
 app.include_router(lookbook_router)
+from index.production import router as production_router
+app.include_router(production_router)
 
 
 @app.get('/evaluate', response_class=HTMLResponse)

@@ -2,6 +2,8 @@
 
 Target main track: Entertainment & Media. Product direction: turn scenes into a visual, practical shoot plan. Preserve the existing working scouting flow.
 
+**Later council decision:** [Director's Room](DIRECTORS-ROOM.md) supersedes the ranking below for this build. Prioritize the uncalibrated 2D character rehearsal, A/B scene alternatives, reject/replan and shoot-pack export; then reviewable voice brainstorming. Music/remix work is deferred. The list below records possible future directions, not a claim that they are built.
+
 ## Features ranked by genuine value
 
 1. Multi-scene location plan: compare the best independent matches with fewer-location alternatives; expose visual compromises and re-plan after rejecting a location. Supports Entertainment, CoStar and Amazon; a real Deep Agents tool integration supports LangChain.
