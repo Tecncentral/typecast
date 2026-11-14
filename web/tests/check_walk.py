@@ -100,18 +100,21 @@ def main():
         if start["room"]:
             # Stand-ins: P brings on the cast, B adds one, each stands on walkable floor, P clears.
             page.keyboard.press("p")
+            page.wait_for_function("(async () => (await import('/app/viewfinder-walk.js')).walkState(window.__vf).cast?.size > 0)()", timeout=20000)
             page.wait_for_timeout(1200)
             cast = page.evaluate("""async () => { const {walkState} = await import('/app/viewfinder-walk.js');
               const w = walkState(window.__vf), g = w.grid;
               const on = (m) => g.walk[Math.floor((m.z - g.minZ) / g.cell) * g.nx + Math.floor((m.x - g.minX) / g.cell)] === 1;
               return {size: w.cast.size, walkers: w.cast.members.filter(m => m.route).length, on_floor: w.cast.members.every(on),
-                      height_units: w.cast.members[0].figure.root.scale.y * 1.75, shown: getComputedStyle(document.querySelector('.vf-cast')).display}; }""")
-            require(cast["size"] == 3 and cast["walkers"] == 1 and cast["on_floor"], f"the default cast is wrong: {cast}")
-            require(abs(cast["height_units"] / k - 1.75) < 1e-6 and cast["shown"] != "none", "stand-ins are not life size")
+                      animated: w.cast.members.filter(m => m.mixer).length, heights_m: w.cast.members.map(m => m.heightM),
+                      shown: getComputedStyle(document.querySelector('.vf-cast')).display}; }""")
+            require(cast["size"] == 5 and cast["walkers"] == 2 and cast["on_floor"], f"the default cast is wrong: {cast}")
+            require(cast["animated"] == 5, f"the stand-ins are not the animated people: {cast}")
+            require(all(1.6 <= h <= 1.85 for h in cast["heights_m"]) and cast["shown"] != "none", "stand-ins are not life size")
             page.screenshot(path=str(args.screens_dir / "stand-ins.png"))
             page.keyboard.press("b")
-            page.wait_for_timeout(300)
-            require(page.evaluate("(async () => (await import('/app/viewfinder-walk.js')).walkState(window.__vf).cast.size)()") == 4,
+            page.wait_for_timeout(600)
+            require(page.evaluate("(async () => (await import('/app/viewfinder-walk.js')).walkState(window.__vf).cast.size)()") == 6,
                     "B did not add a stand-in")
             page.keyboard.press("p")
             page.wait_for_timeout(300)

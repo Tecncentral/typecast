@@ -4,7 +4,7 @@
 // three.js and Spark are imported on first use, so the rest of the viewer never pays for them.
 // The original viewfinder stays intact: this module only wraps three of its methods.
 import { Viewfinder } from "./viewfinder.js";
-import { createCast, HEIGHT_M } from "./viewfinder-cast.js";
+import { createCast } from "./viewfinder-cast.js";
 
 const WALK_RADIUS_M = { draft: 1.5, refined: 2.5 }; // how far from the scan point the views hold up
 const BINS = 90; // 4° sectors around the scan point
@@ -417,23 +417,30 @@ function castStatus(vf, w) {
   w.castButton.classList.toggle("is-active", count > 0);
   w.castButton.setAttribute("aria-pressed", String(count > 0));
   vf.$(".vf-status").textContent = count
-    ? `${count} stand-in${count === 1 ? "" : "s"} on set, each ${HEIGHT_M} m tall and to scale with the scan. B adds one where you look, P clears.`
+    ? `${count} stand-in${count === 1 ? "" : "s"} on set, life-size and to scale with the scan. B adds one where you look, P clears.`
     : "Stand-ins cleared.";
 }
 
-function toggleCast(vf, w) {
-  if (!w.active || !w.grid) return;
+async function toggleCast(vf, w) {
+  if (!w.active || !w.grid || w.casting) return;
   const cast = ensureCast(w);
-  if (cast.size) cast.clear();
-  else cast.populate();
-  castStatus(vf, w);
+  w.casting = true;
+  try {
+    if (cast.size) cast.clear();
+    else await cast.populate();
+  } finally {
+    w.casting = false;
+  }
+  if (w.cast === cast) castStatus(vf, w);
 }
 
-function placeStandIn(vf, w) {
+async function placeStandIn(vf, w) {
   if (!w.active || !w.grid) return;
   const yaw = rad(vf.view.yaw);
   const ahead = 2.2 * w.scale;
-  const placed = ensureCast(w).place(w.position[0] + Math.sin(yaw) * ahead, w.position[2] - Math.cos(yaw) * ahead, vf.view.yaw + 180);
+  const cast = ensureCast(w);
+  const placed = await cast.place(w.position[0] + Math.sin(yaw) * ahead, w.position[2] - Math.cos(yaw) * ahead, vf.view.yaw + 180);
+  if (w.cast !== cast) return;
   if (placed) castStatus(vf, w);
   else vf.$(".vf-status").textContent = "No free floor there for a stand-in.";
 }
@@ -567,8 +574,7 @@ function start(vf, w) {
     : "Walking the AI-dressed set. W A S D to move, drag to look, E to leave.";
   if (w.grid && w.autoCast && !w.cast?.size) {
     w.autoCast = false;
-    ensureCast(w).populate();
-    castStatus(vf, w);
+    toggleCast(vf, w);
   }
   let last = performance.now();
   const tick = (now) => {

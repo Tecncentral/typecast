@@ -1,13 +1,80 @@
-// Stand-ins for a walkable set: life-size figures to block a scene against.
-// The room's scale is known (its cameras come from the scan), so a 1.75 m figure is 1.75 m
+// Stand-ins for a walkable set: life-size people to block a scene against.
+// The room's scale is known (its cameras come from the scan), so a 1.78 m man is 1.78 m
 // against the desks and doorways, and a framed shot shows what the lens really holds.
-// The figures are jointed mannequins built from primitives: no model file, nothing to license.
+// The people are six rigged, animated public-domain figures (web/vendor/people/). If they
+// cannot be loaded, jointed mannequins built from primitives stand in for them.
 // They stand, shift their weight, and walk the aisles along paths found on the walk's floor grid.
 
 const HEIGHT_M = 1.75;
 const WALK_M_S = 1.15;
 const STRIDE_M = 1.45; // one full gait cycle: two steps
 const TINTS = [0xb9b2a6, 0x8f9aa8, 0xb59f85, 0x9aa596, 0xa894a0, 0xc2b79a];
+const KEEP_RIGHT_M = 0.32; // walkers keep to their right, so two can pass
+const PEOPLE = [
+  { file: "man-in-suit.glb", height: 1.78 },
+  { file: "woman-casual.glb", height: 1.66 },
+  { file: "business-man.glb", height: 1.8 },
+  { file: "long-sleeves.glb", height: 1.75 },
+  { file: "woman.glb", height: 1.64 },
+  { file: "man.glb", height: 1.77 },
+];
+let peopleLoading = null;
+
+/** The animated people, loaded once per page. Resolves to [] when they cannot be loaded. */
+function loadPeople() {
+  peopleLoading ||= (async () => {
+    try {
+      const [{ GLTFLoader }, SkeletonUtils] = await Promise.all([
+        import("three/addons/loaders/GLTFLoader.js"),
+        import("three/addons/utils/SkeletonUtils.js"),
+      ]);
+      const loader = new GLTFLoader();
+      return await Promise.all(
+        PEOPLE.map(async (person) => {
+          const gltf = await loader.loadAsync(new URL(`./vendor/people/${person.file}`, import.meta.url).href);
+          const clip = (pattern) => gltf.animations.find((a) => pattern.test(a.name));
+          const idle = clip(/(^|[|_ ])idle$/i);
+          const walk = clip(/(^|[|_ ])walk(ing)?$/i);
+          if (!idle || !walk) throw new Error("missing clips");
+          return { ...person, scene: gltf.scene, idle, walk, clone: SkeletonUtils.clone };
+        }),
+      );
+    } catch {
+      return [];
+    }
+  })();
+  return peopleLoading;
+}
+
+/** One animated person standing at the origin of `root`, facing +z, `heightUnits` tall. */
+function buildPerson(THREE, person, heightUnits) {
+  const root = new THREE.Group();
+  const body = person.clone(person.scene);
+  root.add(body);
+  body.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  body.traverse((node) => {
+    if (!node.isMesh) return;
+    node.frustumCulled = false; // a skinned mesh's bounds in bind space say little about where it is drawn
+    if (node.isSkinnedMesh) {
+      node.computeBoundingBox();
+      box.union(node.boundingBox.clone().applyMatrix4(node.matrixWorld));
+    } else {
+      box.expandByObject(node);
+    }
+  });
+  const tall = box.max.y - box.min.y;
+  const fit = tall > 0 ? heightUnits / tall : 1;
+  body.scale.multiplyScalar(fit);
+  body.position.y -= box.min.y * fit;
+  const mixer = new THREE.AnimationMixer(body);
+  const idle = mixer.clipAction(person.idle);
+  const walk = mixer.clipAction(person.walk);
+  idle.play();
+  walk.play();
+  walk.setEffectiveWeight(0);
+  return { root, mixer, idle, walk };
+}
 
 const rad = (d) => (d * Math.PI) / 180;
 
@@ -206,6 +273,10 @@ export function createCast(THREE, scene, { scale, floorY, grid }) {
   group.add(sky, key);
   scene.add(group);
   const members = [];
+  let people = [];
+  const ready = loadPeople().then((loaded) => {
+    people = loaded;
+  });
   const isWalkable = (x, z) => {
     const ix = Math.floor((x - grid.minX) / grid.cell);
     const iz = Math.floor((z - grid.minZ) / grid.cell);
@@ -213,37 +284,53 @@ export function createCast(THREE, scene, { scale, floorY, grid }) {
   };
 
   function add(x, z, heading, route = null) {
-    const figure = buildFigure(THREE, TINTS[members.length % TINTS.length]);
-    figure.root.scale.setScalar(scale * (HEIGHT_M / 1.75));
-    figure.root.position.set(x, floorY, z);
-    figure.root.rotation.y = heading;
-    group.add(figure.root);
-    const member = { figure, x, z, heading, route, travelled: 0, direction: 1, pause: 0, blend: 0, gait: 0, seed: members.length * 1.7 };
+    const person = people.length ? people[members.length % people.length] : null;
+    const heightM = person ? person.height : HEIGHT_M;
+    let body;
+    if (person) {
+      body = buildPerson(THREE, person, heightM * scale);
+    } else {
+      const figure = buildFigure(THREE, TINTS[members.length % TINTS.length]);
+      figure.root.scale.setScalar(scale * (heightM / 1.75));
+      body = { root: figure.root, figure };
+    }
+    body.root.position.set(x, floorY, z);
+    body.root.rotation.y = heading;
+    group.add(body.root);
+    const member = { ...body, x, z, heading, route, heightM, travelled: 0, direction: 1, pause: 0, blend: 0, gait: 0, side: 0,
+      seed: members.length * 1.7 };
     members.push(member);
     return member;
   }
 
+  function nearestFloor(x, z) {
+    for (let r = 0; r <= 12; r += 1) {
+      for (let k = 0; k < (r ? 12 : 1); k += 1) {
+        const px = x + Math.sin((k / 12) * Math.PI * 2) * r * grid.cell;
+        const pz = z + Math.cos((k / 12) * Math.PI * 2) * r * grid.cell;
+        if (isWalkable(px, pz)) return [px, pz];
+      }
+    }
+    return null;
+  }
+
   return {
     members,
+    ready,
     get size() {
       return members.length;
     },
-    /** Stand a figure as near as possible to a point, facing a viewfinder heading (degrees). */
-    place(x, z, facingDeg) {
-      for (let r = 0; r <= 12; r += 1) {
-        for (let k = 0; k < (r ? 12 : 1); k += 1) {
-          const px = x + Math.sin((k / 12) * Math.PI * 2) * r * grid.cell;
-          const pz = z + Math.cos((k / 12) * Math.PI * 2) * r * grid.cell;
-          if (isWalkable(px, pz)) {
-            const yaw = rad(facingDeg);
-            return add(px, pz, Math.atan2(Math.sin(yaw), -Math.cos(yaw)));
-          }
-        }
-      }
-      return null;
+    /** Stand someone as near as possible to a point, facing a viewfinder heading (degrees). */
+    async place(x, z, facingDeg) {
+      await ready;
+      const spot = nearestFloor(x, z);
+      if (!spot) return null;
+      const yaw = rad(facingDeg);
+      return add(spot[0], spot[1], Math.atan2(Math.sin(yaw), -Math.cos(yaw)));
     },
-    /** One figure walking the room from scan point to scan point, and two standing off its path. */
-    populate() {
+    /** Two people walking the room from scan point to scan point in opposite directions, and three standing off their route. */
+    async populate() {
+      await ready;
       const stops = grid.points.map((p) => [p[0], p[1], p[2]]);
       let route = [];
       for (let i = 0; i < stops.length - 1; i += 1) {
@@ -252,13 +339,17 @@ export function createCast(THREE, scene, { scale, floorY, grid }) {
       }
       if (route.length > 1) {
         const lengths = measurePath(route);
-        const start = along(route, lengths, lengths.at(-1) * 0.35);
-        const walker = add(start.x, start.z, start.heading, { points: route, lengths });
-        walker.travelled = lengths.at(-1) * 0.35;
+        for (const [share, direction] of [[0.3, 1], [0.8, -1]]) {
+          const start = along(route, lengths, lengths.at(-1) * share);
+          const walker = add(start.x, start.z, start.heading + (direction < 0 ? Math.PI : 0), { points: route, lengths });
+          walker.travelled = lengths.at(-1) * share;
+          walker.direction = direction;
+        }
       }
-      // Standers: beside two scan points, on the walkable spot furthest from the walker's route.
+      // Standers: beside scan points, on the walkable spot furthest from the walkers' route.
       const reach = 1.3 * scale;
-      for (const stop of [stops[Math.min(1, stops.length - 1)], stops.at(-2) || stops[0]]) {
+      const beside = [stops[Math.min(1, stops.length - 1)], stops[Math.floor(stops.length / 2)], stops.at(-1)];
+      for (const stop of beside.filter((s, i) => beside.indexOf(s) === i)) {
         let best = null;
         for (let k = 0; k < 16; k += 1) {
           const px = stop[0] + Math.sin((k / 16) * Math.PI * 2) * reach;
@@ -289,24 +380,35 @@ export function createCast(THREE, scene, { scale, floorY, grid }) {
             m.gait += ((WALK_M_S * dt) / STRIDE_M) * Math.PI * 2;
           }
           const at = along(m.route.points, m.route.lengths, m.travelled);
-          m.x = at.x;
-          m.z = at.z;
           const want = at.heading + (m.direction < 0 ? Math.PI : 0);
           const turn = ((want - m.heading + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
           m.heading += turn * Math.min(1, dt * 6);
+          // Keep right of the route's centre line where the floor allows, so walkers pass each other.
+          const rightX = -Math.cos(want);
+          const rightZ = Math.sin(want);
+          const room = isWalkable(at.x + rightX * KEEP_RIGHT_M * scale * 1.6, at.z + rightZ * KEEP_RIGHT_M * scale * 1.6) ? 1 : 0;
+          m.side += (room - m.side) * Math.min(1, dt * 2);
+          m.x = at.x + rightX * KEEP_RIGHT_M * scale * m.side;
+          m.z = at.z + rightZ * KEEP_RIGHT_M * scale * m.side;
         }
         m.blend += (walking - m.blend) * Math.min(1, dt * 5);
-        m.figure.root.position.set(m.x, floorY, m.z);
-        m.figure.root.rotation.y = m.heading;
-        pose(m.figure, time, m.gait, m.blend, m.seed);
+        m.root.position.set(m.x, floorY, m.z);
+        m.root.rotation.y = m.heading;
+        if (m.mixer) {
+          m.walk.setEffectiveWeight(m.blend);
+          m.idle.setEffectiveWeight(1 - m.blend);
+          m.mixer.update(dt);
+        } else {
+          pose(m.figure, time, m.gait, m.blend, m.seed);
+        }
       }
     },
     clear() {
       for (const m of members) {
-        group.remove(m.figure.root);
-        m.figure.root.traverse((node) => {
-          node.geometry?.dispose();
-        });
+        group.remove(m.root);
+        m.mixer?.stopAllAction();
+        // A person shares its geometry with the loaded model; only a mannequin owns what it is made of.
+        if (m.figure) m.root.traverse((node) => node.geometry?.dispose());
       }
       members.length = 0;
     },
