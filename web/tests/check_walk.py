@@ -26,7 +26,7 @@ STATE = """async () => {
   const {walkState} = await import('/app/viewfinder-walk.js');
   const w = walkState(window.__vf), free = Array.from(w.free || []);
   return {position: w.position, eye: w.eye, at_edge: w.atEdge, free_min: Math.min(...free), free_max: Math.max(...free),
-          freest: free.indexOf(Math.max(...free)) * 4, status: window.__vf.$('.vf-status').textContent};
+          freest: free.indexOf(Math.max(...free)) * 4, units_per_m: w.scale, status: window.__vf.$('.vf-status').textContent};
 }"""
 
 
@@ -77,7 +77,7 @@ def main():
         page.wait_for_timeout(300)
         moved = page.evaluate(STATE)
         walked = ((moved["position"][0] - start["eye"][0]) ** 2 + (moved["position"][2] - start["eye"][2]) ** 2) ** 0.5
-        require(start["free_max"] < 0.3 or walked > 0.2, "W did not move the camera")
+        require(start["free_max"] < 0.3 * start["units_per_m"] or walked > 0.2 * start["units_per_m"], "W did not move the camera")
         require(walked <= start["free_max"] + 0.01 and moved["at_edge"], "the camera walked past the set's limit")
         require(abs(moved["position"][1] - start["eye"][1]) < 1e-6, "eye height changed")
         page.screenshot(path=str(args.screens_dir / "walked.png"))
@@ -99,9 +99,17 @@ def main():
         page.wait_for_timeout(900)
         closed = page.evaluate("({open: window.__vf.dialog.open, canvases: document.querySelectorAll('.vf-walk-canvas').length})")
         require(closed == {"open": False, "canvases": 0}, "closing left the walk canvas behind")
+        # The direct link opens the scan point and steps inside without a scout.
+        page.goto(args.base_url + "/app/#walk=" + args.shot, wait_until="networkidle")
+        page.reload(wait_until="networkidle")
+        page.wait_for_selector("dialog.vf.is-walking", timeout=60000)
+        page.wait_for_timeout(800)
+        page.screenshot(path=str(args.screens_dir / "linked.png"))
         require(not errors, f"browser errors: {errors[:3]}")
-        report.update(walked_m=round(walked, 2), free_min_m=round(start["free_min"], 2),
-                      free_max_m=round(start["free_max"], 2), chromium_version=browser.version)
+        k = start["units_per_m"]
+        report.update(walked_m=round(walked / k, 2), free_min_m=round(start["free_min"] / k, 2),
+                      free_max_m=round(start["free_max"] / k, 2), world_units_per_m=round(k, 3),
+                      chromium_version=browser.version)
         browser.close()
     print(json.dumps({"ok": True, **report}, indent=2))
 

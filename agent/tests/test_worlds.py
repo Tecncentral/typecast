@@ -207,3 +207,30 @@ def test_splat_cli_refuses_to_spend_without_the_matching_allowance(monkeypatch, 
         with pytest.raises(SystemExit):
             dress.main(argv)
     assert "pass --allow-spend-credits" in capsys.readouterr().err
+
+
+def test_redress_keeps_the_posed_depth_and_archives_the_previous_look(dressed_client, tmp_path):
+    out = _dressed_record(tmp_path)
+    record = json.loads((out / "dressed.json").read_text())
+    record.update(splat={"file": "dressed-draft.spz", "mode": "draft"}, splats={"draft": {"file": "dressed-draft.spz"}})
+    (out / "dressed.json").write_text(json.dumps(record))
+    for name in ("dressed_0.jpg", "dressed-draft.spz"):
+        (out / name).write_bytes(b"old")
+    frames = [{"imageAsset": {"assetId": f"new_{i}", "url": f"https://x/{i}.jpg"}} for i in range(4)]
+    session = _Session([_Resp(201, {"id": "op_c", "done": True, "response": {"frames": frames, "promptUsed": "used"}})]
+                       + [_Resp(200, chunks=[b"new"]) for _ in range(4)])
+    client = atlas.AtlasClient(api_key=KEY, session=session, sleep=lambda s: None)
+    new = dress.redress_scan_point(record=dress.find_dressed(scene_id="w"), scene="INT. PRECINCT - NIGHT.",
+                                   client=client, log=lambda m: None)
+    body = json.loads(session.calls[0][2]["data"])
+    assert [f["depth"]["depthAsset"]["assetId"] for f in body["targetFrames"]] == [f"depth_{i}" for i in range(4)]
+    assert "INT. PRECINCT - NIGHT." in body["prompt"] and all("imageAsset" not in f for f in body["targetFrames"])
+    assert new["scene"] == "INT. PRECINCT - NIGHT." and new["splat"] is None and "splats" not in new
+    assert [f["image_asset_id"] for f in new["faces"]] == [f"new_{i}" for i in range(4)]
+    assert new["faces"][0]["dressed"] != "dressed_0.jpg" and (out / new["faces"][0]["dressed"]).read_bytes() == b"new"
+    kept = out / "looks" / "1"
+    assert json.loads((kept / "dressed.json").read_text())["scene"] == "INT. WAREHOUSE - DAY."
+    assert (kept / "dressed_0.jpg").read_bytes() == b"old" and (kept / "dressed-draft.spz").read_bytes() == b"old"
+    served = dressed_client.get("/api/dressed/p1-m1-s1-0.000-abc").json()
+    assert served["scene"] == "INT. PRECINCT - NIGHT." and served["splat"] is None
+    assert served["faces"][0]["dressed_url"].endswith(new["faces"][0]["dressed"])

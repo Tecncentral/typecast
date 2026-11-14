@@ -11,6 +11,9 @@ const CELL_M = 0.05;
 const CELLS = 80; // surfaces are searched out to 4 m
 const WALL_MARGIN_M = 0.4;
 const SPEED_M_S = 1.1;
+// Four views from one scan point carry no metric scale, so Atlas's world units are arbitrary.
+// The scan camera's height above the floor sets the scale; Matterport tripods sit near 1.5 m.
+const CAPTURE_HEIGHT_M = 1.5;
 const ICON_WALK = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 const MOVE_KEYS = { w: "forward", arrowup: "forward", s: "back", arrowdown: "back", a: "left", d: "right" };
 
@@ -21,7 +24,7 @@ const walks = new WeakMap();
 function stateFor(vf) {
   let w = walks.get(vf);
   if (w) return w;
-  w = { active: false, loading: false, keys: new Set(), velocity: [0, 0], position: [0, 0, 0], eye: [0, 0, 0], raf: 0 };
+  w = { active: false, loading: false, keys: new Set(), velocity: [0, 0], position: [0, 0, 0], eye: [0, 0, 0], scale: 1, raf: 0 };
   walks.set(vf, w);
 
   w.button = document.createElement("button");
@@ -77,20 +80,31 @@ function setEdge(vf, w, atEdge) {
 // Walls and furniture stop the walk. The splat itself says where they are: for each direction
 // from the scan point, the nearest distance at which splats at body height become dense.
 // That is also the limit of what the scan point could see, so it is where the set stays honest.
-function freeSpace(mesh, eye, radius) {
+// Returns the reach per sector in world units, and how many world units make a metre.
+function measure(mesh, eye, radiusM) {
+  const below = [];
+  mesh.forEachSplat((index, center, scales, quaternion, opacity) => {
+    if (opacity >= 0.3 && center.y < eye[1]) below.push(center.y);
+  });
+  below.sort((p, q) => p - q);
+  // The floor is the lowest dense surface; the 2nd percentile ignores stray splats under it.
+  const drop = below.length ? eye[1] - below[Math.floor(below.length * 0.02)] : 0;
+  const scale = drop > 0.05 ? drop / CAPTURE_HEIGHT_M : 1;
   const counts = new Uint32Array(BINS * CELLS);
   const totals = new Uint32Array(BINS);
+  const low = eye[1] - drop + 0.4 * scale; // skip the floor itself
+  const high = eye[1] + 0.1 * scale;
   mesh.forEachSplat((index, center, scales, quaternion, opacity) => {
-    if (opacity < 0.3 || center.y < eye[1] - 1.45 || center.y > eye[1] + 0.1) return;
+    if (opacity < 0.3 || center.y < low || center.y > high) return;
     const dx = center.x - eye[0];
     const dz = center.z - eye[2];
-    const cell = Math.floor(Math.hypot(dx, dz) / CELL_M);
+    const cell = Math.floor(Math.hypot(dx, dz) / scale / CELL_M);
     if (cell < 3 || cell >= CELLS) return;
     const bin = Math.floor((((Math.atan2(dx, -dz) / (2 * Math.PI)) % 1) + 1) * BINS) % BINS;
     counts[bin * CELLS + cell] += 1;
     totals[bin] += 1;
   });
-  const nearest = new Float32Array(BINS).fill(radius + WALL_MARGIN_M);
+  const nearest = new Float32Array(BINS).fill(radiusM + WALL_MARGIN_M);
   for (let bin = 0; bin < BINS; bin += 1) {
     // A few stray splats are not a wall: wait for 3% of the sector's surface, and at least 25.
     const needed = Math.max(25, totals[bin] * 0.03);
@@ -106,17 +120,32 @@ function freeSpace(mesh, eye, radius) {
   const free = new Float32Array(BINS);
   for (let bin = 0; bin < BINS; bin += 1) {
     const around = Math.min(nearest[(bin + BINS - 1) % BINS], nearest[bin], nearest[(bin + 1) % BINS]);
-    free[bin] = Math.max(0, Math.min(radius, around - WALL_MARGIN_M));
+    free[bin] = Math.max(0, Math.min(radiusM, around - WALL_MARGIN_M)) * scale;
   }
-  return free;
+  return { free, scale };
 }
 
 function reach(w, dx, dz) {
-  if (!w.free) return w.radius;
+  if (!w.free) return 0;
   const turn = (((Math.atan2(dx, -dz) / (2 * Math.PI)) % 1) + 1) * BINS;
   const a = Math.floor(turn) % BINS;
   const t = turn - Math.floor(turn);
   return w.free[a] * (1 - t) + w.free[(a + 1) % BINS] * t;
+}
+
+// The heading with the most floor around it: the natural establishing view of the set.
+function openHeading(w) {
+  let best = 0;
+  let most = -1;
+  for (let bin = 0; bin < BINS; bin += 1) {
+    let sum = 0;
+    for (let k = -5; k <= 5; k += 1) sum += w.free[(bin + k + BINS) % BINS];
+    if (sum > most) {
+      most = sum;
+      best = bin;
+    }
+  }
+  return ((best + 0.5) * 360) / BINS;
 }
 
 function sweepWipe(vf, to, duration) {
@@ -149,12 +178,13 @@ async function build(vf, w, splat) {
   Object.assign(w, { canvas, renderer, scene, spark, camera, mesh, url: splat.url });
   vf.canvas.after(canvas);
   await mesh.initialized;
-  const radius = WALK_RADIUS_M[splat.mode === "draft" ? "draft" : "refined"];
+  const radiusM = WALK_RADIUS_M[splat.mode === "draft" ? "draft" : "refined"];
   try {
-    w.free = freeSpace(mesh, (splat.eye || [0, 0, 0]).map(Number), radius);
+    Object.assign(w, measure(mesh, (splat.eye || [0, 0, 0]).map(Number), radiusM));
   } catch {
-    w.free = new Float32Array(BINS).fill(0.5); // no readable geometry: stay close to the scan point
+    Object.assign(w, { free: new Float32Array(BINS).fill(0.3), scale: 1 }); // unreadable: stay put
   }
+  camera.near = 0.05 * w.scale;
 }
 
 function render(vf, w) {
@@ -178,8 +208,9 @@ function step(vf, w, dt) {
   const ahead = (w.keys.has("forward") ? 1 : 0) - (w.keys.has("back") ? 1 : 0);
   const side = (w.keys.has("right") ? 1 : 0) - (w.keys.has("left") ? 1 : 0);
   const length = Math.hypot(ahead, side) || 1;
-  const targetX = ((Math.sin(yaw) * ahead + Math.cos(yaw) * side) / length) * SPEED_M_S;
-  const targetZ = ((-Math.cos(yaw) * ahead + Math.sin(yaw) * side) / length) * SPEED_M_S;
+  const speed = SPEED_M_S * w.scale;
+  const targetX = ((Math.sin(yaw) * ahead + Math.cos(yaw) * side) / length) * speed;
+  const targetZ = ((-Math.cos(yaw) * ahead + Math.sin(yaw) * side) / length) * speed;
   const ease = reducedMotion() ? 1 : 1 - Math.exp(-dt * 10);
   w.velocity[0] += (targetX - w.velocity[0]) * ease;
   w.velocity[1] += (targetZ - w.velocity[1]) * ease;
@@ -249,7 +280,6 @@ async function toggle(vf) {
   vf.dialog.classList.add("is-walk-loading");
   w.wipeBefore = vf.wipe;
   w.mode = splat.mode === "draft" ? "draft" : "refined";
-  w.radius = WALK_RADIUS_M[w.mode];
   w.eye = (splat.eye || [0, 0, 0]).map(Number);
   // The 360° view finishes dressing while the reconstruction loads, so the cut into 3D matches.
   sweepWipe(vf, 1, 900);
@@ -288,6 +318,7 @@ function dispose(w) {
   }
   w.canvas?.remove();
   w.canvas = w.renderer = w.scene = w.spark = w.camera = w.mesh = w.url = w.free = null;
+  w.scale = 1;
 }
 
 /* ---------------- Viewfinder hooks ---------------- */
@@ -299,6 +330,14 @@ Viewfinder.prototype.loadDressed = async function (shotId, generation, renderer)
   const w = stateFor(this);
   w.button.hidden = false;
   this.$(".vf-status").textContent = "An AI-dressed version of this room is ready: press D to compare it, or E to walk through it.";
+  if (w.autoWalk) {
+    w.autoWalk = false;
+    await toggle(this);
+    if (w.active) {
+      this.state.yaw = w.linkYaw ?? openHeading(w);
+      this.animateTo({ yaw: this.state.yaw }, reducedMotion() ? 1 : 900);
+    }
+  }
 };
 
 const close = Viewfinder.prototype.close;
@@ -329,6 +368,17 @@ Viewfinder.prototype.grab = function () {
     this.canvas = panorama;
   }
 };
+
+/* ---------------- Direct link ---------------- */
+
+// /app/#walk=<shot id> opens that scan point and steps straight into its set, for demos.
+// It faces the most open direction, or the scan-relative heading in an optional &yaw=<degrees>.
+const linked = location.hash.match(/^#walk=([A-Za-z0-9._-]{1,440})(?:&yaw=(\d{1,3}))?$/);
+if (linked) {
+  const vf = new Viewfinder();
+  Object.assign(stateFor(vf), { autoWalk: true, linkYaw: linked[2] == null ? null : Number(linked[2]) % 360 });
+  vf.open(linked[1], null);
+}
 
 // For browser checks: the walk state of a viewfinder (limits, position).
 export const walkState = (vf) => walks.get(vf) || null;

@@ -8,6 +8,7 @@ Pipeline per scan point (four real horizon faces, scan-relative headings 0/90/18
 
   python -m worlds.dress --demo [--only <scene_id>] [--api http://localhost:8004]
   python -m worlds.dress --shot <shot_id> --scene "INT. ..." [--scene-id custom]
+  python -m worlds.dress --redress --scene-id <id> --scene "INT. ..."   # new look, same posed depth
   python -m worlds.dress --splat --draft --scene-id <id> --allow-spend-credits 500
   python -m worlds.dress --splat --shot <shot_id> --allow-spend-credits 5000   # refined
 
@@ -150,6 +151,52 @@ def dress_scan_point(*, sweep: dict, scene: str, scene_id: str, client: AtlasCli
     return record
 
 
+def redress_scan_point(*, record: dict, scene: str, client: AtlasClient,
+                       log: Callable[[str], None] = print) -> dict:
+    """Give an already-posed scan point a new look: same cameras and depth, a new scene.
+
+    The previous look's record and frames move to dressed/looks/<n>/, so nothing is lost.
+    A splat belongs to the look it was built from, so the new record starts without one.
+    """
+    out = scan_point_dir(record["model_id"], record["sweep_id"]) / "dressed"
+    prompt = dressing_prompt(scene)
+    tag = hashlib.sha1(prompt.encode()).hexdigest()[:10]
+    op = client.submit("atlasChisel", {
+        "targetFrames": [{"camera": f["camera"], "depth": {"depthAsset": {"assetId": f["depth_asset_id"]}}}
+                         for f in record["faces"]],
+        "prompt": prompt,
+        "enhancePrompt": True,
+    }, idempotency_key=f"tc-{_safe(record['model_id'])}-{_safe(record['sweep_id'])}"[:80] + f"-chisel-{tag}")
+    ledger({"task": "atlasChisel", "operation": op.get("id"), "scene_id": record["scene_id"], "redress": True})
+    done = client.wait(op)
+    dressed = done["response"]["frames"]
+    if len(dressed) != len(record["faces"]):
+        raise AtlasError("Atlas returned a different number of frames than were asked for")
+    log(f"dressed frames ready: {len(dressed)}")
+    files = []
+    for i, new in enumerate(dressed):
+        ext = "png" if ".png" in str(new["imageAsset"].get("url", "")).split("?")[0] else "jpg"
+        files.append(f"dressed_{i}-{tag}.{ext}")  # a new name, so no browser shows the old look
+        client.download(new["imageAsset"]["url"], out / files[-1])
+    keep = out / "looks" / str(len(list((out / "looks").glob("*/dressed.json"))) + 1 if (out / "looks").is_dir() else 1)
+    keep.mkdir(parents=True)
+    (keep / "dressed.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    for face in record["faces"]:
+        if (out / face["dressed"]).is_file():
+            (out / face["dressed"]).replace(keep / face["dressed"])
+    for entry in (record.get("splats") or {}).values():
+        if (out / entry["file"]).is_file():
+            (out / entry["file"]).replace(keep / entry["file"])
+    faces = [{**face, "dressed": name, "image_asset_id": new["imageAsset"].get("assetId")}
+             for face, name, new in zip(record["faces"], files, dressed)]
+    record = {**record, "scene": scene, "prompt": prompt, "prompt_used": done["response"].get("promptUsed"),
+              "created_at": datetime.now(timezone.utc).isoformat(), "faces": faces, "splat": None}
+    record.pop("splats", None)
+    record.pop("dir", None)
+    (out / "dressed.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return record
+
+
 def find_dressed(*, shot_id: Optional[str] = None, scene_id: Optional[str] = None) -> Optional[dict]:
     """A dressed scan point already in the local cache, so a splat needs no running API."""
     for path in sorted(worlds_dir().glob("*/*/dressed/dressed.json")):
@@ -229,12 +276,23 @@ def main(argv=None) -> int:
     parser.add_argument("--shot")
     parser.add_argument("--scene")
     parser.add_argument("--scene-id", default="custom")
+    parser.add_argument("--redress", action="store_true", help="new look for a dressed scan point; needs --scene")
     parser.add_argument("--splat", action="store_true")
     parser.add_argument("--draft", action="store_true", help="unrefined splat: 500 credits instead of 5,000")
     parser.add_argument("--allow-spend-credits", type=int, default=0)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     client = AtlasClient()
+    if args.redress:
+        record = find_dressed(shot_id=args.shot) if args.shot else find_dressed(scene_id=args.scene_id)
+        if not record or not args.scene:
+            parser.error("--redress needs --scene and a dressed scan point (--shot or --scene-id)")
+        try:
+            redress_scan_point(record=record, scene=args.scene, client=client)
+        except AtlasError as error:
+            print(f"FAILED: {str(error)[:300]}")
+            return 1
+        return 0
     if args.splat:
         if not args.shot and args.scene_id == "custom":
             parser.error("--splat needs --shot or --scene-id")
