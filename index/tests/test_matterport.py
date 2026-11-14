@@ -16,6 +16,7 @@ from index.matterport import (
     MatterportIngestionError,
     ORIENTATION_CAVEAT,
     ingest_matterport,
+    load_matterport_credentials,
     main,
 )
 
@@ -104,6 +105,34 @@ def _write_models_file(tmp_path: Path, pairs: list[dict[str, str]]) -> Path:
 
 def _public_dns(_: str) -> list[str]:
     return ["93.184.216.34"]
+
+
+@pytest.mark.parametrize(
+    ('token', 'secret', 'expected'),
+    [(None, 'secret-alias', 'secret-alias'),
+     ('', 'secret-alias', 'secret-alias'),
+     ('preferred-token', 'secret-alias', 'preferred-token'),
+     ('preferred-token', None, 'preferred-token')],
+)
+def test_credentials_support_shared_secret_alias_with_token_precedence(
+    tmp_path, monkeypatch, token, secret, expected,
+):
+    monkeypatch.setattr('os.environ', {})
+    values = {'MATTERPORT_API_KEY': 'synthetic-key',
+              'MATTERPORT_API_TOKEN': token, 'MATTERPORT_API_SECRET': secret}
+    path = tmp_path / '.env'
+    path.write_text('\n'.join(f'{key}={value}' for key, value in values.items() if value is not None))
+    assert load_matterport_credentials(path) == ('synthetic-key', expected)
+
+
+def test_shell_token_overrides_dotenv_secret_alias(tmp_path, monkeypatch):
+    monkeypatch.setattr('os.environ', {})
+    monkeypatch.setenv('MATTERPORT_API_KEY', 'shell-key')
+    monkeypatch.setenv('MATTERPORT_API_TOKEN', 'shell-token')
+    monkeypatch.delenv('MATTERPORT_API_SECRET', raising=False)
+    path = tmp_path / '.env'
+    path.write_text('MATTERPORT_API_KEY=file-key\nMATTERPORT_API_SECRET=file-secret\n')
+    assert load_matterport_credentials(path) == ('shell-key', 'shell-token')
 
 
 def test_successful_ingestion_writes_manifest_unknown_geometry_and_separated_sessions(
@@ -424,6 +453,38 @@ def test_spatial_sampling_covers_far_views_without_near_duplicates():
              for i, x in enumerate([0, 0.1, 2, 10, 5])]
     result = select_spread_panos(panos, 3)
     assert [p['position']['x'] for p in result] == [0, 10, 5]
+
+
+def test_partial_refresh_reconciles_property_join_for_retained_sweeps(tmp_path):
+    models = _write_models_file(tmp_path, [
+        {'model_id': 'model_remap', 'property_id': 'old-property'},
+        {'model_id': 'other-model', 'property_id': 'other-property'},
+    ])
+    output = tmp_path / 'cache/matterport'
+    panos = [dict(id=f'sweep-{i}', position=dict(x=i * 5, y=0, z=0),
+                  skybox={'status': 'ready', 'children': [
+                      f'https://cdn.example.test/face-{face}.jpg' for face in range(6)]})
+             for i in range(2)]
+    graph = FakeGraphSession(lambda *args: FakeResponse(
+        json_data={'data': {'model': {'panoLocations': panos}}}))
+    cdn = FakeCdnSession(lambda *args: FakeResponse(content=_make_jpeg_bytes()))
+    kwargs = dict(models_path=models, output_dir=output, auth=('fake', 'fake'),
+                  graph_session=graph, cdn_session=cdn, dns_resolver=_public_dns)
+    initial, _ = ingest_matterport(**kwargs, max_sweeps=2)
+    assert len(initial['records']) == 16
+
+    # Refresh a smaller sweep batch after correcting the agreed model/property join.
+    models.write_text(json.dumps([{'model_id': 'model_remap', 'property_id': 'current-property'}]))
+    refreshed, report = ingest_matterport(**kwargs, max_sweeps=1)
+    assert report.shots_resumed == 4
+    retained = [r for r in refreshed['records'] if r['model_id'] == 'model_remap']
+    assert len(retained) == 8
+    assert {r['property_id'] for r in retained} == {'current-property'}
+    assert {r['property_id'] for r in refreshed['records']
+            if r['model_id'] == 'other-model'} == {'other-property'}
+    stale_sweep = next(r for r in retained if r['sweep_id'] == 'sweep-1')
+    previous = next(r for r in initial['records'] if r['shot_id'] == stale_sweep['shot_id'])
+    assert stale_sweep['provenance'] == previous['provenance']
 
 
 def test_failed_refresh_preserves_good_manifest_and_download_timestamp(tmp_path):

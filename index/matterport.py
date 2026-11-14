@@ -252,17 +252,18 @@ def load_model_property_pairs(models_path: str | Path, *, max_models: int) -> li
 
 
 def load_matterport_credentials(env_path: str | Path | None = None) -> tuple[str, str]:
-    """Load MATTERPORT_API_KEY and MATTERPORT_API_TOKEN via dotenv without logging values."""
+    """Load Basic credentials, accepting the shared SECRET name as a TOKEN fallback."""
     if env_path is not None:
         load_dotenv(dotenv_path=Path(env_path), override=False)
     else:
         load_dotenv(override=False)
 
     api_key = os.environ.get("MATTERPORT_API_KEY", "").strip()
-    api_token = os.environ.get("MATTERPORT_API_TOKEN", "").strip()
+    api_token = (os.environ.get("MATTERPORT_API_TOKEN", "").strip()
+                 or os.environ.get("MATTERPORT_API_SECRET", "").strip())
     if not api_key or not api_token:
         raise MatterportIngestionError(
-            "Missing MATTERPORT_API_KEY or MATTERPORT_API_TOKEN in environment/.env"
+            "Missing MATTERPORT_API_KEY or MATTERPORT_API_TOKEN/MATTERPORT_API_SECRET in environment/.env"
         )
     return api_key, api_token
 
@@ -586,6 +587,7 @@ def ingest_matterport(
 
     credentials = auth if auth is not None else load_matterport_credentials()
     pairs = load_model_property_pairs(models_path, max_models=max_models)
+    property_by_model = {pair.model_id: pair.property_id for pair in pairs}
 
     out_root = Path(output_dir)
     out_root.mkdir(parents=True, exist_ok=True)
@@ -721,6 +723,12 @@ def ingest_matterport(
         try:
             image_path = resolve_safe_subpath(out_root, record['image_path'])
             if is_valid_local_image(image_path):
+                # The supplied join also applies to retained sweeps omitted by a
+                # partial refresh. Otherwise correcting a model/property pair
+                # leaves one model indexed under both old and current properties.
+                current_property = property_by_model.get(record.get('model_id'))
+                if current_property is not None:
+                    record = {**record, 'property_id': current_property}
                 merged_records[shot_id] = record
         except (KeyError, TypeError, MatterportIngestionError):
             pass

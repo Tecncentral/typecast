@@ -27,7 +27,8 @@ From the repository root, install the baseline lock first. CLIP is optional and
 heavy; install `python -m pip install -r index/requirements.txt` for indexing and
 real text search. The core tests use controlled vectors and do not download models.
 
-Set MATTERPORT_API_KEY and MATTERPORT_API_TOKEN privately in `.env`. Download the
+Set MATTERPORT_API_KEY and MATTERPORT_API_SECRET privately in `.env` (the importer
+also accepts MATTERPORT_API_TOKEN, which takes precedence when both are set). Download the
 official `models_index.csv` from the sponsor quickstart into `cache/matterport/`.
 Create `cache/matterport/models.json` as a JSON list of objects containing
 `model_id` (catalog `sid`) and `property_id` (catalog `costar_property_id`). Use
