@@ -48,8 +48,12 @@
         x1: number(actor.x1, 'x1', 0, 1), y1: number(actor.y1, 'y1', 0, 1), scale: number(actor.scale, 'scale', .3, 2) };
     });
     if (new Set(actors.map((actor) => actor.id)).size !== actors.length) fail('duplicate actor ids');
-    return { duration_sec: number(value.duration_sec, 'duration', 1, 30),
+    // Provenance whitelist: exactly one known value, otherwise the file is refused (no free-text origin labels).
+    if (value.origin != null && value.origin !== 'authored-sample') fail('unsupported take origin');
+    const out = { duration_sec: number(value.duration_sec, 'duration', 1, 30),
       dialogue: text(value.dialogue, 'dialogue', 800, true), actors };
+    if (value.origin === 'authored-sample') out.origin = 'authored-sample';
+    return out;
   }
   function variants(value) {
     record(value, 'variants');

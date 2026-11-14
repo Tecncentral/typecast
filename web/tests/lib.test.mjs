@@ -5,6 +5,7 @@ import {
   laneStates, stepStates, latestTodos, imageUrl, fitInfo, availabilityInfo, parkingInfo,
   noiseInfo, objections, sourceStatus, rankDiff, moveLabel, tourLink, parkingRings, parseJsonl,
 } from "../lib.js";
+import { availability, fitStatus } from "../drawer.js";
 
 const mockEvents = parseJsonl(readFileSync(new URL("../../mocks/events.jsonl", import.meta.url), "utf8"));
 const mockPicks = JSON.parse(readFileSync(new URL("../../mocks/pick.json", import.meta.url), "utf8"));
@@ -68,8 +69,12 @@ test("unknown depth is never 'fits'", () => {
 
 test("availability honours availability_status over the legacy boolean", () => {
   assert.equal(availabilityInfo({ available: false, availability_status: "unknown" }).status, "unknown");
-  assert.equal(availabilityInfo({ available: true }).status, "available");
-  assert.equal(availabilityInfo({ available: false }).status, "occupied");
+  // Status is authoritative: a bare legacy boolean (fixtures, null status) is never "Available"/"Occupied".
+  assert.equal(availabilityInfo({ available: true }).status, "unknown");
+  assert.equal(availabilityInfo({ available: true, availability_status: null }).status, "unknown");
+  assert.equal(availabilityInfo({ available: false }).status, "unknown");
+  assert.equal(availabilityInfo({ available: false, availability_status: "available" }).status, "available");
+  assert.equal(availabilityInfo({ available: true, availability_status: "not_available" }).status, "occupied");
 });
 
 test("null parking is unknown, not zero", () => {
@@ -118,4 +123,32 @@ test("parking rings prefer GeoJSON and flip it to [lat, lon]", () => {
   assert.deepEqual(parkingRings(lg)[0][0], [34.2, -118.2]);
   assert.deepEqual(parkingRings({ parking_polygon: lg.parking_polygon }), [lg.parking_polygon]);
   assert.deepEqual(parkingRings({ parking_polygon: [] }), []);
+});
+
+test("fitInfo: geometry that is not explicitly measured is never 'fits'", () => {
+  const fit = { fits: true, status: "fits", needed_depth_m: 5, have_depth_m: 8, ceiling_m: 3 };
+  assert.equal(fitInfo(fit, { measure_on_site: false }).status, "fits");      // known measured positive kept
+  assert.equal(fitInfo(fit, { measure_on_site: true }).status, "unknown");   // estimated geometry
+  assert.equal(fitInfo(fit, {}).status, "unknown");                          // geometry source unknown
+  assert.equal(fitInfo({ ...fit, fits: undefined, status: undefined }).status, "unknown"); // no status, no boolean
+});
+
+test("drawer availability is status-authoritative and keeps explicit sources", () => {
+  assert.equal(availability({ available: true }).status, "unknown");
+  assert.equal(availability({ available: true, availability_status: null }).status, "unknown");
+  assert.equal(availability({ available: false }).status, "unknown");
+  assert.equal(availability({ available: false, availability_status: "available" }).status, "available");
+  assert.equal(availability({ available: true, availability_status: "not_available" }).status, "not_available");
+  assert.equal(availability({ availability_status: "unknown", available: true }).text, "Availability unknown");
+});
+
+test("drawer fit needs explicitly measured geometry; unknown or estimated stays unknown", () => {
+  const fit = { status: "fits", fits: true, needed_depth_m: 5, have_depth_m: 8, ceiling_m: 3 };
+  const pick = (shot) => ({ shot_fit: fit, shots: shot === undefined ? [] : [shot] });
+  assert.equal(fitStatus(pick({ measure_on_site: false })), "fits");
+  assert.equal(fitStatus(pick({ measure_on_site: true })), "unknown");
+  assert.equal(fitStatus(pick({})), "unknown");
+  assert.equal(fitStatus(pick({ measure_on_site: null })), "unknown");
+  assert.equal(fitStatus(pick(undefined)), "unknown");
+  assert.equal(fitStatus({ shot_fit: { ...fit, status: "tight", fits: false }, shots: [{ measure_on_site: false }] }), "tight");
 });

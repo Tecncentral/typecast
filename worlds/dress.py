@@ -20,6 +20,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import sys
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -171,13 +172,97 @@ def splat_scan_point(*, sweep: dict, client: AtlasClient, log: Callable[[str], N
     return record
 
 
-def load_dressed(model_id: str, sweep_id: str) -> Optional[dict]:
-    path = scan_point_dir(model_id, sweep_id) / "dressed" / "dressed.json"
-    if not path.is_file():
+_FACE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\.(?:jpg|jpeg|png|webp)")
+_SPLAT_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}\.spz")
+_TEXT_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+MAX_FACES = 4
+
+
+def _number(value, low: float, high: float) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         return None
-    record = json.loads(path.read_text(encoding="utf-8"))
-    record["dir"] = f"/cache/worlds/{_safe(model_id)}/{_safe(sweep_id)}/dressed"
-    return record
+    value = float(value)
+    return value if math.isfinite(value) and low <= value <= high else None
+
+
+def _cache_file(directory: pathlib.Path, name, pattern) -> Optional[str]:
+    """A single safe basename naming a regular, non-symlink file directly inside `directory`."""
+    if not isinstance(name, str) or not pattern.fullmatch(name):
+        return None
+    path = directory / name
+    try:
+        if path.is_symlink() or not path.is_file() or path.resolve().parent != directory.resolve():
+            return None
+    except OSError:
+        return None
+    return name
+
+
+def load_dressed(model_id: str, sweep_id: str) -> Optional[dict]:
+    """Validated, canonical-labelled dressed record for exactly this scan point, or None.
+
+    Cache contents are untrusted: expected corruption (bad JSON, wrong types, a face
+    that is missing or unsafe) yields None or drops that one face. The cached label and
+    generation prompt are never passed through.
+    """
+    if _safe(model_id) != model_id or _safe(sweep_id) != sweep_id or not model_id or not sweep_id:
+        return None
+    directory = worlds_dir() / model_id / sweep_id / "dressed"
+    try:
+        if directory.is_symlink() or directory.resolve() != worlds_dir().resolve() / model_id / sweep_id / "dressed":
+            return None
+        path = directory / "dressed.json"
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > 1_000_000:
+            return None
+        record = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
+        return None
+    # The record must claim this exact scan point (genuine records always carry both ids).
+    if not isinstance(record, dict) or record.get("model_id") != model_id or record.get("sweep_id") != sweep_id:
+        return None
+    raw_faces = record.get("faces")
+    if not isinstance(raw_faces, list):
+        return None
+    faces = []
+    for face in raw_faces:
+        if len(faces) >= MAX_FACES:
+            break
+        if not isinstance(face, dict):
+            continue
+        yaw, pitch = _number(face.get("yaw_deg"), -360, 360), _number(face.get("pitch_deg"), -90, 90)
+        tan_h, tan_v = _number(face.get("tan_h"), 0.05, 10), _number(face.get("tan_v"), 0.05, 10)
+        dressed = _cache_file(directory, face.get("dressed"), _FACE_NAME)
+        if None in (yaw, pitch, tan_h, tan_v) or dressed is None:
+            continue
+        faces.append({"yaw_deg": yaw, "pitch_deg": pitch, "tan_h": tan_h, "tan_v": tan_v,
+                      "source_heading_deg": _number(face.get("source_heading_deg"), -360, 720),
+                      "dressed": dressed, "real": _cache_file(directory, face.get("real"), _FACE_NAME)})
+    if not faces:
+        return None
+    scene = record.get("scene")
+    scene = "".join(ch for ch in scene if ch.isprintable())[:200] if isinstance(scene, str) else None
+    scene_id = record.get("scene_id")
+    created = record.get("created_at")
+    splat = record.get("splat")
+    splat_file = _cache_file(directory, splat.get("file"), _SPLAT_NAME) if isinstance(splat, dict) else None
+    return {
+        "scene": scene, "scene_id": scene_id if isinstance(scene_id, str) and _TEXT_ID.fullmatch(scene_id) else None,
+        "created_at": created[:40] if isinstance(created, str) else None,
+        "label": LABEL, "faces": faces, "splat": {"file": splat_file} if splat_file else None,
+        "dir": f"/cache/worlds/{model_id}/{sweep_id}/dressed",
+    }
+
+
+def dressed_cache_state(model_id: str, sweep_id: str) -> str:
+    """'absent' (no dressed.json yet), 'valid' (usable by the viewer) or 'invalid' (a record exists but fails validation).
+
+    The batch runner uses this so a damaged or stale existing cache is never mistaken for an empty one and
+    regenerated, which would spend provider credits without anyone having asked for that.
+    """
+    if load_dressed(model_id, sweep_id):
+        return "valid"
+    record = scan_point_dir(model_id, sweep_id) / "dressed" / "dressed.json"
+    return "invalid" if (record.exists() or record.is_symlink()) else "absent"
 
 
 def main(argv=None) -> int:
@@ -214,8 +299,16 @@ def main(argv=None) -> int:
         try:
             shot_id = shot_id or top_pick_shot(args.api, scene)
             sweep = scan_point(args.api, shot_id)
-            if load_dressed(sweep["model_id"], sweep["sweep_id"]) and not args.force:
+            state = dressed_cache_state(sweep["model_id"], sweep["sweep_id"])
+            if state == "valid" and not args.force:
                 print(f"{scene_id}: already dressed, skipped")
+                continue
+            if state == "invalid" and not args.force:
+                # Fail closed: an existing but unusable record is not "absent". No provider call is made.
+                failures += 1
+                print(f"{scene_id}: FAILED: an existing dressed cache for this scan point is invalid or incomplete. "
+                      "Nothing was generated and no credits were spent. Inspect or remove it, or rerun with --force "
+                      "to deliberately regenerate (this spends provider credits).")
                 continue
             print(f"{scene_id}: dressing the top pick's scan point ({len(sweep['faces'])} faces)")
             record = dress_scan_point(sweep=sweep, scene=scene, scene_id=scene_id, client=client,

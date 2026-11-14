@@ -305,22 +305,27 @@ def dressed_set(shot_id: str):
         raise HTTPException(404, "Unknown shot") from None
     except Exception:
         raise HTTPException(503, "Shot index unavailable") from None
-    record = load_dressed(shot.model_id, shot.sweep_id)
+    try:
+        record = load_dressed(shot.model_id, shot.sweep_id)
+    except Exception:
+        record = None
     if not record:
         raise HTTPException(404, "No dressed set for this scan point")
     base = record["dir"]
-    splat = record.get("splat") or None
+    splat = record["splat"]
+    # Everything below was validated by load_dressed. The cached label and generation
+    # prompt are deliberately not forwarded: the label is always the canonical one.
     return {
         "shot_id": shot.shot_id,
-        "scene_id": record.get("scene_id"),
-        "scene": record.get("scene"),
-        "prompt": record.get("prompt_used") or record.get("prompt"),
-        "label": record.get("label"),
-        "created_at": record.get("created_at"),
+        "scene_id": record["scene_id"],
+        "scene": record["scene"],
+        "label": record["label"],
+        "created_at": record["created_at"],
         "faces": [{"yaw_deg": f["yaw_deg"], "pitch_deg": f["pitch_deg"], "tan_h": f["tan_h"], "tan_v": f["tan_v"],
-                   "source_heading_deg": f.get("source_heading_deg"),
-                   "dressed_url": f"{base}/{f['dressed']}", "real_url": f"{base}/{f['real']}"}
-                  for f in record.get("faces", [])],
+                   "source_heading_deg": f["source_heading_deg"],
+                   "dressed_url": f"{base}/{f['dressed']}",
+                   "real_url": f"{base}/{f['real']}" if f["real"] else None}
+                  for f in record["faces"]],
         "splat_url": f"{base}/{splat['file']}" if splat else None,
     }
 
