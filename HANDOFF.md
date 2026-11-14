@@ -44,5 +44,5 @@ Follow `index/GEMINI-DEMO-HANDOFF.md`: run verify there; time cold/warm Build pl
 - Grok Worker5 (PR32 baseline dbceec2) findings: fixed in c5dbfcb; real-browser mock acceptance recorded (section 4).
 - Grok Worker4 closeout: pending.
 - New Grok competitor worker: requested; treat as UNVERIFIED launched until the manager confirms.
-- Film contact: found, NOT consulted. Template: `index/FILM-VALIDATION-HANDOFF.md` (blanks stay blank; do not edit `docs/peri.md`, owned by Owner 4). Root forwards real feedback and competitor evidence before any new idea is implemented.
+- Film contact: conversation reported by the user (Mahimn Dave, short filmmaker); validated Typecast consultation NOT done (hands-on feedback, affiliation, attribution consent, Peri evidence pending). Template: `index/FILM-VALIDATION-HANDOFF.md` (blanks stay blank; do not edit `docs/peri.md`, owned by Owner 4). Root forwards real feedback and competitor evidence before any new idea is implemented.
 - Remaining: live acceptance on the integration captain's laptop (see section 6); human submission before 08:00 ET Sunday 15 Nov.
