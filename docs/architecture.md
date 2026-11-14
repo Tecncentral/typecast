@@ -49,7 +49,7 @@ flowchart TD
     DressedCache --> DressedAPI["Allow-listed /api/dressed/{shot_id}; absent → 404"]
     DressedAPI --> Compare["Optional D wipe: real scan ↔ AI-imagined dressing"]
     Viewfinder --> Compare
-    Compare --> Grab["Private frame grab; dressing visibly marked"]
+    Compare --> Grab["Private frame tray; export-label fix pending"]
 
     Script["Whole script at /director"] --> Production["/api/production/plan: retrieve scene candidates"]
     Index --> Production
@@ -84,7 +84,7 @@ Source downloads run before scouting. Runtime logistics reads normalized cache r
 
 The inside-out descent links one property's map position, attributed Vexcel aerial and actual Matterport frame. The parking outline uses supplied geometry and validated aerial georeferencing; an unreliable transform falls back to existing imagery. Reduced motion and skip controls change the presentation without fabricating source evidence. Source: [descent implementation](../web/descent.js) and [browser acceptance](team/status-lane-d.md).
 
-The viewfinder presents real horizon faces from the selected scan point. Its lens controls compose a view; they do not establish unknown room depth, verified camera fit or absolute world heading. The optional dressing comparison loads already generated assets, so a stage click does not start Atlas generation. The **D** toggle wipes the imagined appearance over the scan and keeps **“AI-imagined set dressing, not the real room”** visible. **G** grabs a frame and marks any dressing. Source: [viewfinder](../web/viewfinder.js), [allow-listed APIs](../agent/app.py).
+The viewfinder presents real horizon faces from the selected scan point. Its lens controls compose a view; they do not establish unknown room depth, verified camera fit or absolute world heading. The optional dressing comparison loads already generated assets, so a stage click does not start Atlas generation. The **D** toggle wipes the imagined appearance over the scan and keeps **“AI-imagined set dressing, not the real room”** visible. **G** grabs a frame; the in-app tray marks dressing. The reviewed merged code does not burn the AI label into the saved JPEG. Treat labeled export as pending [PR #31](https://github.com/Tecncentral/typecast/pull/31) and its verification. Source: [viewfinder](../web/viewfinder.js), [allow-listed APIs](../agent/app.py).
 
 Atlas `images2PosedRGBD` derives cameras and depth from the real scan images. `atlasChisel` receives those same depth constraints and an authored scene prompt to propose a new appearance. This supports the consistent-refurnishing use case; it is not a measured Matterport depth import, exact metric-geometry guarantee or proof that the dressing can be built. The merged verification covers image dressing. **TODO:** add sparse-scan walkable results and their measured scope only after the owning session's implementation and evidence are merged. Sources: [dressing pipeline](../worlds/dress.py), [verified scope and cost limits](team/status-worlds.md).
 

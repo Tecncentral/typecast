@@ -39,7 +39,7 @@ Private source downloads and derived assets stay in ignored caches. The frozen i
 
 ## What is real vs AI-generated
 
-The scan imagery, property association and aerial are source evidence. Parking capacity is estimated; unknown measurements remain unknown. AI set dressing is an imagined appearance constrained by depth derived from the scanned room, with the persistent label **“AI-imagined set dressing, not the real room”**. Areas outside the dressed image coverage show the real room dimmed, and dressed frame grabs are marked. Sources: [viewfinder](../web/viewfinder.js), [dressing verification](team/status-worlds.md).
+The scan imagery, property association and aerial are source evidence. Parking capacity is estimated; unknown measurements remain unknown. AI set dressing is an imagined appearance constrained by depth derived from the scanned room, with the persistent label **“AI-imagined set dressing, not the real room”**. Areas outside the dressed image coverage show the real room dimmed, and the in-app frame tray identifies dressed grabs. The downloaded JPEG does not yet carry that label at the reviewed merged revision; [PR #31](https://github.com/Tecncentral/typecast/pull/31) must be human-merged and verified before claiming labeled exports. Sources: [viewfinder](../web/viewfinder.js), [dressing verification](team/status-worlds.md).
 
 A generated dressing does not establish physical feasibility, costs, current furniture or owner consent. An art department must evaluate it. Property availability does not establish vacancy, access or filming permission. The viewer does not turn estimated parking or noise proximity into measured conditions.
 
