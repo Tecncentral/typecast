@@ -650,3 +650,129 @@ dialog.vf.has-shots .vf-shotlist {
     scale: 1;
   }
 }
+
+/* ---------------- AI dressing: before/after wipe ---------------- */
+
+.vf-dress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgb(237 189 105 / 0.6);
+  border-radius: var(--control-radius, 6px);
+  background: rgb(28 32 33 / 0.9);
+  color: var(--accent, #edbd69);
+  font: 600 14px/1 var(--body, Barlow, sans-serif);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.vf-dress[hidden] {
+  display: none;
+}
+.vf-dress svg {
+  width: 18px;
+  height: 18px;
+}
+.vf-dress kbd {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(237 189 105 / 0.14);
+  font: 600 12px/1.2 var(--body, Barlow, sans-serif);
+}
+.vf-dress.is-active {
+  background: var(--accent, #edbd69);
+  color: #1a1407;
+}
+.vf-dress.is-active kbd {
+  background: rgb(26 20 7 / 0.14);
+}
+
+.vf-wipe {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.vf-wipe[hidden] {
+  display: none;
+}
+.vf-wipe-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--x, 50%);
+  width: 2px;
+  translate: -1px 0;
+  background: var(--accent, #edbd69);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+}
+.vf-wipe-tag {
+  position: absolute;
+  top: 132px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: rgb(14 16 17 / 0.82);
+  font: 700 13px/1 var(--brand, "Barlow Condensed", sans-serif);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.vf-wipe-tag.left {
+  right: calc(100% - var(--x, 50%) + 14px);
+  color: var(--accent, #edbd69);
+}
+.vf-wipe-tag.right {
+  left: calc(var(--x, 50%) + 14px);
+  color: var(--text, #f2efe8);
+}
+.vf-wipe-handle {
+  position: absolute;
+  top: 50%;
+  left: var(--x, 50%);
+  translate: -50% -50%;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 2px solid var(--accent, #edbd69);
+  border-radius: 50%;
+  background: rgb(14 16 17 / 0.9);
+  color: var(--accent, #edbd69);
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+.vf-wipe-handle svg {
+  width: 22px;
+  height: 22px;
+}
+
+.vf-ai-badge {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: 112px;
+  translate: -50% 0;
+  margin: 0;
+  max-width: min(720px, calc(100% - 48px));
+  padding: 7px 14px;
+  border: 1px solid var(--accent, #edbd69);
+  border-radius: 8px;
+  background: rgb(14 16 17 / 0.88);
+  color: var(--accent, #edbd69);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vf-ai-badge[hidden] {
+  display: none;
+}
+dialog.vf.is-dressed .vf-wipe-tag {
+  top: 160px;
+}

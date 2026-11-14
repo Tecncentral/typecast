@@ -18,6 +18,7 @@ const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").match
 
 const ICON_LOOK = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 3.5v4.2M20.5 12h-4.2M12 20.5v-4.2M3.5 12h4.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/></svg>`;
 const ICON_CLOSE = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>`;
+const ICON_DRESS = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l1.9 4.6L18.5 9.5l-4.6 1.9L12 16l-1.9-4.6L5.5 9.5l4.6-1.9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M18.5 15.5l.8 1.9 1.9.8-1.9.8-.8 1.9-.8-1.9-1.9-.8 1.9-.8z" fill="currentColor"/></svg>`;
 const ICON_GRAB = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/></svg>`;
 
 const hfovForLens = (mm) => 2 * Math.atan(SENSOR_MM / (2 * mm));
@@ -80,7 +81,18 @@ uniform float pitch;
 uniform float tx;
 uniform float ty;
 uniform float lod;
+uniform sampler2D d0;
+uniform sampler2D d1;
+uniform sampler2D d2;
+uniform sampler2D d3;
+uniform vec4 dLoaded;
+uniform vec4 dYaw;
+uniform vec4 dTanH;
+uniform vec4 dTanV;
+uniform float wipe;
+uniform float dlod;
 const float QUARTER = 1.5707963268;
+float angDist(float a, float b) { return abs(mod(a - b + 3.14159265, 6.28318531) - 3.14159265); }
 vec3 rotY(vec3 d, float a) { return vec3(d.x * cos(a) - d.z * sin(a), d.y, d.x * sin(a) + d.z * cos(a)); }
 vec3 rotX(vec3 d, float a) { return vec3(d.x, d.y * cos(a) - d.z * sin(a), d.y * sin(a) + d.z * cos(a)); }
 void main() {
@@ -99,7 +111,31 @@ void main() {
   float elev = abs(asin(clamp(d.y, -1.0, 1.0)));
   vec3 none = vec3(0.071, 0.082, 0.086) * (1.0 - 0.45 * elev / QUARTER);
   float band = smoothstep(0.0, 0.025, uv.y) * smoothstep(1.0, 0.975, uv.y);
-  color = vec4(mix(none, c, band * has), 1.0);
+  vec3 real = mix(none, c, band * has);
+  if (v.x < wipe) {
+    // AI-dressed frames: pick the frame whose real Atlas camera heading is nearest.
+    float best = angDist(h, dYaw.x); float sel = 0.0;
+    float a1 = angDist(h, dYaw.y); if (a1 < best) { best = a1; sel = 1.0; }
+    float a2 = angDist(h, dYaw.z); if (a2 < best) { best = a2; sel = 2.0; }
+    float a3 = angDist(h, dYaw.w); if (a3 < best) { best = a3; sel = 3.0; }
+    float yw = sel < 0.5 ? dYaw.x : sel < 1.5 ? dYaw.y : sel < 2.5 ? dYaw.z : dYaw.w;
+    float th = sel < 0.5 ? dTanH.x : sel < 1.5 ? dTanH.y : sel < 2.5 ? dTanH.z : dTanH.w;
+    float tv = sel < 0.5 ? dTanV.x : sel < 1.5 ? dTanV.y : sel < 2.5 ? dTanV.z : dTanV.w;
+    float ok = sel < 0.5 ? dLoaded.x : sel < 1.5 ? dLoaded.y : sel < 2.5 ? dLoaded.z : dLoaded.w;
+    vec3 dl = rotY(d, -yw);
+    vec2 duv = vec2(0.5 + 0.5 * (dl.x / -dl.z) / th, 0.5 - 0.5 * (dl.y / -dl.z) / tv);
+    vec2 cd = clamp(duv, vec2(0.0005), vec2(0.9995));
+    vec3 dc;
+    if (sel < 0.5) dc = textureLod(d0, cd, dlod).rgb;
+    else if (sel < 1.5) dc = textureLod(d1, cd, dlod).rgb;
+    else if (sel < 2.5) dc = textureLod(d2, cd, dlod).rgb;
+    else dc = textureLod(d3, cd, dlod).rgb;
+    float inside = step(0.0, duv.x) * step(duv.x, 1.0) * step(dl.z, 0.0)
+                 * smoothstep(0.0, 0.03, duv.y) * smoothstep(1.0, 0.97, duv.y);
+    // Outside the dressed coverage the real room shows, dimmed, so the boundary stays honest.
+    real = mix(real * 0.45, dc, inside * ok);
+  }
+  color = vec4(real, 1.0);
 }`;
 
 function createRenderer(canvas) {
@@ -129,7 +165,8 @@ function createRenderer(canvas) {
   gl.enableVertexAttribArray(loc);
   gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
   const u = Object.fromEntries(
-    ["f0", "f1", "f2", "f3", "loaded", "yaw", "pitch", "tx", "ty", "lod"].map((n) => [n, gl.getUniformLocation(program, n)]),
+    ["f0", "f1", "f2", "f3", "loaded", "yaw", "pitch", "tx", "ty", "lod",
+      "d0", "d1", "d2", "d3", "dLoaded", "dYaw", "dTanH", "dTanV", "wipe", "dlod"].map((n) => [n, gl.getUniformLocation(program, n)]),
   );
   const aniso = gl.getExtension("EXT_texture_filter_anisotropic");
   const loadedFlags = [0, 0, 0, 0];
@@ -142,7 +179,33 @@ function createRenderer(canvas) {
     return t;
   });
   let faceSize = 2048;
+  const dressedTextures = [4, 5, 6, 7].map((unit, i) => {
+    const t = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([18, 21, 22, 255]));
+    gl.uniform1i(u[`d${i}`], unit);
+    return t;
+  });
+  const dressed = { loaded: [0, 0, 0, 0], yaw: [0, 0, 0, 0], tanH: [1, 1, 1, 1], tanV: [1, 1, 1, 1], width: 1280 };
   return {
+    setDressedFace(i, image, meta) {
+      gl.activeTexture(gl.TEXTURE4 + i);
+      gl.bindTexture(gl.TEXTURE_2D, dressedTextures[i]);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, 8);
+      dressed.loaded[i] = 1;
+      dressed.yaw[i] = rad(meta.yaw_deg);
+      dressed.tanH[i] = meta.tan_h;
+      dressed.tanV[i] = meta.tan_v;
+      dressed.width = image.naturalWidth || dressed.width;
+    },
     setFace(i, image) {
       gl.activeTexture(gl.TEXTURE0 + i);
       gl.bindTexture(gl.TEXTURE_2D, textures[i]);
@@ -157,7 +220,7 @@ function createRenderer(canvas) {
       faceSize = image.naturalWidth || faceSize;
       loadedFlags[i] = 1;
     },
-    draw({ yaw, pitch, tx }) {
+    draw({ yaw, pitch, tx, wipe = -1 }) {
       const w = canvas.width;
       const h = canvas.height;
       gl.viewport(0, 0, w, h);
@@ -168,10 +231,17 @@ function createRenderer(canvas) {
       gl.uniform1f(u.ty, (tx * h) / w);
       // Texels per screen pixel decides the mip level, computed once so face seams stay sharp.
       gl.uniform1f(u.lod, Math.max(0, Math.log2((faceSize * tx) / w)));
+      gl.uniform4f(u.dLoaded, ...dressed.loaded);
+      gl.uniform4f(u.dYaw, ...dressed.yaw);
+      gl.uniform4f(u.dTanH, ...dressed.tanH);
+      gl.uniform4f(u.dTanV, ...dressed.tanV);
+      gl.uniform1f(u.wipe, wipe);
+      gl.uniform1f(u.dlod, Math.max(0, Math.log2((dressed.width * tx) / (dressed.tanH[0] * w))));
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     },
     dispose() {
       textures.forEach((t) => gl.deleteTexture(t));
+      dressedTextures.forEach((t) => gl.deleteTexture(t));
       gl.deleteBuffer(buffer);
       gl.deleteProgram(program);
       gl.getExtension("WEBGL_lose_context")?.loseContext();
@@ -216,12 +286,20 @@ function buildDialog() {
       </div>
       <p class="vf-gap-note">Floor and ceiling weren't scanned</p>
     </div>
+    <div class="vf-wipe" hidden>
+      <span class="vf-wipe-line"></span>
+      <span class="vf-wipe-tag left">AI-dressed</span>
+      <span class="vf-wipe-tag right">Real scan</span>
+      <button type="button" class="vf-wipe-handle" aria-label="Drag to compare the AI-dressed set with the real scan"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+    </div>
+    <p class="vf-ai-badge" hidden></p>
     <header class="vf-top vf-hud">
       <div class="vf-title">
         <span class="vf-brand">Viewfinder</span>
         <span class="vf-address"></span>
       </div>
       <div class="vf-status" role="status" aria-live="polite"></div>
+      <button type="button" class="vf-dress" hidden aria-pressed="false">${ICON_DRESS}<span>AI dressing</span><kbd>D</kbd></button>
       <button type="button" class="vf-close" aria-label="Close viewfinder">${ICON_CLOSE}<span>Esc</span></button>
     </header>
     <div class="vf-tape vf-hud" aria-hidden="true"><div class="vf-tape-strip"></div><span class="vf-tape-needle"></span></div>
@@ -254,6 +332,8 @@ class Viewfinder {
     this.state = { yaw: 0, pitch: 0, lens: 24, aspect: ASPECTS[0], frameWidth: 6 };
     this.view = { yaw: 0, pitch: 0, tx: 1 };
     this.fraction = FRAME_FRACTION;
+    this.wipe = -1;
+    this.dressed = null;
     this.shots = loadShotList();
     this.sweep = null;
     this.renderer = null;
@@ -299,6 +379,32 @@ class Viewfinder {
       this.close();
     });
     this.$(".vf-grab").addEventListener("click", () => this.grab());
+    this.$(".vf-dress").addEventListener("click", () => this.toggleDressing());
+    const handle = this.$(".vf-wipe-handle");
+    handle.addEventListener("pointerdown", (e) => {
+      e.stopPropagation();
+      handle.setPointerCapture(e.pointerId);
+      cancelAnimationFrame(this.wipeTween);
+      const move = (ev) => {
+        const r = this.canvas.getBoundingClientRect();
+        this.setWipe(clamp((2 * (ev.clientX - r.left)) / r.width - 1, -0.98, 0.98));
+      };
+      const up = () => {
+        handle.removeEventListener("pointermove", move);
+        handle.removeEventListener("pointerup", up);
+        handle.removeEventListener("pointercancel", up);
+      };
+      handle.addEventListener("pointermove", move);
+      handle.addEventListener("pointerup", up);
+      handle.addEventListener("pointercancel", up);
+    });
+    handle.addEventListener("keydown", (e) => {
+      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+        e.preventDefault();
+        e.stopPropagation();
+        this.setWipe(clamp(this.wipe + (e.key === "ArrowLeft" ? -0.08 : 0.08), -0.98, 0.98));
+      }
+    });
     this.$(".vf-clear").addEventListener("click", () => {
       this.shots = [];
       saveShotList(this.shots);
@@ -380,6 +486,7 @@ class Viewfinder {
         "=": () => this.stepLens(1),
         a: () => this.setAspect(ASPECTS[(ASPECTS.indexOf(this.state.aspect) + 1) % ASPECTS.length]),
         g: () => this.grab(),
+        d: () => this.toggleDressing(),
       };
       const action = keys[e.key] || keys[e.key.toLowerCase?.()];
       if (action) {
@@ -495,6 +602,77 @@ class Viewfinder {
     this.$(".vf-status").textContent = status;
   }
 
+  async loadDressed(shotId) {
+    let data;
+    try {
+      const r = await fetch(`/api/dressed/${encodeURIComponent(shotId)}`);
+      if (!r.ok) return;
+      data = await r.json();
+    } catch {
+      return;
+    }
+    if (!this.dialog.open || !this.renderer || !data?.faces?.length) return;
+    this.dressed = data;
+    const slug = (data.scene || "").match(/^((?:INT\.?\/EXT|INT|EXT)\.\s*[^.]+)/i);
+    const scene = (slug ? slug[1] : (data.scene || "").split(".")[0]).trim();
+    this.$(".vf-ai-badge").textContent = `${data.label || "AI-imagined set dressing, not the real room"}${scene ? ` · dressed for “${scene}”` : ""}`;
+    await Promise.all(
+      data.faces.slice(0, 4).map(async (face, i) => {
+        const img = new Image();
+        img.decoding = "async";
+        img.src = face.dressed_url;
+        try {
+          await img.decode();
+          this.renderer?.setDressedFace(i, img, face);
+        } catch {
+          /* a missing dressed frame leaves the real room visible there */
+        }
+      }),
+    );
+    if (!this.dialog.open) return;
+    const toggle = this.$(".vf-dress");
+    toggle.hidden = false;
+    if (!reducedMotion()) toggle.animate([{ transform: "scale(0.9)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: 420, easing: EASE_OUT });
+    this.$(".vf-status").textContent = "An AI-dressed version of this room is ready: press D or AI dressing.";
+  }
+
+  setWipe(value) {
+    this.wipe = value;
+    const on = value > -1;
+    this.$(".vf-wipe").hidden = !on;
+    this.$(".vf-ai-badge").hidden = !on;
+    this.dialog.classList.toggle("is-dressed", on);
+    const toggle = this.$(".vf-dress");
+    toggle.setAttribute("aria-pressed", String(on));
+    toggle.classList.toggle("is-active", on);
+    this.kick();
+  }
+
+  positionWipe() {
+    const wipe = this.$(".vf-wipe");
+    if (wipe.hidden) return;
+    wipe.style.setProperty("--x", `${((this.wipe + 1) / 2) * this.canvas.clientWidth}px`);
+  }
+
+  toggleDressing() {
+    if (!this.dressed) return;
+    cancelAnimationFrame(this.wipeTween);
+    const from = this.wipe;
+    const to = from > -1 ? -1 : 0.15;
+    if (reducedMotion()) return this.setWipe(to);
+    // The dressing sweeps in from the left like a lighting cue, then rests as a comparison.
+    const start = performance.now();
+    const duration = to > from ? 1100 : 420;
+    const step = (now) => {
+      const t = clamp((now - start) / duration, 0, 1);
+      const k = 1 - Math.pow(1 - t, 3);
+      this.setWipe(from + (to - from) * k);
+      if (t < 1) this.wipeTween = requestAnimationFrame(step);
+    };
+    if (from <= -1) this.setWipe(-0.999);
+    this.wipeTween = requestAnimationFrame(step);
+  }
+
   updateTape() {
     const strip = this.$(".vf-tape-strip");
     strip.style.setProperty("--yaw", String(this.view.yaw));
@@ -521,7 +699,8 @@ class Viewfinder {
   }
 
   draw() {
-    this.renderer?.draw(this.view);
+    this.renderer?.draw({ ...this.view, wipe: this.wipe });
+    this.positionWipe();
     this.updateTape();
     const wide = this.view.tx * (this.canvas.clientHeight / Math.max(1, this.canvas.clientWidth));
     const vEdge = deg(Math.atan(wide)) + Math.abs(this.view.pitch);
@@ -623,6 +802,7 @@ class Viewfinder {
     this.draw();
     const missing = faces.filter((ok) => !ok).length;
     this.revealLive(missing);
+    this.loadDressed(shotId);
   }
 
   flyIn(sourceImage) {
@@ -679,6 +859,10 @@ class Viewfinder {
     this.poster.style.visibility = "";
     this.dialog.close();
     this.dialog.classList.remove("is-closing", "is-live", "shows-gap");
+    cancelAnimationFrame(this.wipeTween);
+    this.dressed = null;
+    this.setWipe(-1);
+    this.$(".vf-dress").hidden = true;
     this.sourceImage?.closest(".shot-stage")?.querySelector(".vf-open")?.focus({ preventScroll: true });
   }
 
@@ -705,6 +889,7 @@ class Viewfinder {
       pitch: Math.round(this.state.pitch),
       shotId: this.sweep?.shot_id,
       address: this.$(".vf-address").textContent,
+      ai: this.wipe > -1,
     };
     this.shots = [shot, ...this.shots].slice(0, 12);
     saveShotList(this.shots);
@@ -712,7 +897,7 @@ class Viewfinder {
       this.$(".vf-flash").animate([{ opacity: 0.7 }, { opacity: 0 }], { duration: 260, easing: "ease-out" });
     }
     this.renderShotList(shot.id);
-    this.$(".vf-status").textContent = `Frame grabbed: ${shot.lens} mm, ${this.state.aspect.label}, bearing ${shot.yaw}°`;
+    this.$(".vf-status").textContent = `Frame grabbed: ${shot.lens} mm, ${this.state.aspect.label}, bearing ${shot.yaw}°${shot.ai ? ", includes AI dressing" : ""}`;
   }
 
   renderShotList(freshId) {
@@ -730,7 +915,7 @@ class Viewfinder {
       img.src = shot.thumb;
       img.alt = "";
       const place = el("span", "vf-shot-place", shot.address || "Scanned room");
-      const meta = el("span", "vf-shot-meta", `${shot.lens} mm · ${ASPECTS.find((a) => a.id === shot.aspect)?.label || shot.aspect} · ${shot.yaw}°`);
+      const meta = el("span", "vf-shot-meta", `${shot.lens} mm · ${ASPECTS.find((a) => a.id === shot.aspect)?.label || shot.aspect} · ${shot.yaw}°${shot.ai ? " · AI-dressed" : ""}`);
       button.append(img, place, meta);
       button.addEventListener("click", () => {
         if (shot.shotId && this.sweep && shot.shotId !== this.sweep.shot_id) {
