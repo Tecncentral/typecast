@@ -1,6 +1,6 @@
 # Competitive decisions for the Entertainment demo
 
-Concise decision record for the integration candidate `ai/director-unified`. It is not a prediction of any result and no outcome is guaranteed. The user has reported a conversation with a filmmaker (Mahimn Dave, short movies), but a validated Typecast consultation has not happened: hands-on feedback, affiliation, attribution consent and Peri-qualifying evidence are pending, so **no consultation result or endorsement is claimed anywhere in this repo.** A user-supplied documentary segment (see `index/FILM-VALIDATION-HANDOFF.md`) is an unverified research lead.
+Concise decision record for the integration candidate `ai/director-unified`. It is not a prediction of any result and no outcome is guaranteed. The user has reported a conversation with a filmmaker (Mahimn Dave, short movies), but a validated Typecast consultation has not happened: hands-on feedback, affiliation, attribution consent and Peri-qualifying evidence are pending, so **no consultation result or endorsement is claimed anywhere in this repo.** A user-supplied documentary segment (see `index/FILM-VALIDATION-HANDOFF.md`) is an unverified research lead. Gemini-reported timestamps from an alternate upload are secondary AI analysis the coordinator has not listened to; a seven-month duration is unverified.
 
 ## Inputs and how far each can be trusted
 | Input | What it is | Limit |
