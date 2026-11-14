@@ -21,8 +21,9 @@ SHOTS_FILENAME = "shots.json"
 EMBEDDINGS_FILENAME = "embeddings.npy"
 MANIFEST_FILENAME = "manifest.json"
 # Compatibility override used by the integrator's isolated offline harness.
-# None keeps normal process environment selection; True/False explicitly overrides it.
-USE_MOCKS: bool | None = None
+# Keep a real boolean for agent.runtime.source_modes(), including offline harness patches.
+USE_MOCKS = os.environ.get('TYPECAST_USE_MOCKS', '1') == '1'
+_INITIAL_USE_MOCKS = USE_MOCKS
 
 
 class IndexUnavailableError(RuntimeError):
@@ -34,7 +35,7 @@ class ShotNotFoundError(KeyError):
 
 
 def _use_mocks_enabled() -> bool:
-    if USE_MOCKS is not None:
+    if USE_MOCKS != _INITIAL_USE_MOCKS:
         return USE_MOCKS
     raw = os.environ.get("TYPECAST_USE_MOCKS", "1").strip().lower()
     return raw not in {"0", "false", "no", "off", ""}
