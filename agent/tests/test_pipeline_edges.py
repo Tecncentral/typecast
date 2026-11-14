@@ -242,3 +242,40 @@ def test_rerank_top_twenty_preserves_other_cached_views(monkeypatch):
     assert calls == [20]
     assert {shot.shot_id for shot in cached} == {shot.shot_id for shot in shots}
     assert len(cached) == 25
+
+
+def test_live_unknown_availability_capacity_and_noise_are_visible(monkeypatch):
+    dataset(monkeypatch, [{"pid": "live-unknown", "available": False, "trucks": None}])
+    prop = pipeline.get_property("live-unknown").model_copy(update={
+        "availability_status": "unknown", "availability_reason": "Listing status missing.",
+        "parking_flags": {"hasNoParkingAvailable": False}})
+    monkeypatch.setattr(pipeline, "get_property", lambda pid: prop)
+    monkeypatch.setattr(pipeline, "search_costar", lambda **kwargs: [prop])
+    logi = Logistics(property_id=prop.property_id, parking_status="unknown", noise_status="unknown")
+    monkeypatch.setattr(pipeline, "plan_logistics", lambda *args: logi)
+    result = pipeline.scout(RunContext(thread_id="live-unknown"), Requirements(scene="Office", trucks=3, cars=30))
+    pick = result.picks[0]
+    assert "occupied" not in pick.reason and "None" not in pick.reason
+    assert "unknown truck and unknown car spaces" in pick.reason
+    assert any("Parking capacity unknown" in note for note in pick.skeptic_notes)
+    assert any("Availability is unknown" in note for note in pick.skeptic_notes)
+    assert any(e.status == "unknown" and "Availability" in e.claim for e in pick.evidence)
+    assert any(e.status == "unknown" and "Noise" in e.claim for e in pick.evidence)
+    assert any(e.source == "costar" and e.status == "measured" and "parking flag" in e.claim for e in pick.evidence)
+
+
+def test_zero_parking_requirement_does_not_require_known_capacity(monkeypatch):
+    dataset(monkeypatch, [{"pid": "no-parking-required"}])
+    logi = Logistics(property_id="no-parking-required", parking_status="unknown")
+    monkeypatch.setattr(pipeline, "plan_logistics", lambda *args: logi)
+    result = pipeline.scout(RunContext(thread_id="no-parking-required"),
+                            Requirements(scene="Office", trucks=0, cars=0))
+    assert not any("Parking capacity unknown" in n or "Parking short" in n for n in result.picks[0].skeptic_notes)
+
+
+def test_live_market_pool_excludes_unindexed_properties_before_logistics(monkeypatch):
+    from index import store
+    _, shots = dataset(monkeypatch, [{"pid": "indexed"}, {"pid": "not-indexed"}])
+    monkeypatch.setattr(store, "load_index", lambda: ([shots[0]], None, "synthetic"))
+    pool = pipeline.market_properties(RunContext(thread_id="live-market", source_mode="live"), "Los Angeles")
+    assert [p.property_id for p in pool] == ["indexed"]

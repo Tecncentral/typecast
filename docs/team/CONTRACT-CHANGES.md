@@ -30,3 +30,14 @@ Owner: C; consumer: D. Additive `GET /config` returns exactly four fields:
 - `matterport_sdk_key`: public browser SDK application key or null. No model/API secret is returned. SDK values that alias private credential values are suppressed.
 
 Matterport's [official Embed SDK guide](https://developers.matterport.com/embed-sdk/) documents applicationKey in browser code and domains in the key allowlist. Lane D may use this key for its browser viewer; `/health` and all existing response contracts remain compatible.
+
+## Lane B live uncertainty — 2026-11-14
+
+Owner: C integration captain, coordinated with both B adapter implementers. Producers B; consumers C/D and bridge.
+
+- Property adds optional `availability_status` (`available`, `not_available`, `unknown`), `availability_reason`, and `parking_flags` (documented boolean CoStar fields). Legacy `available` stays boolean; unknown is false and must be rendered as unknown using the status. A missing status preserves legacy fixture behavior.
+- Logistics `truck_spaces` and `car_spaces` may now be null: unknown capacity is not zero. Existing numeric fixtures remain valid. Consumers must use an unknown label for null, and cannot accept unknown capacity against a positive requirement.
+- Logistics adds optional per-field `parking_status`, `walk_status`, `noise_status` (measured/estimated/unknown), `parking_area_m2`, `source_notes`, and `source_evidence`. Explicit status overrides the legacy `estimated` flag. Empty noise flags with unknown status do not mean quiet.
+- Coordinates remain `[lat, lon]`, area is square metres, walk is metres. Source evidence separates recorded CoStar parking flags from imagery estimates; no personal contact fields are added.
+- C updates evidence, ranking and skeptic wording; D should render these optional fields and nulls. All new fields default to absent/empty, except missing capacity defaults null.
+- SAM3 mask follow-up: optional Logistics.parking_geometry is standard GeoJSON Polygon/MultiPolygon with **[longitude, latitude]** coordinates and interior rings, so real mask holes and disjoint regions survive. The legacy parking_polygon remains **[latitude, longitude]** and is empty when a single ring cannot accurately express the geometry. The annotated aerial always depicts the actual mask; consumers should prefer parking_geometry when available.
