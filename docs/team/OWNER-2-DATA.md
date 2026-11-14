@@ -11,11 +11,11 @@ git merge origin/dev
 python -m venv .venv
 # Windows PowerShell: .\.venv\Scripts\Activate.ps1
 # macOS/Linux: source .venv/bin/activate
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.lock.txt
 python -m pytest -q
 python -m uvicorn agent.app:app --reload
 ```
-Copy .env.example to .env locally if needed. The current app does NOT load dotenv automatically: export environment variables in the launching shell (PowerShell: $env:TYPECAST_USE_MOCKS="1"). Never paste or commit credentials.
+Copy .env.example to .env locally if needed. The app loads the root .env; explicit shell environment takes precedence. To override in the launching shell (PowerShell: $env:TYPECAST_USE_MOCKS="1"). Never paste or commit credentials.
 Work only in your lane directories; coordinate shared-contract changes with the integrator. Open small PRs targeting dev, not main. Fetch dev before each integration. Keep your own docs/team/status-lane-b.md with commit, commands/results, works/broken/next/blockers; avoid everyone editing STATUS.md.
 Mocks unblock coding immediately. Never claim mocks are live data. Keep licensed records, joins, imagery and embeddings in ignored cache/; publish code and aggregate diagnostics only. Do not put data/join.parquet in public Git. Coordinate private delivery or a team-local service for integration.
 No external messages or submissions are authorized by these documents. Owner inquiries remain drafts. Missing facts stay unknown; parking and dimensions inferred from imagery are estimates.

@@ -1,5 +1,10 @@
 # secrets and licensed data: never commit
 .env
+.env.*
+!.env.example
+data/*.parquet
+data/*.csv
+data/*.xlsx
 cache/
 *.jsonl.gz
 *.zip

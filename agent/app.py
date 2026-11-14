@@ -1,5 +1,8 @@
 """Owner 3. HTTP API. Run: uvicorn agent.app:app --reload"""
 import asyncio, os, pathlib
+from dotenv import load_dotenv
+
+load_dotenv(pathlib.Path(__file__).resolve().parents[1] / ".env", override=False)
 from typing import Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, RedirectResponse

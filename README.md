@@ -8,11 +8,15 @@ Built at HackPrinceton Fall 2026 on CoStar property data, Matterport 3D scans an
 
 Scaffold. The pipeline and API run end to end on **fake data** in `mocks/`. No real CoStar, Matterport or Vexcel calls are wired in yet. See `STATUS.md`.
 
+## Team agents: start here
+
+Read [AGENTS.md](AGENTS.md), then [your owner handoff](docs/team/START-HERE.md). Python 3.13 is the pinned baseline. Install `requirements.lock.txt` for reproducible setup; run `python scripts/verify.py` before each PR. [Private access and remaining live blockers](docs/team/ACCESS.md) are tracked separately. CI checks mocks; passing CI does not establish sponsor access.
+
 ## Run it
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.lock.txt
 cp .env.example .env
 pytest -q
 uvicorn agent.app:app --reload
