@@ -158,6 +158,13 @@ def approve(req: ApproveRequest):
 
 class CachedImages(StaticFiles):
     """Only cached imagery is a viewer asset; working memory stays private."""
+    async def check_config(self):
+        # A fresh checkout has no cache yet. Missing assets should return 404,
+        # and images arriving later must work without restarting the API.
+        if self.directory is not None and not pathlib.Path(self.directory).exists():
+            return
+        await super().check_config()
+
     async def get_response(self, path, scope):
         if pathlib.PurePosixPath(path).suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"}:
             raise HTTPException(404)

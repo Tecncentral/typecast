@@ -11,6 +11,7 @@ from contracts.schemas import Evidence, Event, Logistics, Pick, Property, ScoutR
 from data.costar_tools import get_property, search_costar
 from data.vexcel_tools import enough_parking, plan_logistics
 from index.search import check_shot, get_shot, search_shots
+from index.geometry import needed_depth_m
 
 MAX_PARKING_WALK_M = 150.0
 # Compatibility for scripts that previously kept their state in this module.
@@ -72,7 +73,7 @@ def _fit(ctx: RunContext, req: Requirements, shot: Shot) -> ShotFit:
 
 def _failed_fit(req: Requirements, fit: ShotFit) -> bool:
     # Unlike provisional/unknown fits, these views are known to fail the shot.
-    return ((fit.have_depth_m is not None and fit.have_depth_m < fit.needed_depth_m)
+    return ((fit.have_depth_m is not None and fit.have_depth_m < needed_depth_m(req.focal_mm, req.frame_width_m))
             or (req.min_ceiling_m is not None and fit.ceiling_m is not None
                 and fit.ceiling_m < req.min_ceiling_m))
 

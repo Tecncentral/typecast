@@ -56,3 +56,8 @@ Dependency/access PR #2 merged into dev as eeb2000; both GitHub verify jobs pass
 - Live-mode error probe: all adapters report live; stream HTTP 200, agent error then terminal error, no result. Sanitized terminal text: "Scouting failed. Please try again." Actual current adapter prerequisite is `NotImplementedError: Owner 2: query the joined table here`. No mock fallback.
 - Working directory still has no private join; no real property pick or retrieval accuracy claim. Mock frame paths supplied by the scaffold point at missing image files; viewer fixtures need local placeholders or lane D assets.
 - Deep engine + evaluation work remain in progress; no deep success claimed yet.
+
+## Integration review fixes
+- Reviewing lane A PR #3 at db0daf6 in an isolated checkout merged with current dev and lane C exposed a fresh-checkout /cache RuntimeError (77 tests passed, one failed). Fixed cache serving to return 404 when no cache exists yet and to pick up later images.
+- Fixed pipeline failed-fit filtering to use unrounded geometric depth, compatible with lane A's precision fix. Focused API/pipeline regressions: 27 passed in 0.28s.
+- Independent review also found vision workers could overrun the configured deadline; SA3 is adding a wall-clock watchdog before PR #4 is merged.

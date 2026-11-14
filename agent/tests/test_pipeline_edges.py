@@ -77,6 +77,15 @@ def test_estimated_geometry_is_at_most_tight(monkeypatch):
     assert all(e.status == "estimated" for e in pick.evidence if e.source == "matterport")
 
 
+def test_rounded_display_depth_does_not_admit_a_measured_failure(monkeypatch):
+    from index.geometry import needed_depth_m
+    exact = needed_depth_m(24, 6)
+    dataset(monkeypatch, [{"depth": round(exact, 2)}])
+    result = pipeline.scout(RunContext(thread_id="exact-depth"), Requirements(scene="Office"))
+    assert result.picks == []
+    assert any("rejected shot fit" in event.text for event in result.events)
+
+
 def test_all_measured_shot_failures_return_fewer_picks_after_honest_relaxation(monkeypatch):
     dataset(monkeypatch, [{"depth": 1}, {"depth": 2}, {"depth": 3}])
     result = pipeline.scout(RunContext(thread_id="failed-fits"),
