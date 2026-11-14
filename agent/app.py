@@ -285,6 +285,55 @@ def sweep_faces(shot_id: str):
                   for heading, face in sorted(faces.items())],
     }
 
+
+@app.get("/api/dressed/{shot_id}")
+def dressed_set(shot_id: str):
+    """An AI-dressed version of the shot's scan point, if one was generated with World Labs Atlas.
+
+    The dressed frames keep the real room's geometry (depth-guided restyle) but are AI-imagined;
+    the label travels with every response so the viewer can never present them as the real room.
+    """
+    if os.getenv("TYPECAST_ENABLE_DRESSED", "1") == "0":
+        raise HTTPException(404, "Dressed sets are disabled")
+    if not _SHOT_ID.fullmatch(shot_id):
+        raise HTTPException(422, "Invalid shot id")
+    from index.search import get_active_index
+    from worlds.dress import load_dressed
+    try:
+        shot = get_active_index().get_shot(shot_id)
+    except KeyError:
+        raise HTTPException(404, "Unknown shot") from None
+    except Exception:
+        raise HTTPException(503, "Shot index unavailable") from None
+    record = load_dressed(shot.model_id, shot.sweep_id)
+    if not record:
+        raise HTTPException(404, "No dressed set for this scan point")
+    base = record["dir"]
+    splat = record.get("splat") or None
+    return {
+        "shot_id": shot.shot_id,
+        "scene_id": record.get("scene_id"),
+        "scene": record.get("scene"),
+        "prompt": record.get("prompt_used") or record.get("prompt"),
+        "label": record.get("label"),
+        "created_at": record.get("created_at"),
+        "faces": [{"yaw_deg": f["yaw_deg"], "pitch_deg": f["pitch_deg"], "tan_h": f["tan_h"], "tan_v": f["tan_v"],
+                   "source_heading_deg": f.get("source_heading_deg"),
+                   "dressed_url": f"{base}/{f['dressed']}", "real_url": f"{base}/{f['real']}"}
+                  for f in record.get("faces", [])],
+        "splat_url": f"{base}/{splat['file']}" if splat else None,
+    }
+
+
+def _servable_cache_path(path: str) -> bool:
+    """Images anywhere in cache/; Gaussian splats only from generated worlds."""
+    pure = pathlib.PurePosixPath(path)
+    suffix = pure.suffix.lower()
+    if suffix in {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"}:
+        return True
+    return suffix == ".spz" and pure.parts[:1] == ("worlds",)
+
+
 class CachedImages(StaticFiles):
     """Only cached imagery is a viewer asset; working memory stays private."""
     async def check_config(self):
@@ -295,7 +344,7 @@ class CachedImages(StaticFiles):
         await super().check_config()
 
     async def get_response(self, path, scope):
-        if pathlib.PurePosixPath(path).suffix.lower() not in {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif"}:
+        if not _servable_cache_path(path):
             raise HTTPException(404)
         if set(pathlib.PurePosixPath(path).parts) & {"threads", "outbox"}:
             raise HTTPException(404)

@@ -75,7 +75,7 @@ function harness() {
     waits.forEach((wait, i) => decodes.set(`/cache/views/${id}-${i * 90}.jpg`, wait));
     return () => waits.forEach(wait => wait.resolve());
   }
-  return { vf, classes, uploads, reveals, nodes, open, respond, delayImages, isLost: () => lost };
+  return { vf, classes, uploads, reveals, nodes, requests, open, respond, delayImages, isLost: () => lost };
 }
 
 test('closing before fetch resolves cannot overwrite a newly opened scan', async () => {
@@ -130,4 +130,23 @@ test('the persistent canvas remains usable across normal close and reopen', asyn
   }
   assert.equal(h.uploads.length, 8);
   assert.deepEqual(h.reveals.map(item => item.shotId), ['first', 'second']);
+});
+
+test('a late AI-dressing response for a closed scan never dresses the next room', async () => {
+  const h = harness();
+  const old = h.open('old');
+  h.respond('old');
+  await old;
+  const lateDressing = h.requests.get('old'); // the /api/dressed request issued once the old scan went live
+  await h.vf.close();
+  const fresh = h.open('fresh');
+  h.respond('fresh');
+  await fresh;
+  const faces = [0, 90, 180, 270].map(yaw => ({ yaw_deg: yaw, pitch_deg: 0, tan_h: 1, tan_v: 0.56,
+    dressed_url: `/cache/worlds/old/dressed_${yaw}.jpg` }));
+  lateDressing.resolve({ ok: true, json: async () => ({ scene: 'INT. OLD ROOM - DAY.', label: 'AI', faces }) });
+  await tick(); await tick();
+  assert.equal(h.vf.dressed ?? null, null);
+  assert.ok(h.uploads.every(url => !url.includes('/worlds/old/')));
+  assert.equal(h.uploads.length, 8);
 });
