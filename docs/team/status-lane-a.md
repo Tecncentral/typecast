@@ -102,3 +102,6 @@ The refreshed team ZIP passes integrity validation: 619 files, 608 images,
 
 
 Current integration and human-action handoff: [index/HANDOFF.md](../../index/HANDOFF.md). User will label later; no labels or accuracy claim were added.
+
+
+Human evaluation complete:20/20 live scenes saved,15 test/5 tune. Held-out pooled recall@10:38.9% cosine,30.5% diverse. Aggregate methodology/results are in index/EVALUATION.md; labels remain private. Human labeling is no longer a blocker.
