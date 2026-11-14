@@ -1,94 +1,83 @@
 # Lane C status
 
-## Job 2 in progress — 2026-11-14T10:31:34.497475+00:00
+Updated UTC: 2026-11-14T10:55:57.323407+00:00
+Verified implementation: `e672e70` (PR [#7](https://github.com/Tecncentral/typecast/pull/7)).
+Scope confirmed by the user: **Job 2 only** in `NEXT-JOBS-PROMPTS.md`; other chats own Jobs 1 and 3.
 
-Scope confirmed by the user: Job 2 only in NEXT-JOBS-PROMPTS.md. Other chats own real data and the viewer.
+## Outcome
 
-- Unchanged baseline at a89cbad: real deep runs 84.368 s, 83.807 s, and 77.242 s (third fell back during skeptic). Median all attempts 83.807 s; successful deep median 84.087 s; 2/3 deep success.
-- Baseline completed-delegate medians: market 10.712 s, interior 18.179 s, logistics 10.986 s (3 samples each); skeptic 14.012 s (2 completed samples). The benchmark collector initially mixed fixed-fallback stages into the third run; restored its deep-only times at millisecond precision from captured terminal events and fixed the collector to filter engine=deep.
-- Baseline command: `.venv/bin/python scripts/benchmark_deep.py --checkout /tmp/typecast-job2-baseline --runs 3 --director-effort high --scout-effort high --output cache/benchmarks/deep-before.json` (exit1 honestly reports the fallback).
-- Implemented concurrent interior/logistics scouts, separate medium/low director/scout effort, <=2048-byte model summaries, full private sources.json, shared cached logistics, fixed/deep trace verification, and allowlisted GET /config.
-- Actual graph concurrency proof with sleeping source tools: interior 0–181.53 ms, logistics 0.60–185.81 ms. Both started before either finished; cached logistics is not fetched again.
-- `.venv/bin/python scripts/verify.py`: 129 passed in 2.97 s; smoke/e2e PASS (first event1.46 ms, result5.42 ms; no new search on refine); mock eval20/20, recall N/A. `pip check`: no broken requirements. No new dependency was added.
-- LangSmith authentication succeeded with the newly provided key. Live fixed/deep trace creation/read-back and optimized three-run measurement are next; no success claimed yet.
-- Local configuration now uses gpt-6.1-sol, director medium/scouts low, LANGSMITH_PROJECT=typecast; default engine remains fixed.
+Job 2 is implemented and verified. The deep engine's median decreased from **83.807 s** to **36.967 s**, now including real LangSmith trace upload and verified link retrieval. All three final runs completed with engine=deep, three source-backed fixture picks, and a verified trace URL. No fallback in the final series. The under-45-second target is met with tracing enabled.
 
+The model remains `gpt-6.1-sol`; director effort is medium and the four scout/skeptic instances use low. All coding subagents used `gpt-6.1-sol` xhigh. Default engine remains fixed; set `TYPECAST_ENGINE=deep` for the agent demo.
 
-### Job 2 optimized measurement
+## Measurements
 
-- Commit ce7fd74; command `.venv/bin/python scripts/benchmark_deep.py --runs 3 --director-effort medium --scout-effort low --output cache/benchmarks/deep-after.json`.
-- Three real-model mock runs: 44.003 s, 43.273 s, 42.971 s. All three completed with engine=deep and three picks; no fallback. Median **43.273 s**, below the 45 s target (baseline83.807 s).
-- Completed-delegate medians: market6.500 s, interior7.985 s, logistics4.939 s, skeptic3.452 s (3 samples each).
-- Run1 live event intervals: interior19.684–28.133 s; logistics19.684–24.318 s. Same-turn launch and independent completion prove actual overlap, corroborating the sleeping-source test. Progress arrived during all three runs.
-- Benchmark disables model parsing, vision reranking and tracing for both versions, isolating director/delegate latency. Actual traced HTTP latency is measured separately. No real-data retrieval metric is claimed.
-- Live GET /config returned the exact four fields; SDK key present, no private credential leakage. Initial fixed HTTP trace test saved a completed, redacted LangSmith root but returned null while immediate reads were not yet visible. Fixing bounded read-back retries before claiming live tracing success.
+Both versions use the police-station scene and mock source data, with model parsing and vision reranking disabled to isolate the deep engine. Baseline `a89cbad` used high effort throughout and no tracing. Final `e672e70` uses medium/low effort and **tracing enabled**, including completed-run verification before returning each link.
 
-## Previous integrated handoff
+| Trial | Before: high, untraced | Final: medium/low, traced |
+| --- | ---: | ---: |
+| 1 | 84.368 s | 38.637 s |
+| 2 | 83.807 s | 36.053 s |
+| 3 | 77.242 s | 36.967 s |
+| Median, all attempts | 83.807 s | 36.967 s |
+| Deep completions | 2/3 | 3/3 |
+| Verified trace links | disabled | 3/3 |
 
-Updated UTC: 2026-11-14T10:03:32Z
-Verified integrated commit: `d3ca338f12f29bb0ef318a9b88ea5960a344edb2` (dev and local lane-c).
-Verified tree: `d6bd490d8580b7967a68a7160c9a1871989265cb`.
+Baseline trial 3 failed during skeptic work and visibly fell back to fixed. Its total is included, not discarded. Successful baseline deep median was 84.087 s. The initial timing collector mixed fallback-stage events into that trial; its deep stage timestamps were restored at millisecond precision from captured terminal events, and the collector now filters engine=deep.
 
-## Works
+Completed-delegate medians (sample counts in parentheses):
 
-- M1 complete: shared interfaces, null-safe geometry, real streaming during execution, and one runtime for JSON/SSE requests.
-- M2 complete: structured model parsing, bounded vision reranking with cache and explicit fallback events, cached refinement including explicit zero, thread validation, and local approval drafts with `sent=false`.
-- M3 complete over mocks using the real provider: actual deepagents director, market, interior, logistics and skeptic delegates; real approval checkpoint; response identifies the engine that ran. No trace URL is invented.
-- M5 implementation complete: 20 authored scenes (15 test / 5 tune), private human-label input, recall@10 and p50/p95 reporting, and a test proving refinement makes no new search. Actual retrieval quality remains unmeasured until real data and labels exist.
-- Fifteen labelled synthetic mock frames make fixture image URLs work. Private thread/outbox data cannot be served through `/cache`.
-- User-requested `gpt-6.1-sol` with high app reasoning is configured in ignored `.env`. All five coding subagents used `gpt-6.1-sol` with xhigh reasoning.
+| Delegate | Before | Final |
+| --- | ---: | ---: |
+| market_scout | 10.712 s (3) | 5.819 s (3) |
+| interior_scout | 18.179 s (3) | 6.293 s (3) |
+| logistics_scout | 10.986 s (3) | 5.185 s (3) |
+| skeptic | 14.012 s (2) | 3.018 s (3) |
 
-## Verification
+Final trial 3: interior 13.570–21.271 s; logistics 13.570–18.755 s. Both started before either finished. Every final run emitted 69 progress events; first events arrived within 1.2 ms through the runtime callback.
 
-Final combined lane A/C checkout used `/tmp/typecast-review-lane-a` and the clean environment `/tmp/typecast-clean-venv`. Its tree exactly matches the integrated dev commit above.
+Commands:
 
-```text
-/tmp/typecast-clean-venv/bin/python scripts/verify.py
-97 passed in 2.28s
-PASS mock search -> validated picks -> same-thread refinement -> SSE result -> no-send approval
-e2e: first event 1.46 ms; result 5.91 ms; refine 3.66 ms; approval 1.13 ms
-search counts after scout/refine: 1 each, unchanged by refine
-mock evaluation: 20/20 completed; 0 labelled / 20 skipped; recall@10 N/A
-mock evaluation latency: p50 2.79 ms; p95 3.24 ms
-
-/tmp/typecast-clean-venv/bin/python -m pip check
-No broken requirements found.
+```bash
+.venv/bin/python scripts/benchmark_deep.py --checkout /tmp/typecast-job2-baseline --runs 3 --director-effort high --scout-effort high --output cache/benchmarks/deep-before.json
+.venv/bin/python scripts/benchmark_deep.py --runs 3 --director-effort medium --scout-effort low --tracing --output cache/benchmarks/deep-final-traced.json
 ```
 
-These evaluation timings describe local fixture execution, not real retrieval performance. The evaluation report explicitly says "mock run: not a result".
+Baseline exit 1 correctly reports its fallback; final exit 0. Reports retain code revision/source hash, individual runs, delegate event timestamps and counts under ignored cache/. These are fixture latency results, not real-data retrieval accuracy.
 
-Actual uvicorn HTTP checks on the combined checkout, using the police-station scene with model calls disabled:
+## What changed and how it was proved
 
-- `/health`: 200, all three adapters mock.
-- `POST /scout` and `GET /scout/stream`: same three picks; first event 1.10 ms, result 4.73 ms. Every pick carried all three evidence sources.
-- `POST /refine`: same thread, updated parking objections, no new search.
-- `POST /approve`: `draft_saved`, `sent=false`; invalid rank 422 and unknown thread 404.
-- All mock image URLs: 200. Private cache paths: 404.
+- Interior and logistics launch in the same director turn after market retrieval. Logistics uses the complete market pool, independent of interior results. The shortlist combines the same properties with cached logistics and never refetches that cache. Actual graph tests with sleeping source tools prove concurrent execution and one source call per property.
+- Independent model instances apply medium director / low scout effort. Tests inspect all five instances and their configured reasoning. `.env.example` exposes both effort settings and `LANGSMITH_PROJECT=typecast`.
+- Tool summaries are bounded to 2048 bytes; full properties/logistics stay in session state and private sources.json, with full shots/picks in the existing thread files. Tests cover 50-record pools and source identity.
+- Initial planning shares the market turn; interior rerank and representative geometry check share one turn; final output follows skeptic review immediately. After validating all ids/reviews and staging real approval checkpoints, the application updates the actual todo checkpoint, reads it back, verifies no pending work, then emits that saved state. Tests prove no extra model call and no premature completion event for invalid output.
+- Fixed and deep requests produce a single LangSmith root in project typecast; deep worker context propagates to actual nested model/tool spans. URLs come from the client only after a matching completed root is fetched. Inputs, outputs, attachments and arbitrary metadata are removed; aggregate timings/counts remain.
+- Live diagnostics measured about 5.5 s of ingestion visibility delay and read latency exceeding 700 ms. Verification uses 1 s connect / 2 s read limits, paced polling and an 8 s total cap; setup is bounded at 250 ms. Tests reproduce the observed delay with a fake clock. Missing keys, explicit opt-out, failures or timeout produce null links; failures emit a sanitized trace-status event without breaking scouting.
+- GET /config returns exactly mode, engine, tracing and matterport_sdk_key. Modes reflect actual adapters, including mixed; invalid engine returns sanitized 503. The only key exposed is the browser SDK key, with private-credential aliases suppressed. [Matterport's official guide](https://developers.matterport.com/embed-sdk/) documents browser applicationKey usage and allowed domains. Tests check every environment *_KEY/*_SECRET value for leakage.
 
-Clean installation from `requirements.lock.txt` succeeded. Pinned direct integrations: openai 3.51.0, deepagents 0.7.38, langchain-openai 1.8.0. GitHub verification passed for PR #4 (35 s and 32 s). No tracked file contains any configured credential value; `.env` and private cache remain ignored.
+## Live trace and HTTP evidence
 
-## Provider checks and real model execution
+- Actual fixed HTTP SSE run: first event 2.86 ms; result 4.735 s; three fixture picks and verified root. [Fixed trace](https://smith.langchain.com/o/2be59dd2-f6bb-48a8-86e6-04feb171e631/projects/p/4a463e7f-b7cb-40ee-8c38-1bf1474943f6/r/01a1d9a5-dab0-7324-9157-7e0769dda593?poll=true).
+- Actual deep HTTP SSE check before the final turn reduction: first event 2.70 ms; result 50.781 s; three picks; 255 nested spans independently fetched. The final benchmark above supersedes that latency.
+- Final implementation: independently fetched all three completed trace roots and nested spans through the LangSmith client, confirmed ids/URLs/hierarchy, actual LLM and tool spans, and empty inputs/outputs. Nested-span counts: 234, 234, 201. [Final deep trace](https://smith.langchain.com/o/2be59dd2-f6bb-48a8-86e6-04feb171e631/projects/p/4a463e7f-b7cb-40ee-8c38-1bf1474943f6/r/01a1d9b0-0cbf-73b2-874c-651c484a7939?poll=true).
+- `scripts/check_tracing.py --expected-engine fixed|deep` reproduces the HTTP/config/SSE check and independent trace read-back against the appropriate server on port 8000. It asserts no private credential appears in /config.
 
-- `python scripts/check_access.py --network`: OpenAI model-list access succeeded and includes the requested model; Matterport HTTP 200 with zero GraphQL errors; Vexcel WMTS GetCapabilities HTTP 200 with XML Capabilities (unauthenticated control 401). No keys or licensed records were printed.
-- Matterport browser SDK connected to the official public sample and read model metadata. This verifies SDK/domain access, not a matched sponsor-building tour.
-- Live structured-output probe: 2.899 s. Live police-station parsing: 3.565 s, model parsed Los Angeles / 1980s / 3 trucks / 30 cars / night correctly.
-- Live vision request on a synthetic test image: one scored, zero failures, 5.259 s; identical cached result in 0.0004 s.
-- Real deepagents run with `gpt-6.1-sol` / high reasoning completed in **87.828 s**, `engine=deep`, `source_mode=mock`, three picks, `trace_url=null`. Delegate completion: market 15.57 s, interior 40.34 s, logistics 57.78 s, skeptic 82.84 s. HTTP approval resumed its actual checkpoint and saved a local draft without another model generation.
-- An earlier deep attempt failed after 56.26 s and explicitly fell back to fixed at 56.267 s. The successful run is close to the 90 s cutoff, so the default remains fixed. Deep failure/timeout is surfaced in a fallback event.
-- Verified deepagents APIs from installed source: declarative subagents, StateBackend, explicit TodoListMiddleware, InMemorySaver, streamed updates/subgraphs, interrupt_on and Command(resume).
+## Verification and API authority
 
-## Broken / blocked on
+```text
+.venv/bin/python scripts/verify.py
+133 passed in 2.91s
+smoke PASS
+SSE/refine/approval e2e PASS: first 1.42 ms, result 4.79 ms, refine 3.48 ms, approval 1.00 ms
+search calls after refine unchanged: search_shots=1, search_costar=1
+mock evaluation: 20/20 completed; 0 labelled; recall@10 N/A
+pip check: No broken requirements found.
+```
 
-- **M4:** `cache/join.parquet` is absent, and lane A/B live adapters remain stubs. Sanitized implementation errors: `Owner 1: load the real index here`, `Owner 2: query the joined table here`, `Owner 2: call Vexcel here and cache the result`. Credentials work; a real joined pick has not been validated.
-- Live-mode failure probe with `TYPECAST_USE_MOCKS=0`: health reported live adapters; SSE emitted an agent error and terminal error, no result and no silent mock fallback. Client message: `Scouting failed. Please try again.`
-- **M5 measurement:** no real shot corpus or human relevance labels. Recall@10 remains N/A; no accuracy claim.
-- LangSmith key absent. Tracing is optional; no live trace validation or URL is claimed.
-- Sponsor engineer name remains TBD in DECISIONS.md. Existing sponsor permission is recorded; no name was invented.
+GitHub verify passed for e672e70. Credential scan found zero configured credential values in tracked files; no .env or cache file is tracked. No new dependency was required.
 
-## Integration and next handoff
+Installed source verified: deepagents middleware/subagents.py:155/652/673 supports per-subagent model; LangChain agents/factory.py:2032 dispatches pending tool calls with Send; LangGraph pregel/_runner.py:265–267 and _executor.py:71–79 submit concurrent tasks with copied context. Actual source timing tests corroborate concurrency. LangGraph pregel/main.py:1479/2636 provides get_state/update_state; infer the completed node when updating final todos, because explicitly using model would schedule after-model hooks. LangSmith 0.14.17 client.py:3978/4068/4643 supplies flush/read_run/get_run_url; all timings and URLs above came from execution.
 
-- PR #1 (interfaces/contracts) merged as `93224a9`; PR #2 (dependencies/access checks) as `eeb2000`.
-- [PR #4](https://github.com/Tecncentral/typecast/pull/4) (complete lane C implementation) merged into dev as `cdaac5c`.
-- [PR #3](https://github.com/Tecncentral/typecast/pull/3) (reviewed lane A geometry fixes) merged into dev as `d3ca338`. Integration exposed and fixed fresh-cache serving and unrounded depth filtering before merge. A separate review fixed vision requests overrunning their wall-clock deadline.
-- Latest dev was merged into lane-c. No main merge, deployment, delivery, or external submission was performed. No other lane PR was open at this check.
-- No independent lane C implementation task remains. When A/B supply real adapters and the private join, run the go-live prompt in `docs/team/OWNER-3-PROMPTS.md`: one known building through both engines, then three where supported, real frame browser checks, and labelled evaluation before tuning. Keep the source mode and measured/estimated/unknown evidence explicit.
+## Handoff
+
+No Job 2 implementation or verification remains. PR #7 contains the reviewed work and current evidence. Jobs 1 and 3 own real-data and viewer completion; this report makes no claim about their progress or real-property retrieval quality. No deployment, main merge, inquiry delivery or external submission occurred.
