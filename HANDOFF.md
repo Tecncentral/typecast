@@ -1,5 +1,7 @@
 # HANDOFF (coordinated, current)
 
+> Update 2026-11-14: unified candidate branch `ai/director-unified` (merges director-restyle 6ba671b and job8-submission-story b89293b onto 6001063). Local only, not pushed. See `index/UNIFIED-INTEGRATION-HANDOFF.md` (goal unchanged; resume with `python scripts/verify.py`, QA scripts in `../manager-drafts/unified-qa/`).
+
 Branch `ai/claude-release-audit` (PR #31), base origin/dev dbceec2. Code head: c5dbfcb (no code changed in the browser pass). Not pushed by this session. Details and per-finding evidence: `index/CLAUDE-RELEASE-REVIEW.md`. Demo script/checks: `index/GEMINI-DEMO-HANDOFF.md`.
 
 ## 1. Goal
