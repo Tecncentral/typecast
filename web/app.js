@@ -1,6 +1,6 @@
 import {
   SOURCES, availabilityInfo, evidenceBySource, fitInfo, imageUrl, moveLabel, noiseInfo, objections,
-  parkingInfo, sourceStatus,
+  parkingInfo, sourceStatus, tourLink,
 } from "./lib.js";
 import { laneStates, latestTodos, stepStates, secs, toolMs } from "./lib.js";
 
@@ -332,7 +332,136 @@ function card(pick, move = null) {
       h("p", { class: "reason", title: pick.reason }, pick.reason),
       evidenceChips(pick),
       logistics(pick),
-      objectionList(pick, move?.newNotes || [], CARD_OBJECTIONS)));
+      objectionList(pick, move?.newNotes || [], CARD_OBJECTIONS),
+      h("div", { class: "card-actions" },
+        h("button", { type: "button", class: "details-btn", onclick: () => openDrawer(pick) }, "Details and 3D tour"))));
+}
+
+/* ---------------- detail drawer + tour ---------------- */
+
+function openDrawer(pick) {
+  const p = pick.property;
+  const fit = fitInfo(pick.shot_fit);
+  const lg = pick.logistics || {};
+  const park = parkingInfo(lg);
+  const noise = noiseInfo(lg);
+  const by = evidenceBySource(pick);
+  const aerial = imageUrl(lg.aerial_image_path);
+  const body = $("drawer-body");
+  body.replaceChildren(
+    h("div", { class: "drawer-top" },
+      h("div", {},
+        h("span", { class: "eyebrow" }, `Pick #${pick.rank}`),
+        h("h2", {}, p.address),
+        h("div", { class: "facts" }, [p.type, p.year_built ? `built ${p.year_built}` : "year unknown",
+          p.size_sqft ? `${Math.round(p.size_sqft).toLocaleString()} sq ft` : null, p.city,
+          p.listing_types?.length ? `listed for ${p.listing_types.join(", ")}` : null].filter(Boolean).join(" · "))),
+      h("button", { type: "button", class: "ghost", onclick: closeDrawer, "aria-label": "Close details" }, "Close")),
+    tourBox(pick),
+    h("section", {},
+      h("span", { class: "eyebrow" }, "Frames from the scan"),
+      h("div", { class: "frames-row" }, (pick.shots || []).map((s) => h("figure", {},
+        h("div", { class: "frame" }, frameImg(s, `Camera view ${s.shot_id}`)),
+        h("figcaption", {}, `${s.shot_id} · heading ${s.heading_deg}° · `,
+          [s.room_area_m2 != null ? `${s.room_area_m2} m²` : "area unknown",
+            s.depth_m != null ? `depth ${s.depth_m} m` : "depth unknown",
+            s.ceiling_m != null ? `ceiling ${s.ceiling_m} m` : "ceiling unknown"].join(" · "),
+          s.measure_on_site ? " · measure on site" : ""))))),
+    h("section", {},
+      h("span", { class: "eyebrow" }, "Why this pick"),
+      h("p", { style: "margin:0" }, pick.reason)),
+    h("section", {},
+      h("span", { class: "eyebrow" }, "Shot fit"),
+      h("div", { class: "row-badges" }, pill(fit.status, fit.label), pill(availabilityInfo(p).status, availabilityInfo(p).label)),
+      fitLine(fit),
+      fit.note ? h("p", { class: "muted", style: "margin:6px 0 0" }, fit.note) : null,
+      p.availability_reason ? h("p", { class: "muted", style: "margin:6px 0 0" }, p.availability_reason) : null),
+    h("section", {},
+      h("span", { class: "eyebrow" }, "Crew logistics"),
+      h("div", { class: "logi" },
+        h("div", {},
+          h("div", {}, `${park.label} (${park.status}) · ${park.walk}`),
+          lg.parking_area_m2 != null ? h("div", { class: "muted" }, `Paved area about ${Math.round(lg.parking_area_m2)} m²`) : null,
+          h("div", { class: noise.flags.length ? "loud" : "" }, `Noise: ${noise.label} (${noise.status})`),
+          (lg.source_notes || []).map((n) => h("div", { class: "muted" }, n))),
+        aerial ? h("img", { class: "aerial big", src: aerial, alt: `Aerial view near ${p.address}`, onerror: (e) => e.target.remove() }) : null)),
+    h("section", { class: "evidence" },
+      h("span", { class: "eyebrow" }, "Evidence, line by line"),
+      SOURCES.map((s) => h("div", {},
+        h("h3", {}, s.label),
+        by[s.id].length ? h("ul", {}, by[s.id].map((e) => h("li", {},
+          h("span", { class: `chip ${e.status}` }, e.status), h("span", {}, e.claim))))
+          : h("p", { class: "muted", style: "margin:0" }, "No evidence returned from this source.")))),
+    h("section", {},
+      h("span", { class: "eyebrow" }, "Skeptic"),
+      objectionList(pick)));
+  $("drawer").hidden = false;
+  $("scrim").hidden = false;
+  $("drawer").scrollTop = 0;
+  body.querySelector(".drawer-top button")?.focus();
+}
+
+function closeDrawer() {
+  $("drawer").hidden = true;
+  $("scrim").hidden = true;
+  $("drawer-body").replaceChildren(); // drops any tour iframe and its SDK connection
+}
+
+const SDK_BOOTSTRAP = "https://api.matterport.com/sdk/bootstrap/3.1.0-0-g1cd7e0997a/sdk.es6.js";
+
+/**
+ * 3D tour. With an SDK key: embed Showcase, connect, and move to the shot's sweep if exactly one
+ * SDK sweep matches its id. Heading alignment is not verified (index headings are cube-face
+ * relative), so the note says so. Without a key: a plain link, labelled honestly.
+ */
+function tourBox(pick) {
+  const shot = pick.shots?.[0];
+  const link = tourLink(shot?.model_id || pick.property.model_id);
+  const key = state.config?.matterport_sdk_key;
+  const box = h("section", { class: "tour-box" }, h("span", { class: "eyebrow" }, "3D tour"));
+  if (!link) {
+    box.append(h("p", { class: "muted", style: "margin:0" }, "No 3D tour: this pick has no real Matterport model id (fixture data)."));
+    return box;
+  }
+  if (!key) {
+    box.append(h("a", { href: link, target: "_blank", rel: "noopener", class: "tour-link" }, "Open the 3D tour"),
+      h("p", { class: "tour-note" }, "Opens at the model's start, not this frame. No Matterport SDK key is configured for this viewer."));
+    return box;
+  }
+  const note = h("p", { class: "tour-note" }, "Connecting to the 3D tour…");
+  const src = new URL("https://my.matterport.com/show");
+  src.search = new URLSearchParams({ m: shot?.model_id || pick.property.model_id, play: "1", applicationKey: key });
+  const iframe = h("iframe", { src: src.href, title: `3D tour of ${pick.property.address}`, allow: "fullscreen; xr-spatial-tracking" });
+  box.append(iframe, note, h("a", { href: link, target: "_blank", rel: "noopener", class: "tour-note" }, "Open the tour in a new tab"));
+  connectTour(iframe, key, shot, note);
+  return box;
+}
+
+async function connectTour(iframe, key, shot, note) {
+  try {
+    const { connect } = await import(`${SDK_BOOTSTRAP}?applicationKey=${encodeURIComponent(key)}`);
+    const sdk = await Promise.race([connect(iframe),
+      new Promise((_, reject) => setTimeout(() => reject(new Error("timeout")), 25000))]);
+    const sweeps = new Map();
+    await new Promise((resolve) => {
+      sdk.Sweep.data.subscribe({
+        onAdded: (id, v) => sweeps.set(id, v), onUpdated: (id, v) => sweeps.set(id, v),
+        onRemoved: (id) => sweeps.delete(id), onCollectionUpdated: () => resolve(),
+      });
+      setTimeout(resolve, 4000);
+    });
+    const matches = [...sweeps.entries()].filter(([id, v]) => [id, v.sid, v.uuid].includes(shot.sweep_id));
+    if (matches.length !== 1) {
+      note.textContent = "Tour loaded at the model's start. This frame's scan point has no unique match in the tour, so explore manually.";
+      return;
+    }
+    const transition = sdk.Camera?.TransitionType?.FLY ?? sdk.Sweep?.Transition?.FLY;
+    await sdk.Sweep.moveTo(matches[0][0], { rotation: { x: 0, y: Number(shot.heading_deg) || 0 }, transition });
+    note.textContent = "Moved to this frame's scan point. Facing direction is approximate: the frame's heading has not been verified against the tour's camera.";
+  } catch {
+    if (!note.isConnected) return;
+    note.textContent = "Interactive tour control is unavailable (SDK did not connect). The tour opens at the model's start.";
+  }
 }
 
 /* ---------------- boot ---------------- */
@@ -342,6 +471,8 @@ $("scene-form").addEventListener("submit", (e) => {
   const scene = $("scene").value.trim();
   if (scene) startRun(scene);
 });
+$("scrim").addEventListener("click", closeDrawer);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("drawer").hidden) closeDrawer(); });
 $("scene").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) $("scene-form").requestSubmit();
 });
