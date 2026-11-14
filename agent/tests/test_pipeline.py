@@ -35,3 +35,10 @@ def test_lookalike_excludes_source_building():
 def test_bad_request_and_approve_needs_yes():
     assert c.post("/scout", json={}).status_code == 400
     assert c.post("/approve", json={"thread_id": "x", "pick_rank": 1, "decision": "no"}).json()["sent"] is False
+
+
+def test_stream_sends_events_then_result(monkeypatch):
+    monkeypatch.setenv("TYPECAST_EVENT_DELAY", "0")
+    body = c.get("/scout/stream", params={"scene": SCENE}).text
+    assert body.count("event: agent") >= 5 and body.strip().split("\n\n")[-1].startswith("event: result")
+    assert c.get("/scout/stream").status_code == 400
