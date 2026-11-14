@@ -119,6 +119,8 @@ def main() -> int:
                 row.update(follow_up(args.base_url, original, output.with_suffix(".refine.json")))
             row["ok"] = True
         except Exception as error:
+            if output.is_file():
+                row.update(json.loads(output.read_text()))
             row.update(error_type=type(error).__name__, error=str(error) if type(error) is RuntimeError else "Diagnostic failed; inspect private artifacts.")
         rows.append(row)
         (directory / "summary.json").write_text(json.dumps(rows, indent=2))

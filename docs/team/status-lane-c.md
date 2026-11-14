@@ -192,3 +192,44 @@ All ten requests returned three source-backed picks. Five-truck refinements reta
 Added reproducible live demo and browser diagnostics; synthetic negative cases reject evidence loss, changed pools, over-90-second refinement, non-live responses, missing interiors/aerials and unsafe image paths. Reports cannot retain an earlier success after a failed browser rerun. No application dependency was added.
 
 Removed only the requested unused `typecast-b` and `typecast-live` worktrees after checking clean tracked/untracked status, no unmerged commits, no process working directories in either checkout, and that cache/.env/.venv were symlinks to retained main-checkout files. Main private data remains present; viewer/exterior workspaces were untouched. Next: stable authored-scene vision caching, ten-view rerank budget, cache fill and matched warm measurements. Human test labels remain pending.
+
+### Stable visual cache and ten-view budget — 2026-11-14 17:00 UTC
+
+The shared pipeline now scores ten visual candidates while retaining the full retrieved tail for selection/refinement. Actual visual model payload and cache fingerprint both use the exact authored scene text, including follow-ups; inferred parse wording no longer causes misses. Cache version is 2. Provider/model identity, prompt, image identity, configured/enabled state and explicit upload permission checks remain intact. Physical and logistics requirements still operate independently in parsing/ranking.
+
+Focused models/pipeline/deep tests: 59 passed. Combined gate: 290 tests plus smoke, genuine SSE progress, no-search refinement, local-draft approval and unlabelled mock evaluation; pip check passed. All five actual new-cache precompute scouts and refinements passed, scoring ten fresh views each. Scout times: 19.478, 13.164, 15.915, 16.576, 15.782 seconds. Chromium decoded 88 images across their ten initial/refined responses.
+
+Warm measurements are ongoing. One first warm fixed run returned correct live picks and ten cached scores in 13.356 seconds of server time, but LangSmith verification did not finish within its existing bound, so the response correctly exposed a null trace link and the strict trace diagnostic failed. That attempt is retained; a targeted retry follows. This optional tracing failure does not justify a fabricated link or unbounded wait. Final warm timings and reliability counts will be appended after both engines finish.
+
+### Measured director planning overhead — 2026-11-14 17:13 UTC
+
+The first cache-only warm deep measurement still spent separate model turns updating todos. Its first scene emitted market-result→todo→parallel-scouts, interior-result→todo→shortlist, and shortlist→todo→skeptic; the earlier baseline combined these updates with source actions. Source tools and skeptic each ran once. This is actual trace/event evidence of optional planner overhead, not a duplicated source fetch.
+
+The director now sees write_todos only until a real nonempty plan is persisted. Later calls retain every other tool; actual scout/tool events report progress. The application still completes and reads back the plan only after authoritative ids, every skeptic review and real approval interrupts are validated. Models and reasoning effort are unchanged. A real-graph test captures tool availability across all five director calls and checks parallel scouts, one skeptic result, and every actual HITL interrupt. Full gate: 291 tests plus all fixture integration checks.
+
+Cache-only warm fixed results all passed after two targeted retries for missing optional trace links: 11.569, 9.651, 8.279, 8.240 and 10.432 seconds, each with ten cached scores. The original two null-link attempts remain recorded. Browser verification includes all 12 initial/refined responses from both attempts: 105 images, zero failures.
+
+The intermediate deep batch produced all five real scouting responses; three full diagnostics passed, one lacked its bounded trace link, and one independent trace-tree read raised KeyError. Later read-back of that same existing trace succeeded with 224 redacted spans. The SDK assembles parent links using a dictionary lookup, consistent with temporary partial trace visibility. Diagnostics now retry only this hierarchy read error up to three times and persist measured scout summaries before trace verification; persistent errors still fail. Synthetic transient and persistent cases passed. No application trace timeout or truthfulness rule changed. A final five-scene deep measurement is now running against the reduced planning graph.
+
+### Final live demo and speed acceptance — 2026-11-14 17:20 UTC
+
+Final application changes: `c8c644f` (stable scene cache/ten-view budget) and `eab395d` (initial-plan-only director and bounded diagnostic read-back). Independent review found no material correctness issues; both exact-head CI workflows passed for eab395d. The local complete gate passed 291 tests and all fixture integration checks. Final actual deep execution used the same gpt-6.1-sol model and medium director / low delegate effort as baseline.
+
+| Authored scene | Fixed before, s | Fixed after, s | Deep before, s | Deep after, s |
+| --- | ---: | ---: | ---: | ---: |
+| Glass office confrontation | 27.135 | 11.569 | 59.981 | 44.768 |
+| Warehouse handoff | 22.825 | 9.651 | 52.875 | 39.929 |
+| Empty shop rehearsal | 22.124 | 8.279 | 61.165 | 45.017 |
+| Houston glass office meeting | 24.793 | 8.240 | 44.288 | 39.988 |
+| Houston apartment conversation | 21.445 | 10.432 | 50.762 | 39.490 |
+| **Median (5 scenes)** | **22.825** | **9.651** | **52.875** | **39.988** |
+
+Baseline fixed used twenty fresh vision scores per scene; baseline deep cached counts were 0/20/0/20/20. Final runs used ten cached scores per scene. The first deep run in each server process includes cold CLIP initialization. These are five matched authored demo scenes, one fully verified final run each, with tracing enabled; they are not held-out accuracy measurements. Two fixed final scenes required targeted retries for missing trace links. The earlier 67.398-second single run used the old index and is not the matched comparison above.
+
+Final deep passed all five scenes on its first attempt: three real available picks with known parking; all three evidence sources; genuine source-grounded skeptic; model parse and ten cached visual scores with zero failures; independently fetched redacted traces containing 193–204 spans. Five-truck refinement took 5.461–8.603 seconds, kept the exact candidate pool, performed no new search, changed ranking/allocation and saved unsent local drafts. Each actual run had only the initial and verified-complete todo events; all four scouts/skeptic delegates returned before completion.
+
+Chromium loaded 88 images across the ten final deep initial/refined responses with zero failures. Across every retained phase, 530 image loads across 60 responses passed. All 32 scouting attempts returned the requested live engine without fallback and retained honest three-source evidence; maximum recorded server scouting time was 61.158 seconds (maximum recorded client time 61.165). Four strict diagnostic failures remain: two fixed null trace links, one intermediate deep null link, and one intermediate trace-tree KeyError that later read back successfully. No failed attempt was overwritten or silently removed.
+
+Private reproduction/evidence: `cache/demo-set.json`, `cache/demo-checks/final-comparison.json`, all per-attempt summaries/responses/refinements, browser reports/screenshots, Vexcel caches and vision caches for every demo scene/follow-up. The application continues to need the model API for parsing/director execution; cached evidence cannot guarantee an entirely offline agent run.
+
+Only held-out evaluation remains dependent on the human: zero of fifteen test reviews are saved. The frozen lab is running at http://localhost:8765/evaluate and is open in a separate in-app browser tab with the first test scene loaded; no labels were selected or saved by this agent. Export and live scoring are ready, and README/docs/team/eval.md explicitly retain N/A until actual human reviews exist.

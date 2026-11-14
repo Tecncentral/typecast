@@ -147,6 +147,23 @@ def _build_graph(model, session: ToolSession):
     from deepagents.middleware.filesystem import FilesystemMiddleware
     from langchain.agents.middleware import TodoListMiddleware
     from langgraph.checkpoint.memory import InMemorySaver
+
+    class InitialPlanTodoMiddleware(TodoListMiddleware):
+        """Expose planning once; verified application state owns completion."""
+        @staticmethod
+        def _initial_plan_request(request):
+            if not request.state.get("todos"):
+                return request
+            tools = [tool for tool in request.tools
+                     if (tool.get("name") if isinstance(tool, dict) else getattr(tool, "name", None)) != "write_todos"]
+            return request.override(tools=tools)
+
+        def wrap_model_call(self, request, handler):
+            return super().wrap_model_call(self._initial_plan_request(request), handler)
+
+        async def awrap_model_call(self, request, handler):
+            return await super().awrap_model_call(self._initial_plan_request(request), handler)
+
     tools = make_tools(session)
     specs = [
         ("market_scout", "Search and inspect CoStar source properties.", "market", ["search_costar", "get_property"]),
@@ -162,18 +179,21 @@ def _build_graph(model, session: ToolSession):
     return create_deep_agent(
         model=model, system_prompt=_prompt("director"), tools=[tools["build_shortlist"]],
         subagents=subagents, backend=StateBackend(), checkpointer=InMemorySaver(),
-        middleware=[FilesystemMiddleware(tools=["read_file"]), TodoListMiddleware(
-            system_prompt=("Track the source-backed scouting steps with write_todos, at most once per turn. "
-                           "Combine each update with the next source task/tool calls. Keep todo content to "
-                           "four words and task descriptions to 25 words. After the skeptic result, return "
+        middleware=[FilesystemMiddleware(tools=["read_file"]), InitialPlanTodoMiddleware(
+            system_prompt=("Create the initial persisted plan with write_todos exactly once, as the FIRST "
+                           "tool call alongside market_scout in the FIRST turn. Set market work in_progress "
+                           "and later steps pending. Once saved, write_todos is unavailable: actual scout/tool "
+                           "events report progress. Keep todo content to four words and task descriptions "
+                           "to 25 words. After the skeptic result, return "
                            "the final authoritative ids immediately without another tool call. The application "
                            "completes your persisted todo checkpoint only after validating those ids, every "
                            "review, and all staged draft approval checkpoints."),
-            tool_description=("Replace the scouting todo list with content/status entries (pending, in_progress, "
-                              "completed). Keep each content to four words. Mark only verified finished steps "
-                              "completed. Call at most once per turn and alongside source work. Leave final "
-                              "verification in_progress when delegating to the skeptic; the application "
-                              "completes the checkpoint after validating the final answer and staging approvals."))],
+            tool_description=("Create the initial scouting plan ONCE, as the first tool call alongside "
+                              "market_scout in the first turn. Keep each content to four words; set market "
+                              "in_progress and later steps pending. This tool is unavailable after the plan "
+                              "is saved. Actual scout/tool events report progress; the application completes "
+                              "the persisted checkpoint only after validating the final answer, every skeptic "
+                              "review, and staged approval checkpoints."))],
         name="typecast_director")
 
 

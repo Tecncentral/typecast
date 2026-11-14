@@ -1,50 +1,28 @@
-mock run: not a result
-
 # Retrieval evaluation
 
-Date: 2026-11-14T09:52:53+00:00
+Updated: 2026-11-14 17:20 UTC
 
-The scene texts are authored fiction, not source data. No relevance judgments are inferred from mock scores.
+The expanded index has 10,568 views across 343 properties. Its 15 test scenes and five tuning scenes are frozen against an immutable index generation and blinded global top-40 candidate pools.
 
-Engine(s): fixed. Source mode(s): mock.
+| Held-out test status | Count / value |
+| --- | ---: |
+| Authored test scenes | 15 |
+| Saved human test reviews | 0 |
+| Scored human test scenes | 0 |
+| Mean recall@10 | N/A — awaiting human review |
 
-| Split | Attempted | Succeeded | Scored labels | Unlabeled | Mean recall@10 | p50 ms | p95 ms |
-|---|---:|---:|---:|---:|---:|---:|---:|
-| all | 20 | 20 | 0 | 20 | N/A | 2.87 | 3.29 |
-| test | 15 | 15 | 0 | 15 | N/A | 2.87 | 4.64 |
-| tune | 5 | 5 | 0 | 5 | N/A | 2.88 | 3.29 |
+The live labeling lab is available at `http://localhost:8765/evaluate`. Inspect all 40 candidates per test scene, enter the actual reviewer name, keep **Human review** selected, select every relevant view, and save the complete review. An empty relevance selection is valid after inspection; it is excluded from recall and reported separately. No AI judgments have been substituted for human labels. Older labels from the 608-view index do not establish accuracy for this expanded pool.
 
-Recall@10 is the fraction of hand-labeled relevant shot ids found in the first ten cached ranked retrieval candidates, averaged over scored scenes. Empty or absent labels are skipped, never counted as zero recall. Failed labeled requests are reported as failures and are not scored.
+After all 15 test reviews are saved, use the immutable generation printed by the already-created private freeze snapshot for `TYPECAST_INDEX_DIR`:
 
-Latency is wall-clock time for the in-process POST /scout request, including response validation and serialization but excluding app startup. There is no warmup. p50 is the median; p95 is the nearest-rank 95th percentile. These are local measurements, not deployed network latency.
+```bash
+python agent/eval/label_bridge.py export --split test --index-dir "$TYPECAST_INDEX_DIR"
+TYPECAST_ENABLE_MODEL_PARSE=1 TYPECAST_ENABLE_VISION_RERANK=1 \
+  TYPECAST_ALLOW_VISION_UPLOAD=1 python agent/eval/run_eval.py --mode live --split test \
+  --scenes cache/evaluation/agent/scenes.jsonl --labels cache/evaluation/agent/labels.jsonl \
+  --index-dir "$TYPECAST_INDEX_DIR" --output docs/team/eval.md
+```
 
-| Scene | Split | Top-k count | Recall@10 | Latency ms | Engine | Source mode | Status |
-|---|---|---:|---:|---:|---|---|---|
-| office-01 | test | 10 | N/A | 4.64 | fixed | mock | unlabeled; skipped |
-| office-02 | test | 10 | N/A | 3.07 | fixed | mock | unlabeled; skipped |
-| office-03 | test | 10 | N/A | 3.07 | fixed | mock | unlabeled; skipped |
-| openplan-01 | test | 10 | N/A | 2.76 | fixed | mock | unlabeled; skipped |
-| openplan-02 | test | 10 | N/A | 3.23 | fixed | mock | unlabeled; skipped |
-| openplan-03 | test | 10 | N/A | 2.85 | fixed | mock | unlabeled; skipped |
-| lobby-01 | test | 10 | N/A | 2.87 | fixed | mock | unlabeled; skipped |
-| lobby-02 | test | 10 | N/A | 2.65 | fixed | mock | unlabeled; skipped |
-| retail-01 | test | 10 | N/A | 3.01 | fixed | mock | unlabeled; skipped |
-| retail-02 | test | 10 | N/A | 3.23 | fixed | mock | unlabeled; skipped |
-| warehouse-01 | test | 10 | N/A | 3.13 | fixed | mock | unlabeled; skipped |
-| warehouse-02 | test | 10 | N/A | 2.67 | fixed | mock | unlabeled; skipped |
-| apartment-01 | test | 10 | N/A | 2.64 | fixed | mock | unlabeled; skipped |
-| apartment-02 | test | 10 | N/A | 2.78 | fixed | mock | unlabeled; skipped |
-| apartment-03 | test | 10 | N/A | 2.74 | fixed | mock | unlabeled; skipped |
-| office-04 | tune | 10 | N/A | 2.96 | fixed | mock | unlabeled; skipped |
-| openplan-04 | tune | 10 | N/A | 3.29 | fixed | mock | unlabeled; skipped |
-| lobby-03 | tune | 10 | N/A | 2.88 | fixed | mock | unlabeled; skipped |
-| retail-03 | tune | 10 | N/A | 2.81 | fixed | mock | unlabeled; skipped |
-| warehouse-03 | tune | 10 | N/A | 2.66 | fixed | mock | unlabeled; skipped |
+The bridge rejects incomplete, stale, AI/mock or changed-index reviews. The evaluator checks the index before and after scoring. Its recall@10 measures relevant human judgments found among the pipeline's first ten ranked candidates, averaged over scored test scenes. Judgments cover the frozen global pool; the pipeline applies a parsed city filter, so the report also discloses city-eligible relevant counts. This is pooled pipeline recall, with explicit sampling limits. Keep test judgments frozen and use only the five tune scenes for development.
 
-Labels file: `agent/eval/labels.template.jsonl`. The template intentionally has 20 empty label sets.
-
-Before tuning, inspect the real shot corpus and hand-label relevant shots for all 20 scenes, recording the labeler. Keep licensed shot ids and judgments in an ignored private file such as `cache/eval/labels.jsonl`; do not fill the public template. Freeze the 15 test scenes and their labels. Use only the five tune scenes for development, then report test recall separately.
-
-Reproduce the offline harness: `.venv/bin/python agent/eval/run_eval.py --mode mock`. Once authorized real data and labels exist, use `--mode live --labels cache/eval/labels.jsonl --split test`. Mock mode blanks provider keys, disables parsing/vision models and tracing, blocks sockets and isolates thread/draft files in a temporary directory.
-
-The report contains aggregate metrics and authored scene ids only; retrieved shot ids are not published.
+The [live demo latency checks](status-lane-c.md) passed both engines with real models and sources. Those authored demo checks establish execution, timing and evidence behavior; the human relevance metric above remains pending.

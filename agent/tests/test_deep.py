@@ -24,6 +24,7 @@ class DeterministicChat(BaseChatModel):
     _steps: dict[str, int] = PrivateAttr(default_factory=dict)
     _history: list[str] = PrivateAttr(default_factory=list)
     _director_turns: list[tuple[str, ...]] = PrivateAttr(default_factory=list)
+    _director_tools: list[tuple[str, ...]] = PrivateAttr(default_factory=list)
     _interior_turns: list[tuple[str, ...]] = PrivateAttr(default_factory=list)
 
     @property
@@ -31,7 +32,10 @@ class DeterministicChat(BaseChatModel):
         return "typecast-offline-tool-chat"
 
     def bind_tools(self, tools, **kwargs):
-        return self
+        # Each concurrent delegate keeps its own bound request, rather than
+        # racing to mutate tool availability on this shared fake model instance.
+        return self.bind(_test_available_tools=tuple(
+            tool.get("name", "") if isinstance(tool, dict) else tool.name for tool in tools))
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
         system = deep._text(messages[0].content)
@@ -80,13 +84,18 @@ class DeterministicChat(BaseChatModel):
                 answer = AIMessage(content=json.dumps({"reviews": [{"property_id": p["property"]["property_id"],
                     "objection": p["skeptic_notes"][0]} for p in result("get_shortlist")["picks"]]}))
         else:
+            available = kwargs.get("_test_available_tools", ())
+            self._director_tools.append(available)
             if step == 4:
                 ids = [p["property"]["property_id"] for p in result("build_shortlist")["picks"]]
                 answer = AIMessage(content=json.dumps({"property_ids": ["invented"] if self.bad_final else ids}))
             else:
-                calls = [{"name": "write_todos", "args": {"todos": [{
-                    "content": "Verify source evidence", "status": "in_progress"}]},
-                    "id": f"director-{step}-todo", "type": "tool_call"}]
+                calls = []
+                if "write_todos" in available:
+                    calls.append({"name": "write_todos", "args": {"todos": [
+                        {"content": "Inspect market evidence", "status": "in_progress"},
+                        {"content": "Verify remaining source evidence", "status": "pending"}]},
+                        "id": f"director-{step}-todo", "type": "tool_call"})
                 for action in {0: ["market_scout"], 1: ["interior_scout", "logistics_scout"],
                                2: ["build_shortlist"], 3: ["skeptic"]}[step]:
                     args = {} if action == "build_shortlist" else {
@@ -345,7 +354,8 @@ def test_real_graph_parallel_scouts_overlap_sleeping_source_tools(monkeypatch):
     interior = intervals["interior"][0]
     logistics = min(intervals["logistics"], key=lambda span: span[0])
     assert max(interior[0], logistics[0]) < min(interior[1], logistics[1])
-    assert ("write_todos", "interior_scout", "logistics_scout") in model._director_turns
+    assert ("write_todos", "market_scout") == model._director_turns[0]
+    assert ("interior_scout", "logistics_scout") in model._director_turns
     assert len(model._director_turns) == 4
     assert model._interior_turns == [("rerank_shots", "check_shot")]
     assert model._history.count("director") == 5
@@ -443,6 +453,7 @@ def test_todos_complete_in_real_checkpoint_only_after_validation_and_approval_st
         before = graph.get_state(config)
         assert before.next == ()
         assert any(todo["status"] == "in_progress" for todo in before.values["todos"])
+        assert any(todo["status"] == "pending" for todo in before.values["todos"])
         assert len(staged) == len(session.picks)
         assert deep.Decision.model_validate_json(mapper.last_answer).property_ids == [
             pick.property.property_id for pick in session.picks]
@@ -463,7 +474,29 @@ def test_todos_complete_in_real_checkpoint_only_after_validation_and_approval_st
     monkeypatch.setattr(deep, "_complete_todos", complete)
     response = deep.run_deep(RunContext("deep-checkpoint-todos", emit=events.append), Requirements(scene="office"))
     todos = [event for event in events if event.type == "todo"]
+    assert len(todos) == 2
+    assert all(todo["status"] != "completed" for todo in json.loads(todos[0].text))
     assert response.picks and captured["todos"] == json.loads(todos[-1].text)
     assert events.index(todos[-1]) > max(i for i, event in enumerate(events)
                                        if event.type == "subagent_result")
     assert len(model._director_turns) == 4 and model._history.count("director") == 5
+
+
+def test_actual_graph_hides_only_plan_tool_after_persisted_initial_plan(monkeypatch):
+    model = fake_model(monkeypatch)
+    events = []
+    response = deep.run_deep(RunContext("deep-initial-plan", emit=events.append), Requirements(scene="office"))
+    assert response.engine == "deep" and response.picks
+    assert len(model._director_tools) == 5
+    initial = set(model._director_tools[0])
+    assert {"write_todos", "task", "build_shortlist"} <= initial
+    assert all(set(tools) == initial - {"write_todos"} for tools in model._director_tools[1:])
+    assert model._director_turns == [("write_todos", "market_scout"),
+                                     ("interior_scout", "logistics_scout"),
+                                     ("build_shortlist",), ("skeptic",)]
+    assert {"market_scout", "interior_scout", "logistics_scout", "skeptic"} <= set(model._history)
+    assert sum(event.type == "subagent_result" and event.agent == "skeptic" for event in events) == 1
+    assert len(deep._approvals) == len(response.picks)
+    for staged in deep._approvals.values():
+        snapshot = staged.graph.get_state(staged.config)
+        assert snapshot.tasks[0].interrupts[0].value["action_requests"][0]["name"] == "draft_inquiry"
