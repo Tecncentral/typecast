@@ -3,6 +3,7 @@ import asyncio
 import json
 import os
 import pathlib
+import re
 from threading import Event as ThreadEvent
 from typing import Literal, Optional
 
@@ -191,6 +192,44 @@ def approve(req: ApproveRequest):
     state.save_draft(req.thread_id, req.pick_rank, note)
     path = f"cache/outbox/{req.thread_id}-{req.pick_rank}.md"
     return {"status": "draft_saved", "sent": False, "path": path, **metadata}
+
+
+_SHOT_ID = re.compile(r"[A-Za-z0-9._-]{1,200}")
+
+
+@app.get("/api/sweep/{shot_id}")
+def sweep_faces(shot_id: str):
+    """Every indexed view captured at the same scan point as a shot, for the 360-degree viewfinder.
+
+    Views are cube faces with scan-relative headings, not compass bearings; geometry stays as indexed.
+    """
+    if not _SHOT_ID.fullmatch(shot_id):
+        raise HTTPException(422, "Invalid shot id")
+    from index.search import get_active_index
+    try:
+        index = get_active_index()
+        shot = index.get_shot(shot_id)
+    except KeyError:
+        raise HTTPException(404, "Unknown shot") from None
+    except Exception:
+        raise HTTPException(503, "Shot index unavailable") from None
+    faces: dict[int, object] = {}
+    for candidate in index.shots:
+        if candidate.model_id == shot.model_id and candidate.sweep_id == shot.sweep_id:
+            faces.setdefault(round(candidate.heading_deg) % 360, candidate)
+    return {
+        "shot_id": shot.shot_id,
+        "model_id": shot.model_id,
+        "sweep_id": shot.sweep_id,
+        "property_id": shot.property_id,
+        "heading_deg": shot.heading_deg,
+        "room_area_m2": shot.room_area_m2,
+        "ceiling_m": shot.ceiling_m,
+        "depth_m": shot.depth_m,
+        "measure_on_site": shot.measure_on_site,
+        "faces": [{"heading_deg": heading, "image_path": face.image_path, "shot_id": face.shot_id}
+                  for heading, face in sorted(faces.items())],
+    }
 
 
 class CachedImages(StaticFiles):
