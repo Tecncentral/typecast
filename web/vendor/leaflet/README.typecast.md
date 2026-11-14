@@ -1,6 +1,7 @@
 # Leaflet 1.9.4
 
-Vendored from the public npm release, without modifying the distribution files:
+Vendored from the public npm release. JavaScript, CSS and rendered image pixels
+are unchanged; the PNG files carry added origin metadata for Impeccable:
 https://registry.npmjs.org/leaflet/-/leaflet-1.9.4.tgz
 
 Upstream: https://leafletjs.com/ and https://github.com/Leaflet/Leaflet/tree/v1.9.4

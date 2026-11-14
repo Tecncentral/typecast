@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#131617" />
+    <title>Typecast — Scene to shortlist</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./cards.css" />
+    <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="./map.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#scene">Skip to scene</a>
+    <header class="masthead">
+      <a class="wordmark" href="./" aria-label="Typecast home">TYPECAST</a>
+      <span class="masthead-label">Location scouting</span>
+      <div class="runtime" aria-label="Data mode and engine">
+        <span id="source-mode" class="mode-badge">CHECKING</span
+        ><span id="engine">—</span>
+      </div>
+    </header>
+    <main>
+      <section class="scene-section" aria-labelledby="scene-heading">
+        <div class="section-topline">
+          <h1 id="scene-heading">Find a place for the scene.</h1>
+          <span class="scene-scope">Interiors. Shot fit. Crew logistics.</span>
+        </div>
+        <div class="scene-presets">
+          <span class="presets-label">Demo scenes</span>
+          <div id="scene-buttons" aria-label="Validated demo scenes"></div>
+        </div>
+        <form id="scene-form" class="scene-form">
+          <label for="scene" class="sr-only"
+            >Describe the scene and crew requirements</label
+          >
+          <textarea
+            id="scene"
+            name="scene"
+            rows="2"
+            required
+            maxlength="12000"
+            spellcheck="false"
+          >
+INT. 1980s POLICE STATION, NIGHT. Big open room, drop ceiling, windows on one wall. Parking for 3 trucks and 30 crew cars.</textarea>
+          <button id="run-button" class="primary" type="submit">
+            Scout locations
+          </button>
+        </form>
+        <p id="mode-note" class="mode-note">
+          Checking the local scouting service…
+        </p>
+      </section>
+      <div id="api-error" class="api-error" role="alert" hidden></div>
+      <section
+        id="run-section"
+        class="run-section"
+        aria-label="Scouting activity"
+        hidden
+      >
+        <details id="activity" open>
+          <summary class="activity-summary">
+            <span class="activity-heading"
+              ><span id="activity-dot" class="activity-dot"></span
+              ><span id="run-status" role="status">Ready to scout</span></span
+            ><span class="activity-controls"
+              ><span id="elapsed">0s</span
+              ><span class="activity-toggle">Scout activity</span></span
+            >
+          </summary>
+          <div class="activity-body">
+            <p id="plan-text" class="plan-text">
+              Waiting for the scouting service.
+            </p>
+            <ul
+              id="todo-list"
+              class="todo-list"
+              aria-label="Director to-do list"
+              hidden
+            ></ul>
+            <div id="agent-lanes" class="agent-lanes"></div>
+            <div id="run-notices" class="run-notices"></div>
+          </div>
+        </details>
+        <p id="slow-note" class="slow-note" hidden></p>
+      </section>
+      <section
+        id="shortlist-section"
+        aria-labelledby="shortlist-heading"
+        hidden
+      >
+        <div class="shortlist-heading section-topline">
+          <div><h2 id="shortlist-heading">Places for this scene</h2></div>
+          <div class="shortlist-meta">
+            <span id="result-meta"></span
+            ><a id="trace-link" target="_blank" rel="noopener noreferrer" hidden
+              >View trace</a
+            >
+          </div>
+        </div>
+        <details id="relaxations" class="relaxations" hidden></details>
+        <div id="empty-state" class="empty-state" hidden>
+          <h3>No matching locations returned.</h3>
+          <p>
+            Try another scene or adjust your requirements. Any relaxed
+            preferences are shown above.
+          </p>
+        </div>
+        <div id="changes" class="changes" aria-live="polite" hidden></div>
+        <div id="results" class="results"></div>
+        <p id="draft-status" class="draft-status" role="status" hidden></p>
+      </section>
+      <section
+        id="refine-section"
+        class="refine-section"
+        aria-labelledby="refine-heading"
+        hidden
+      >
+        <div>
+          <h2 id="refine-heading">One more requirement?</h2>
+          <p>Reconsider these locations. Keep the earlier frames.</p>
+        </div>
+        <form id="refine-form">
+          <label for="refine-message">What changed?</label>
+          <div class="refine-input-row">
+            <input
+              id="refine-message"
+              name="message"
+              value="need parking for 5 trucks"
+              required
+              maxlength="4000"
+            /><button id="refine-button" class="primary" type="submit">
+              Refine shortlist
+            </button>
+          </div>
+        </form>
+      </section>
+      <section
+        id="history-section"
+        class="history-section"
+        aria-labelledby="history-heading"
+        hidden
+      >
+        <div class="section-topline">
+          <h2 id="history-heading">Earlier takes</h2>
+          <span class="section-note">Original frames, kept for comparison</span>
+        </div>
+        <div id="previous-results"></div>
+      </section>
+      <section
+        id="map-section"
+        class="map-section"
+        aria-labelledby="map-heading"
+        hidden
+      >
+        <div class="section-topline">
+          <div><h2 id="map-heading">The location, in context.</h2></div>
+          <span class="section-note">Property pins and aerial evidence</span>
+        </div>
+        <div id="location-map"></div>
+      </section>
+      <section id="welcome" class="welcome" aria-label="Getting started">
+        <h2>A frame is only the beginning.</h2>
+        <p>
+          Scout a scene to see the interior, test the shot, and check how the
+          crew gets there. Every result keeps its sources and uncertainties in
+          view.
+        </p>
+        <div class="source-line">
+          <span>CoStar <small>Property</small></span
+          ><span>Matterport <small>Interior</small></span
+          ><span>Vexcel <small>Logistics</small></span>
+        </div>
+      </section>
+    </main>
+    <footer>
+      <span>Typecast / From script to scout</span
+      ><span>Evidence stays visible. Unknown stays unknown.</span>
+    </footer>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
