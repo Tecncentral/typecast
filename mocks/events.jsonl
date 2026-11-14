@@ -1,4 +1,5 @@
 {"type": "plan", "agent": "director", "text": "Parse scene, filter buildings, search shots, check fit, plan crew, challenge, rank.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "notice", "agent": "runtime", "text": "No city named; searched Los Angeles. Name Houston to search there.", "ts": 0.0, "ms": null, "engine": "fixed"}
 {"type": "subagent_start", "agent": "market_scout", "text": "Filtering CoStar by city, era and availability.", "ts": 0.0, "ms": null, "engine": "fixed"}
 {"type": "subagent_result", "agent": "market_scout", "text": "4 candidate buildings.", "ts": 0.0, "ms": null, "engine": "fixed"}
 {"type": "subagent_start", "agent": "interior_scout", "text": "Searching camera views inside the scans.", "ts": 0.0, "ms": null, "engine": "fixed"}
