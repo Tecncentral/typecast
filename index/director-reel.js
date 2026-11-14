@@ -77,6 +77,7 @@
         actors,
       };
       if (s.shot.origin === 'authored-sample') shot.origin = 'authored-sample';
+      if (s.shot.carried === true) shot.carried = true;
       const out = { id: String(s.id ?? `s${i + 1}`).slice(0, 32), heading: String(s.heading ?? '').slice(0, 120),
         shot_id: s.shot_id, prov: String(s.prov ?? '').slice(0, 200), start, shot };
       start += shot.duration_sec;

@@ -12,7 +12,7 @@ const DEMO = [
   'INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.',
   'INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.',
 ].join('\n');
-const S = { compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
+const S = { swaps: {}, transfer: {}, swapUndo: null, notes: {}, built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
@@ -38,16 +38,28 @@ function orderPlans(data) {
 }
 function planSummary(p) {
   const covered = S.scenes.length - (p.uncovered_scene_ids || []).length;
-  return `${covered}/${S.scenes.length} scenes · ${p.locations} location${p.locations === 1 ? '' : 's'} · ${p.company_moves ?? '?'} move${p.company_moves === 1 ? '' : 's'}`;
+  const base = `${covered}/${S.scenes.length} scenes · ${p.locations} location${p.locations === 1 ? '' : 's'} · ${p.company_moves ?? '?'} move${p.company_moves === 1 ? '' : 's'}`;
+  return p === plan() && anySwap() ? `${base} · manual swap, not recalculated` : base;
 }
 
 // ---------- data access ----------
 const plan = () => (S.resp && S.resp.plans[S.planIdx]) || null;
+// A swap is honoured only while its frame is still an eligible candidate for that scene and its property is not rejected.
+function validSwap(sid) {
+  const sw = S.swaps[`${S.planIdx}::${sid}`];
+  if (!sw) return null;
+  const c = candFor(sid, sw.shot_id);
+  return c && c.eligible !== false && c.shot.property_id === sw.property_id && !S.forbidden.includes(sw.property_id) ? sw : null;
+}
 const assignFor = (sid) => {
   const a = (plan()?.assignments || []).find((x) => x.scene_id === sid);
+  if (!a) return null;
+  const sw = validSwap(sid);
+  if (sw) return { ...a, shot_id: sw.shot_id, property_id: sw.property_id, manual_frame: true, swapped: true };
   const chosen = S.frameOverrides[`${S.planIdx}::${sid}`];
-  return a ? (chosen ? { ...a, shot_id: chosen, manual_frame: true } : a) : null;
+  return chosen ? { ...a, shot_id: chosen, manual_frame: true } : a;
 };
+const anySwap = () => S.scenes.some((s) => validSwap(s.id));
 function candFor(sid, shotId) {
   const sc = S.resp?.scenes?.find((s) => s.id === sid);
   return sc?.candidates?.find((c) => c.shot?.shot_id === shotId) || null;
@@ -60,7 +72,7 @@ function shotData(sid, v = S.variant) {
   return S.edits[k][v];
 }
 const hasWork = (e) => !!e && ['A', 'B'].some((v) => e[v].actors.length || e[v].dialogue || e[v].duration_sec !== 5);
-const assignMap = () => Object.fromEntries((plan()?.assignments || []).map((a) => [a.scene_id, a.shot_id]));
+const assignMap = () => Object.fromEntries((plan()?.assignments || []).map((a) => [a.scene_id, assignFor(a.scene_id)?.shot_id ?? a.shot_id]));
 function noteFrameChanges(prev) {
   for (const [sid, old] of Object.entries(prev)) {
     const a = assignFor(sid);
@@ -78,6 +90,7 @@ function sanitizeShot(s, keepOrigin = false) {
   });
   const out = { duration_sec: clamp(s?.duration_sec, 1, 30, 5), dialogue: String(s?.dialogue ?? '').slice(0, 800), actors };
   if (keepOrigin && s?.origin === ORIGIN_SAMPLE) out.origin = ORIGIN_SAMPLE;
+  if (keepOrigin && s?.carried === true) out.carried = true;
   return out;
 }
 
@@ -151,7 +164,7 @@ async function build(reuse) {
     if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
     applyForbidden(data);
     orderPlans(data);
-    S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {};
+    S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {}; S.swaps = {}; S.swapUndo = null; S.built = { trucks: body.trucks, cars: body.cars, require_available: body.require_available };
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
     if (data.plans.length) status(`${modeNote(data)}${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`, data.mode === 'mock');
@@ -180,6 +193,11 @@ function img(shotId) {
   r.el.onerror = () => { r.err = true; refresh(); };
   r.el.src = `/image/${encodeURIComponent(shotId)}`;
   return (S.imgs[shotId] = r);
+}
+// The take as drawn/exported: flagged when its staging was carried to this frame and not yet reviewed there.
+function viewShot(sid, v = S.variant) {
+  const sh = shotData(sid, v), t = S.transfer[keyOf(sid)];
+  return sh && t && !t.reviewed ? { ...sh, carried: true } : sh;
 }
 function provText(sid, v = S.variant) {
   const i = S.scenes.findIndex((s) => s.id === sid), a = assignFor(sid), c = a && candFor(sid, a.shot_id);
@@ -270,6 +288,11 @@ function drawStage(ctx, W, H, o) {
     const tw = Math.min(ctx.measureText(ORIGIN_TAG).width, W * 0.5) + 28;
     ctx.fillStyle = INK.scrim; pill(ctx, 18, 66, tw, 36); ctx.fillStyle = INK.text; ctx.fillText(ORIGIN_TAG, 32, 84.5, W * 0.5);
   }
+  if (sh && sh.carried) {
+    ctx.textAlign = 'left'; ctx.font = `600 19px ${FACE}`;
+    const label = 'STAGING CARRIED OVER · UNREVIEWED ON THIS FRAME', cw = Math.min(ctx.measureText(label).width, W * 0.62) + 28, cy = sh.origin ? 108 : 66;
+    ctx.fillStyle = INK.scrim; pill(ctx, 18, cy, cw, 36); ctx.fillStyle = INK.accent; ctx.fillText(label, 32, cy + 18.5, W * 0.62);
+  }
   ctx.textAlign = 'right'; ctx.font = `500 19px ${FACE}`;
   const pw = Math.min(ctx.measureText(o.prov).width, W * 0.36) + 28;
   ctx.fillStyle = INK.scrim; pill(ctx, W - 18 - pw, 18, pw, 40);
@@ -291,7 +314,7 @@ function liveArgs(sid, t, v = S.variant, editing = t == null, sel = S.actorIdx) 
   const a = assignFor(sid), im = a ? img(a.shot_id) : null;
   const missing = !S.resp ? 'Build a plan to load real indexed frames' : !a ? 'Uncovered scene: no location assigned'
     : im.err ? `Indexed image unavailable (${a.shot_id})` : 'Loading indexed frame…';
-  return { imgEl: im && im.ok ? im.el : null, missing, prov: provText(sid, v), shot: a ? shotData(sid, v) : null, t, editing, sel };
+  return { imgEl: im && im.ok ? im.el : null, missing, prov: provText(sid, v), shot: a ? viewShot(sid, v) : null, t, editing, sel };
 }
 // Read-only A/B preview of the SAME selected/playing frame: two natively sized panes (no stretching), one real-time clock.
 // A take shorter than the clock holds its last pose and says so; durations are never normalized.
@@ -491,7 +514,7 @@ function renderRail() {
   $('rail').replaceChildren(...S.scenes.map((s, i) => { const a = assignFor(s.id);
     return sceneButton(s, i, '', a ? thumb(a.shot_id, 'rail') : noThumb(), el('strong', { class: 'slug', text: `${i + 1}. ${s.heading}` }),
       el('small', { text: s.description || '(no description)' }),
-      el('span', { class: a ? 'loc' : 'loc none', text: a ? `Location ${locLetter(a.property_id)}${a.manual_frame ? ' · your frame' : ''}` : S.resp ? 'Uncovered: no location' : 'Not planned yet' })); }));
+      el('span', { class: a ? 'loc' : 'loc none', text: a ? `Location ${locLetter(a.property_id)}${a.swapped ? ' · swapped' : a.manual_frame ? ' · your frame' : ''}${(continuityMap()[s.id] || []).some((c) => c.level !== 'unknown') ? ' · continuity note' : ''}` : S.resp ? 'Uncovered: no location' : 'Not planned yet' })); }));
 }
 function renderTimeline() {
   $('timeline').replaceChildren(...S.scenes.map((s, i) => { const a = assignFor(s.id), sh = a ? shotData(s.id) : null;
@@ -567,7 +590,8 @@ function renderFrames() {
   select.disabled = S.planBusy;
   select.addEventListener('change', () => {
     const prev = assignMap(); S.rev++; stopPlay(); cancelGen(); clearPending();
-    S.frameOverrides[`${S.planIdx}::${S.sceneId}`] = select.value;
+    const k0 = `${S.planIdx}::${S.sceneId}`;
+    if (validSwap(S.sceneId)) S.swaps[k0] = { ...S.swaps[k0], shot_id: select.value }; else S.frameOverrides[k0] = select.value;
     noteFrameChanges(prev); renderAll(); status('Manual frame selected within the same property. Plan score still describes the original solver selection.');
   });
   label.append(select); box.append(label);
@@ -585,7 +609,125 @@ function renderFrames() {
     });
     box.append(strip);
   }
+  box.append(altLocations(a));
   if (a.manual_frame) box.append(el('p', { class: 'meta', text: 'Manual frame choice. Plan similarity describes the original solver selection; property budget is unchanged.' }));
+}
+// ---------- try another location (swap), checks, continuity ----------
+const sceneNumber = (sid) => S.scenes.findIndex((s) => s.id === sid) + 1;
+function altChoices(sid) {
+  const a = assignFor(sid), sc = S.resp?.scenes?.find((s) => s.id === sid), seen = new Set(a ? [a.property_id] : []), out = [];
+  for (const c of sc?.candidates || []) {
+    if (c.eligible === false || !c.shot || seen.has(c.shot.property_id) || S.forbidden.includes(c.shot.property_id)) continue;
+    seen.add(c.shot.property_id); out.push(c);
+    if (out.length >= 6) break;
+  }
+  return out;
+}
+function altLocations(a) {
+  const sid = S.sceneId, choices = altChoices(sid);
+  const box = el('details', { class: 'alt-locs' }, el('summary', { text: `Try another location (${choices.length})` }));
+  if (!choices.length) { box.append(el('p', { class: 'meta', text: 'No other eligible location is in this plan\'s candidate pool. Reject or change constraints, then rebuild, to widen it.' })); return box; }
+  box.append(el('p', { class: 'meta', text: 'One click swaps this scene to that location and carries your staging over as a draft to review. The plan summary is not recalculated.' }));
+  const strip = el('div', { class: 'frame-strip', role: 'group', 'aria-label': 'Other candidate locations' });
+  for (const c of choices) {
+    const sim = typeof c.shot.score === 'number' ? c.shot.score.toFixed(2) : 'unknown';
+    const b = el('button', { type: 'button', 'aria-label': `Swap scene ${sceneNumber(sid)} to property ${safeId(c.shot.property_id)}, similarity ${sim}` },
+      thumb(c.shot.shot_id, 'alt'), el('span', { text: `${safeId(c.shot.property_id).slice(0, 14)} · ${sim}` }));
+    b.disabled = S.planBusy;
+    b.addEventListener('click', () => swapLocation(sid, c.shot.shot_id));
+    strip.append(b);
+  }
+  box.append(strip);
+  return box;
+}
+function swapLocation(sid, shotId) {
+  if (S.planBusy) return status('Wait for the new plan before swapping a location.', true);
+  const cur = assignFor(sid), c = candFor(sid, shotId);
+  if (!cur || !c || c.eligible === false || S.forbidden.includes(c.shot.property_id) || c.shot.shot_id === cur.shot_id) return status('That location is not an eligible alternative for this scene.', true);
+  const k = `${S.planIdx}::${sid}`, oldKey = keyOf(sid), newKey = `${sid}::${shotId}`;
+  S.swapUndo = { sid, k, prevSwap: S.swaps[k] ? { ...S.swaps[k] } : null, prevOverride: S.frameOverrides[k] ?? null };
+  S.rev++; stopPlay(); cancelGen(); clearPending(); delete S.frameChange[sid];
+  S.swaps[k] = { shot_id: shotId, property_id: c.shot.property_id, from_shot_id: cur.shot_id, from_property_id: cur.property_id };
+  delete S.frameOverrides[k];
+  if (!S.edits[newKey] && S.edits[oldKey] && hasWork(S.edits[oldKey])) {
+    S.edits[newKey] = clone(S.edits[oldKey]);
+    S.transfer[newKey] = { from_shot_id: cur.shot_id, from_property_id: cur.property_id, reviewed: false };
+  }
+  renderAll();
+  status(`Scene ${sceneNumber(sid)} now uses ${safeId(c.shot.property_id)}. Your staging came along as a draft: review it on this frame.`);
+}
+function undoSwap() {
+  const u = S.swapUndo; if (!u) return;
+  S.rev++; stopPlay(); cancelGen(); clearPending();
+  if (u.prevSwap) S.swaps[u.k] = u.prevSwap; else delete S.swaps[u.k];
+  if (u.prevOverride) S.frameOverrides[u.k] = u.prevOverride; else delete S.frameOverrides[u.k];
+  S.swapUndo = null; renderAll(); status('Swap undone. Staging made on the other frame is kept there, not deleted.');
+}
+function backToPlanned() {
+  const k = `${S.planIdx}::${S.sceneId}`; if (!S.swaps[k]) return;
+  S.rev++; stopPlay(); cancelGen(); clearPending(); delete S.swaps[k]; S.swapUndo = null; renderAll();
+  status('Back to the planned location. Staging made on the swapped frame is kept there, not deleted.');
+}
+function renderSwapNotice() {
+  const n = $('swapNotice'), sid = S.sceneId, sw = validSwap(sid), t = S.transfer[keyOf(sid)] ;
+  n.replaceChildren();
+  if (!sw) { n.hidden = true; return; }
+  const unreviewed = !!(t && !t.reviewed);
+  const row = el('div', { class: 'row' });
+  if (unreviewed) {
+    const ok = el('button', { type: 'button', class: 'primary', text: 'Staging looks right on this frame' });
+    ok.addEventListener('click', () => { S.rev++; t.reviewed = true; renderAll(); status('Marked reviewed on this exact frame. Positions are still uncalibrated screen space.'); });
+    row.append(ok);
+  }
+  if (S.swapUndo && S.swapUndo.sid === sid) { const u = el('button', { type: 'button', text: 'Undo swap' }); u.addEventListener('click', undoSwap); row.append(u); }
+  const back = el('button', { type: 'button', text: 'Back to planned location' }); back.addEventListener('click', backToPlanned); row.append(back);
+  n.append(el('p', { text: `Location swapped for scene ${sceneNumber(sid)}: ${safeId(sw.from_property_id)} → ${safeId(sw.property_id)}. ${unreviewed
+    ? 'Your takes, durations, dialogue and stand-ins were carried over as a draft. They were NOT verified against this frame and the previous scan identity does not apply. Fit stays uncalibrated until you confirm.'
+    : 'The plan summary and company moves were not recalculated for this choice.'}` }), row);
+  n.hidden = false;
+}
+const sceneGroup = (sid) => (S.notes[sid]?.group || '');
+function continuityMap() {
+  const list = S.scenes.map((s, i) => { const a = assignFor(s.id), sh = a ? shotData(s.id) : null;
+    return { id: s.id, number: i + 1, heading: s.heading, group: sceneGroup(s.id),
+      frame: a ? { shot_id: a.shot_id, property_id: a.property_id } : null, take: sh ? { actors: sh.actors } : null }; });
+  return window.TypecastChecks ? TypecastChecks.continuity(list, S.variant) : {};
+}
+function fitFor(sid) {
+  const a = assignFor(sid), s = S.scenes.find((x) => x.id === sid);
+  if (!window.TypecastChecks || !s) return null;
+  return TypecastChecks.fitCheck({ scene: s, cand: a ? candFor(sid, a.shot_id) : null, built: S.built, mode: S.resp?.mode });
+}
+function checkRow(r) {
+  return el('li', { class: `chk chk-${r.kind}` }, el('b', { text: `${TypecastChecks.KIND_LABEL[r.kind] || 'Note'}: ` }), el('span', { text: `${r.label}. ${r.detail}` }),
+    r.source ? el('small', { text: ` Source: ${r.source}.` }) : '');
+}
+function renderChecks() {
+  const box = $('sceneChecks'), sid = S.sceneId, a = assignFor(sid);
+  if (!window.TypecastChecks || !a) { box.hidden = true; return; }
+  const fit = fitFor(sid), cont = (continuityMap()[sid] || []), real = cont.filter((c) => c.level !== 'unknown');
+  const body = $('checksBody'); body.replaceChildren();
+  $('checksSummary').textContent = `Fit check · ${TypecastChecks.fitSummaryText(fit)}${real.length ? ` · ${real.length} continuity note${real.length === 1 ? '' : 's'}` : ''}`;
+  body.append(el('p', { class: 'meta', text: 'Only fields the sources supplied are compared. Unknown stays unknown, and image similarity is not a fit score.' }),
+    el('ul', { class: 'chk-list' }, ...fit.rows.map(checkRow)));
+  if (cont.length) {
+    body.append(el('h4', { text: 'Continuity (from your link)' }), el('ul', { class: 'chk-list' }, ...cont.map((c) => el('li', { class: `chk chk-${c.level === 'verified' ? 'conflict' : c.level === 'potential' ? 'unknown' : 'info'}` },
+      el('b', { text: `${c.level === 'verified' ? 'Mismatch' : c.level === 'potential' ? 'Possible mismatch' : 'Cannot compare'}: ` }), el('span', { text: c.text }), el('small', { text: ` Next: ${c.action}` })))));
+  }
+  box.hidden = false;
+}
+function renderNotes() {
+  const sid = S.sceneId, n = S.notes[sid] || {};
+  $('noteDressing').value = n.dressing || ''; $('noteGroup').value = n.group || '';
+  $('prodNotes').hidden = !sid;
+}
+const cleanText = (v, max) => String(v || '').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, '').slice(0, max);
+function setNote(field, value) {
+  const sid = S.sceneId; if (!sid) return;
+  const n = (S.notes[sid] ||= { dressing: '', group: '' });
+  n[field] = field === 'group' ? cleanText(value, 12).replace(/[^A-Za-z0-9_-]/g, '') : cleanText(value, 600);
+  if (!n.dressing && !n.group) delete S.notes[sid];
+  S.rev++; renderChecks(); renderRail();
 }
 function renderCompareStrip() {
   const strip = $('compareStrip'), btn = $('cmpAB'), on = S.compare;
@@ -608,7 +750,7 @@ function toggleCompare() {
 }
 function renderAll() {
   renderProjectReview();
-  renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames(); renderStageHead(); renderCompareStrip();
+  renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames(); renderStageHead(); renderCompareStrip(); renderSwapNotice(); renderChecks(); renderNotes();
   $('evidence').replaceChildren(evidenceNodes(S.sceneId));
   const a = assignFor(S.sceneId), pl = $('planner');
   $('lookAround').disabled = S.planBusy || !a;
@@ -737,21 +879,57 @@ async function dataUrl(path) {
   return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error('read failed')); fr.readAsDataURL(b); });
 }
 const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('decode failed')); i.src = src; });
-const PACK_CSS = 'body{font:14px/1.5 Georgia,serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#1a120c}section.scene{break-inside:avoid;border-top:2px solid #c98a1c;padding:1rem 0}img{width:100%;border:1px solid #ccc}.meta{color:#6b5847;font-size:12px}dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px}dt{color:#6b5847}dd{margin:0}.unk{color:#b3261e;font-style:italic}.warn{font-size:12px}h4{margin:.6rem 0 .2rem}';
+const PACK_PRINT = '@media print{body{max-width:none;margin:0;font-size:11pt}section.scene{break-inside:avoid-page;page-break-inside:avoid}img{max-height:9cm;width:auto;max-width:100%}.sheet li{list-style:none}.sheet li:before{content:"\\2610 "}h1,h2,h3{break-after:avoid}}.sheet{border:1px solid #c98a1c;padding:.6rem .9rem;margin:.8rem 0;background:#fbf6ec}.sheet h3{margin:.2rem 0 .4rem}.sheet ul{padding-left:1.1rem}.sheet .k{font-weight:bold}';
+const PACK_CSS = 'body{font:14px/1.5 Georgia,serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#1a120c}section.scene{break-inside:avoid;border-top:2px solid #c98a1c;padding:1rem 0}img{width:100%;border:1px solid #ccc}.meta{color:#6b5847;font-size:12px}dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px}dt{color:#6b5847}dd{margin:0}.unk{color:#b3261e;font-style:italic}.warn{font-size:12px}h4{margin:.6rem 0 .2rem}' + PACK_PRINT;
+// Safe, validated per-scene production state that Project JSON carries (identifiers and bounded text only).
+function sceneProduction(sid) {
+  const out = {}, sw = validSwap(sid), t = S.transfer[keyOf(sid)], n = S.notes[sid];
+  if (sw) out.location_choice = { shot_id: safeId(sw.shot_id), property_id: safeId(sw.property_id), from_shot_id: safeId(sw.from_shot_id), from_property_id: safeId(sw.from_property_id), staging_reviewed: !(t && !t.reviewed) };
+  if (n && (n.dressing || n.group)) out.notes = { dressing: cleanText(n.dressing, 600), group: cleanText(n.group, 12) };
+  return out;
+}
 function exportSnapshot() {
   const p = plan();
   return clone({ app: 'Typecast Director', exported_at: new Date().toISOString(), variant: S.variant, plan_index: S.planIdx,
     honesty: 'Candidate plans only. Uncalibrated screen-space rehearsal; geometric fit unknown. Plan score describes original solver frames; manual frame choices retain the assigned property.',
-    source_mode: S.resp?.mode ?? 'unknown', locations: count(p?.locations), company_moves: p?.company_moves ?? null, mean_similarity: p?.mean_similarity ?? null,
+    source_mode: S.resp?.mode ?? 'unknown', locations: count(p?.locations), company_moves: anySwap() ? null : p?.company_moves ?? null, mean_similarity: anySwap() ? null : p?.mean_similarity ?? null,
+    plan_note: anySwap() ? 'A location was swapped by hand; plan locations, moves and similarity were not recalculated.' : undefined,
     review_needed: S.importReview,
-    scenes: S.scenes.map((s) => ({ ...s, evidence: evidenceSummary(s.id),
+    scenes: S.scenes.map((s) => ({ ...s, ...sceneProduction(s.id), evidence: evidenceSummary(s.id),
       manual_frame: !!assignFor(s.id)?.manual_frame, staging: assignFor(s.id) ? sanitizeShot(shotData(s.id), true) : null,
       variants: assignFor(s.id) ? { A: sanitizeShot(shotData(s.id, 'A'), true), B: sanitizeShot(shotData(s.id, 'B'), true) } : null,
       provenance_label: provText(s.id) })) });
 }
+function decisionFor(sid) {
+  const a = assignFor(sid); if (!a || !window.TypecastChecks) return null;
+  const fit = fitFor(sid), cont = continuityMap()[sid] || [], sw = validSwap(sid), t = S.transfer[keyOf(sid)];
+  const take = (v) => sanitizeShot(shotData(sid, v), true);
+  return { number: sceneNumber(sid), property: safeId(a.property_id), shot: safeId(a.shot_id), swap: sw ? { from: safeId(sw.from_property_id) } : null,
+    carried: !!(t && !t.reviewed), takes: { A: take('A'), B: take('B') }, fit, cont, notes: S.notes[sid] || null,
+    checklist: TypecastChecks.checklist(fit, cont, { carried: !!(t && !t.reviewed) }) };
+}
+function decisionNodes(E, d, activeVariant) {
+  const box = E('div', null, 'sheet');
+  box.append(E('h3', `Production decision sheet · scene ${d.number}`),
+    E('p', 'This sheet records choices and open questions. It contains no prices, permissions, owner contact or confirmation that a set is feasible.', 'meta'));
+  box.append(E('h4', 'Location choice'), E('p', `Property ${d.property}, frame ${d.shot}.${d.swap ? ` Chosen by hand from the candidate pool instead of ${d.swap.from}; plan totals were not recalculated.` : ' As selected by the plan or your frame choice.'}`));
+  if (d.carried) box.append(E('p', 'Staging was carried over from another frame and has NOT been reviewed on this one. Positions are uncalibrated screen space.', 'unk'));
+  box.append(E('h4', 'Takes (both listed; the image above shows take ' + activeVariant + ')'));
+  for (const v of ['A', 'B']) {
+    const t = d.takes[v];
+    box.append(E('p', `Take ${v}: ${t.duration_sec}s, ${t.actors.length} stand-in${t.actors.length === 1 ? '' : 's'}${t.dialogue ? `, line: ${t.dialogue}` : ', no dialogue'}${t.origin ? ' · AUTHORED SAMPLE (pre-written, not AI-generated)' : ''}.`, 'meta'));
+  }
+  const ul = (items) => { const u = E('ul'); items.forEach((i) => u.append(E('li', i))); return u; };
+  box.append(E('h4', 'Fit evidence (sources, not a score)'), ul(d.fit.rows.map((r) => `${TypecastChecks.KIND_LABEL[r.kind]}: ${r.label}. ${r.detail}${r.source ? ` Source: ${r.source}.` : ''}`)));
+  const real = d.cont;
+  if (real.length) box.append(E('h4', 'Continuity (from your link)'), ul(real.map((c) => `${c.level === 'verified' ? 'Mismatch' : c.level === 'potential' ? 'Possible mismatch' : 'Cannot compare'}: ${c.text} Next: ${c.action}`)));
+  box.append(E('h4', 'Dressing (your notes; Typecast suggests none here)'), E('p', d.notes && d.notes.dressing ? d.notes.dressing : '(none entered)', d.notes && d.notes.dressing ? '' : 'meta'));
+  box.append(E('h4', 'On-site checklist'), ul(d.checklist));
+  return box;
+}
 async function exportPack() {
   const p = plan(); if (!p) return status('Build a plan first.', true);
-  const snapshot = exportSnapshot();
+  const snapshot = exportSnapshot(), sheets = S.scenes.map((s) => decisionFor(s.id));
   stopPlay(); $('expPack').disabled = true; status('Building shoot pack from real indexed images…');
   try {
     const doc = document.implementation.createHTMLDocument('Typecast shoot pack');
@@ -772,7 +950,7 @@ async function exportPack() {
         try {
           const url = await dataUrl(`/image/${encodeURIComponent(a.shot_id)}`), im = await loadImg(url), cv = document.createElement('canvas');
           cv.width = 1280; cv.height = 720;
-          drawStage(cv.getContext('2d'), 1280, 720, { imgEl: im, prov: s.provenance_label, shot: sh, t: null, editing: true, sel: -1 });
+          drawStage(cv.getContext('2d'), 1280, 720, { imgEl: im, prov: s.provenance_label, shot: sheets[i]?.carried ? { ...sh, carried: true } : sh, t: null, editing: true, sel: -1 });
           const staged = E('img'), raw = E('img');
           staged.src = cv.toDataURL('image/jpeg', 0.88); staged.alt = `Staged rehearsal frame, scene ${i + 1}`;
           raw.src = url; raw.alt = `Indexed source frame ${a.shot_id}`;
@@ -780,6 +958,7 @@ async function exportPack() {
         } catch (e) { sec.append(E('p', `Indexed image unavailable: ${e.message}`, 'unk')); }
         sec.append(E('h4', `Variant ${snapshot.variant} · ${sh.duration_sec}s`), E('p', sh.dialogue || '(no dialogue)'));
         if (sh.origin) sec.append(E('p', 'This take is derived from an AUTHORED SAMPLE: pre-written blocking, not AI-generated, not an interpretation of any instruction.', 'unk'));
+        if (sheets[i]) sec.append(decisionNodes(E, sheets[i], snapshot.variant));
         sh.actors.forEach((ac) => sec.append(E('p', `${ac.name} (${ac.pose}, scale ${ac.scale}): (${ac.x0.toFixed(2)}, ${ac.y0.toFixed(2)}) → (${ac.x1.toFixed(2)}, ${ac.y1.toFixed(2)})`, 'meta')));
       }
       sec.append(doc.importNode(evidenceNodes(s.id, s.evidence, false), true)); doc.body.append(sec);
@@ -793,7 +972,7 @@ async function exportPack() {
 let reelCtrl = null;
 function reelInput() {
   return { variant: S.variant, scenes: S.scenes.filter((s) => assignFor(s.id)).map((s) => ({ id: s.id, heading: s.heading,
-    shot_id: assignFor(s.id).shot_id, prov: provText(s.id), shot: sanitizeShot(shotData(s.id), true) })) };
+    shot_id: assignFor(s.id).shot_id, prov: provText(s.id), shot: sanitizeShot(viewShot(s.id), true) })) };
 }
 async function exportReel() {
   if (reelCtrl) return;
@@ -851,6 +1030,7 @@ async function importProject(file) {
     // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
     Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
       edits: restored.edits, frameOverrides: restored.frameOverrides, importReview: restored.reviewNeeded,
+      swaps: restored.swaps, transfer: restored.transfers, notes: restored.notes, swapUndo: null, built: { trucks: limits.trucks, cars: limits.cars, require_available: limits.require_available },
       frameChange: {}, forbidden: [], undo: null, variant: project.variant });
     $('undo').disabled = true;
     $('script').value = scenes.map((scene) => `${scene.heading} | ${scene.description}`.replace(/[\r\n]+/g, ' ')).join('\n');
@@ -974,6 +1154,8 @@ cv.addEventListener('keydown', (e) => {
   syncActor(a); edited();
 });
 $('cmpAB').addEventListener('click', toggleCompare);
+$('noteDressing').addEventListener('input', (e) => setNote('dressing', e.target.value));
+$('noteGroup').addEventListener('input', (e) => { setNote('group', e.target.value); e.target.value = S.notes[S.sceneId]?.group || ''; });
 $('gen').addEventListener('click', generate);
 $('loadSample').addEventListener('click', loadSample);
 $('applyB').addEventListener('click', applyB);

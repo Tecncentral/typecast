@@ -22,11 +22,12 @@ import { fileURLToPath } from 'node:url';
 
 const DIR = dirname(fileURLToPath(import.meta.url));
 const DIRECTOR_JS = readFileSync(join(DIR, '..', 'director.js'), 'utf8');
+const CHECKS_JS = readFileSync(join(DIR, '..', 'director-checks.js'), 'utf8');
 const DIRECTOR_HTML = readFileSync(join(DIR, '..', 'director.html'), 'utf8');
 const FOOTER = `
 globalThis.__director = {
   S, frameAt, shotData, sanitizeShot, exportSnapshot, provText, drawStage,
-  selectScene, setVariant, BADGE, safeId,
+  selectScene, setVariant, BADGE, safeId, swapLocation, altChoices, validSwap, fitFor, continuityMap, decisionFor, viewShot, undoSwap, backToPlanned,
 };
 `;
 
@@ -346,7 +347,7 @@ function createEnv({ speech = 'none' } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);

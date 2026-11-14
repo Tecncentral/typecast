@@ -69,6 +69,7 @@
       </div>
     </div>
     <div id="frameNotice" class="notice" hidden></div>
+    <div id="swapNotice" class="notice" hidden role="status"></div>
     <div id="compareStrip" class="compare-strip" role="status" hidden></div>
     <div class="screen"><canvas id="stage" width="1280" height="720" tabindex="0" aria-label="Stage. Drag an actor body to set start, the ring to set end. Arrow keys nudge selected actor start, Shift plus arrows nudge end."></canvas></div>
     <div class="transport">
@@ -86,6 +87,7 @@
     <h2 class="strip-head">Cut</h2>
     <ol id="timeline" class="timeline" aria-label="Shot timeline"></ol>
     <div id="framePicker" class="frames"></div>
+    <details id="sceneChecks" class="checks" hidden><summary id="checksSummary">Fit check</summary><div id="checksBody"></div></details>
   </section>
 
   <aside class="col col-inspect" aria-label="Shot tools">
@@ -99,6 +101,14 @@
     <section id="panel-shot" class="panel" role="tabpanel" aria-labelledby="tab-shot">
       <h2>Shot · take <span id="varLbl">A</span></h2>
       <p id="originTag" class="origin-tag" hidden></p>
+      <details id="prodNotes" class="prod-notes">
+        <summary>Production notes for this scene (optional)</summary>
+        <label for="noteDressing">Dressing notes <small>your own words, 600 characters</small></label>
+        <textarea id="noteDressing" rows="3" maxlength="600" placeholder="e.g. clear the counter, add a calendar"></textarea>
+        <label for="noteGroup">Continuity link <small>scenes with the same tag are one continuous setting</small></label>
+        <input id="noteGroup" maxlength="12" placeholder="e.g. A" autocomplete="off">
+        <p class="meta">Notes stay in this browser tab and your exports. They are never sent to a model.</p>
+      </details>
       <fieldset id="shotForm" disabled>
         <legend class="sr">Shot settings</legend>
         <label>Duration (s) <input id="dur" type="number" min="1" max="30" step="0.5"></label>
@@ -173,6 +183,7 @@
   </aside>
 </main>
 <script src="director-reel.js"></script>
+<script src="director-checks.js"></script>
 <script src="director-project.js"></script>
 <script src="director.js"></script>
 <script src="director-ui.js"></script>

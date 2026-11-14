@@ -59,6 +59,21 @@
     record(value, 'variants');
     return { A: shot(value.A), B: shot(value.B) };
   }
+  // Optional production state added by the Director. Strict whitelists: identifiers, one boolean, bounded text.
+  function notesOf(value) {
+    record(value, 'notes');
+    const dressing = value.dressing == null ? '' : text(value.dressing, 'dressing notes', 600, true);
+    const group = value.group == null ? '' : text(value.group, 'continuity link', 12, true);
+    if (group && !/^[A-Za-z0-9_-]+$/.test(group)) fail('continuity link has invalid characters');
+    return { dressing: dressing.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ''), group };
+  }
+  function choiceOf(value) {
+    record(value, 'location choice');
+    if (typeof value.staging_reviewed !== 'boolean') fail('location choice needs staging_reviewed');
+    return { shot_id: id(value.shot_id, 'swapped shot id'), property_id: id(value.property_id, 'swapped property id'),
+      from_shot_id: id(value.from_shot_id, 'original shot id'), from_property_id: id(value.from_property_id, 'original property id'),
+      staging_reviewed: value.staging_reviewed };
+  }
   function frame(value) {
     record(value, 'frame identity');
     return { shot_id: id(value.shot_id, 'shot id'), property_id: id(value.property_id, 'property id') };
@@ -79,9 +94,15 @@
       const staging = scene.staging == null ? null : shot(scene.staging);
       if (!savedVariants && staging) { savedVariants = { A: blank(), B: blank() }; savedVariants[payload.variant] = staging; }
       if (savedVariants && !savedFrame) fail('staging requires a saved frame identity');
-      return { id: id(scene.id, 'scene id', 60), heading: text(scene.heading, 'heading', 120),
+      const out = { id: id(scene.id, 'scene id', 60), heading: text(scene.heading, 'heading', 120),
         description: text(scene.description, 'description', 1000),
         evidence: savedFrame ? { frame: savedFrame } : null, variants: savedVariants };
+      if (scene.notes != null) out.notes = notesOf(scene.notes);
+      if (scene.location_choice != null) {
+        if (!savedFrame) fail('a location choice needs a saved frame identity');
+        out.location_choice = choiceOf(scene.location_choice);
+      }
+      return out;
     });
     if (new Set(scenes.map((scene) => scene.id)).size !== scenes.length) fail('duplicate scene ids');
     const pending = payload.review_needed ?? [];
@@ -102,9 +123,10 @@
         || !Array.isArray(response.scenes)) fail('a current production plan is required');
     const assignments = response.plans[planIndex].assignments;
     if (!Array.isArray(assignments)) fail('current plan has no assignments');
-    const edits = Object.create(null), frameOverrides = Object.create(null), reviewNeeded = [];
+    const edits = Object.create(null), frameOverrides = Object.create(null), reviewNeeded = [], swaps = Object.create(null), transfers = Object.create(null), notes = Object.create(null);
+    for (const scene of project.scenes) if (scene.notes && (scene.notes.dressing || scene.notes.group)) notes[scene.id] = scene.notes;
     const saved = project.scenes.filter((scene) => scene.variants).map((scene) => ({
-      scene_id: scene.id, frame: scene.evidence.frame, variants: scene.variants,
+      scene_id: scene.id, frame: scene.evidence.frame, variants: scene.variants, choice: scene.location_choice || null,
     })).concat(project.review_needed);
     let restored = 0;
     const processed = new Set();
@@ -114,16 +136,24 @@
       processed.add(marker);
       const assignment = assignments.find((item) => item.scene_id === entry.scene_id);
       const scene = response.scenes.find((item) => item.id === entry.scene_id);
-      const match = assignment?.property_id === entry.frame.property_id && scene?.candidates?.some((candidate) =>
+      const eligible = scene?.candidates?.some((candidate) =>
         candidate.eligible === true && candidate.shot?.shot_id === entry.frame.shot_id && candidate.shot?.property_id === entry.frame.property_id);
-      if (match && !Object.hasOwn(frameOverrides, `${planIndex}::${entry.scene_id}`)) {
+      const match = assignment?.property_id === entry.frame.property_id && eligible;
+      // A hand-chosen location is restored only if the same exact frame is still an eligible candidate in the fresh pool.
+      const swap = !match && eligible && assignment && entry.choice && entry.choice.shot_id === entry.frame.shot_id
+        && entry.choice.property_id === entry.frame.property_id;
+      const slot = `${planIndex}::${entry.scene_id}`;
+      if ((match || swap) && !Object.hasOwn(frameOverrides, slot) && !Object.hasOwn(swaps, slot)) {
         edits[`${entry.scene_id}::${entry.frame.shot_id}`] = entry.variants;
-        frameOverrides[`${planIndex}::${entry.scene_id}`] = entry.frame.shot_id;
+        if (swap) {
+          swaps[slot] = { shot_id: entry.choice.shot_id, property_id: entry.choice.property_id, from_shot_id: entry.choice.from_shot_id, from_property_id: entry.choice.from_property_id };
+          if (!entry.choice.staging_reviewed) transfers[`${entry.scene_id}::${entry.frame.shot_id}`] = { from_shot_id: entry.choice.from_shot_id, from_property_id: entry.choice.from_property_id, reviewed: false };
+        } else frameOverrides[slot] = entry.frame.shot_id;
         restored++;
       } else reviewNeeded.push({ ...entry, reason: 'Saved frame is unavailable, ineligible, assigned to another property, or another draft is already restored. Review staging before reuse.' });
     }
     if (reviewNeeded.length > 8) fail('too many unresolved drafts; retain the original file');
-    return { edits, frameOverrides, reviewNeeded, restored };
+    return { edits, frameOverrides, reviewNeeded, restored, swaps, transfers, notes };
   }
   const api = { normalizeProject, restoreEdits, MAX_BYTES };
   if (typeof module === 'object' && module.exports) module.exports = api;

@@ -285,6 +285,16 @@ canvas.comparing { cursor: default; }
 .origin-tag { margin: 0 0 10px; padding: 6px 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent-tint); color: var(--text); font-size: 13px; line-height: 1.4; }
 .compare-strip .caps { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; width: 100%; color: var(--text); font-size: 14px; }
 .compare-strip .cap strong { color: var(--accent); }
+.alt-locs, .checks, .prod-notes { margin-top: 10px; }
+.alt-locs > summary, .checks > summary, .prod-notes > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.alt-locs > summary:focus-visible, .checks > summary:focus-visible, .prod-notes > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.chk-list { list-style: none; margin: 8px 0; padding: 0; }
+.chk { padding: 6px 0; border-top: 1px solid var(--line); font-size: 14px; line-height: 1.45; }
+.chk b { color: var(--accent); }
+.chk-conflict b { color: var(--warning); }
+.chk small { color: var(--muted); }
+.prod-notes label { display: block; margin-top: 8px; }
+.prod-notes textarea, .prod-notes input { width: 100%; }
 .sample-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px dashed var(--control-line); border-radius: 6px; }
 .sample-box p { margin-bottom: 8px; }
 
