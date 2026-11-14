@@ -10,3 +10,6 @@ One line each: date/time, owner, decision, why.
 - No message reaches a real property owner; drafts go to TEAM_INBOX after an explicit yes.
 - 2026-11-14, Owner 3: the app's model calls use OpenAI (the team's credits expire soon); Anthropic is an optional fallback. Model ids live in .env, never in code.
 - 2026-11-14, Owner 3: a sponsor engineer confirmed that Matterport scan images may be sent to a third-party vision model for this hackathon. Engineer's name: TBD. Enabled per laptop with TYPECAST_ALLOW_VISION_UPLOAD=1.
+
+- 2026-11-14, Owner 3: fixed remains the default; deepagents uses the same evidence/ranking tools and announces fixed fallback after errors or 90 seconds. Real deep model proof on mocks took 87.828 seconds.
+- 2026-11-14, Owner 3: approval only writes a local outbox draft; no delivery integration or TEAM_INBOX is required. Deep approval uses the actual package checkpoint.

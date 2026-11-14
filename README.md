@@ -6,7 +6,7 @@ Built at HackPrinceton Fall 2026 on CoStar property data, Matterport 3D scans an
 
 ## Status
 
-Scaffold. The pipeline and API run end to end on **fake data** in `mocks/`. No real CoStar, Matterport or Vexcel calls are wired in yet. See `STATUS.md`.
+The API runs end to end on **fake data** in `mocks/`, with real streaming, evidence and uncertainty, cached refinement, and local draft approval. Model parsing and vision reranking use configured providers when enabled. Real property/interior/aerial adapters and the private join still belong to lanes A/B; a working API key alone does not make those adapters live. See [verified lane C status](docs/team/status-lane-c.md).
 
 ## Team agents: start here
 
@@ -15,7 +15,7 @@ Read [AGENTS.md](AGENTS.md), then [your owner handoff](docs/team/START-HERE.md).
 ## Run it
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
+python3.13 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.lock.txt
 test -f .env || cp .env.example .env
 python scripts/verify.py
@@ -64,3 +64,18 @@ python scripts/check_access.py --network  # read-only OpenAI/Matterport/Vexcel c
 ```
 
 The verification gate forcibly disables model calls and tracing, even when private keys exist in `.env`. A working key does not mean the real-data adapters or private join are ready. See [lane C status](docs/team/status-lane-c.md) for current evidence and blockers.
+
+## Execution and evaluation
+
+`GET /scout/stream` sends `event: agent` while tools execute, then `event: result`; failures end with `event: error`. `POST /scout` uses the same runtime. `/refine` preserves the thread and reranks saved candidates without new property or shot searches. A known geometric failure is rejected; unknown or estimated fits stay unverified. Blocking alternatives are explicitly labelled.
+
+The deep engine uses actual Deep Agents director/scout/skeptic graphs over the same source tools and ranking logic. A failed run or 90-second deadline triggers a visible fixed-engine fallback. Deep approval resumes a human-approval checkpoint; both engines save drafts locally and always report `sent=false`. Tracing is enabled only when `LANGSMITH_API_KEY` is configured; `trace_url` is null unless a real run URL is available.
+
+```bash
+python scripts/e2e.py
+python agent/eval/run_eval.py --mode mock
+# After real data and hand labels exist:
+python agent/eval/run_eval.py --mode live --labels cache/eval/labels.jsonl --split test
+```
+
+The authored benchmark has 15 test and 5 tuning scenes. Empty labels are skipped, so mock runs never become a retrieval accuracy claim. Keep real labels in ignored `cache/`. The 15 mock frame images are explicitly labelled placeholders, not photographs; regenerate them with `python scripts/make_mock_images.py`.

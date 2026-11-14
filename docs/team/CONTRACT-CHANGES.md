@@ -12,3 +12,10 @@ Owner: integration captain. Producers: C; consumers: A/B/D. All new fields have 
 - ScoutResponse: engine=fixed, source_mode=mock, trace_url=null (real traces only), timings={}.
 - Runtime interface: RunContext and Requirements with explicit_fields; parse metadata remains internal.
 Migration: existing API event names agent/result remain; consumers should render uncertainty and actual engine/source. Fixtures are updated together. No coordinates or units changed.
+
+## Integration clarification — 2026-11-14
+- Event type `rerank` reports actual skipped/completed visual ranking, with existing generic Event shape. Added to TypeScript union.
+- Concurrent callbacks serialize timestamp assignment and emission so streamed timestamps preserve event order.
+- `POST /approve` on a deep-engine thread resumes the saved deepagents human-approval checkpoint; fixed-engine threads save a local draft directly. Both always return sent=false.
+
+- Event type `trace` reports a traced run whose real URL could not be retrieved. It does not supply or invent a URL.

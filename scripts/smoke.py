@@ -5,10 +5,10 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi.testclient import TestClient
-from agent.app import app
+from agent.eval.harness import mock_app
 from contracts.schemas import ScoutResponse
 
-with TestClient(app) as client:
+with mock_app() as app, TestClient(app) as client:
     assert client.get('/health').json()['mocks'] is True
     response = client.post('/scout', json={'scene': 'An office. Parking for 3 trucks and 30 cars.'})
     response.raise_for_status()
