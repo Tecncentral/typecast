@@ -28,3 +28,11 @@ Follow `index/GEMINI-DEMO-HANDOFF.md`: run verify there; time cold/warm Build pl
 
 ## 7. Resume
 `node --test index/tests/director-audit.mjs web/tests/lib.test.mjs web/tests/viewfinder.test.cjs`; `python scripts/verify.py` with `typecast/.venv`.
+
+## 8. Coordination state (latest)
+- PR #31: code head c5dbfcb, docs e99082d; CI passed per coordinator. Demo handoff (`index/GEMINI-DEMO-HANDOFF.md`) is Gemini-drafted and Claude-reviewed.
+- Grok Worker5 (PR32 baseline dbceec2) findings: fixed in c5dbfcb; real-browser mock acceptance recorded (section 4).
+- Grok Worker4 closeout: pending.
+- New Grok competitor worker: requested; treat as UNVERIFIED launched until the manager confirms.
+- Film contact: found, NOT consulted. Template: `index/FILM-VALIDATION-HANDOFF.md` (blanks stay blank; do not edit `docs/peri.md`, owned by Owner 4). Root forwards real feedback and competitor evidence before any new idea is implemented.
+- Remaining: live acceptance on the integration captain's laptop (see section 6); human submission before 08:00 ET Sunday 15 Nov.
