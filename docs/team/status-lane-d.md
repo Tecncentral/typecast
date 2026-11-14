@@ -4,6 +4,8 @@ Updated: 2026-11-14 19:53 UTC.
 
 Viewer implementation: `d871894`; shared lane-d history and dev integrated in `a5801a1`. Earlier asset/progress milestone: `de84d15`. Work is isolated in `../typecast-d`; the other session's main checkout is untouched. No bridge, index, backend, contract or API dependency edits.
 
+Review: [PR #23 into dev](https://github.com/Tecncentral/typecast/pull/23), pushed through `ca92c6a`. GitHub reported it mergeable, with both Python 3.13 verification jobs passing at that revision. The later upstream state-handling commit is preserved in history; stream failures retain the verified explicit-retry behavior instead of automatically starting a second scout. The integrated web files are unchanged from the tested `a5801a1` revision.
+
 ## Working and verified
 
 - Plain HTML/CSS/ES modules at `/app/`, with local Leaflet and Barlow fonts. Impeccable 4.9.0 guided the dark frame-first remake. The independent finish reviewer scored both requested fixes resolved: concise expandable rationale and compact expandable skeptic caveats. Design context lives in private ignored `cache/viewer-design/` to respect the requested write scope.
