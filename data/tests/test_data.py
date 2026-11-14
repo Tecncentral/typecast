@@ -1,9 +1,11 @@
-import json, pathlib
+import json, os, pathlib
+import pytest
 from contracts.schemas import Shot, Property, Logistics
 from data.costar_tools import search_costar
 from data.vexcel_tools import plan_logistics, spaces_from_area
 
 M = pathlib.Path(__file__).resolve().parents[2] / "mocks"
+MOCK_MODE = os.getenv("TYPECAST_USE_MOCKS", "1") == "1"
 
 
 def test_mocks_match_contracts():
@@ -13,6 +15,11 @@ def test_mocks_match_contracts():
 
 
 def test_filters():
+    if not MOCK_MODE:
+        try:
+            search_costar(available_only=False, limit=1)
+        except RuntimeError as exc:
+            pytest.skip(f"live mode needs a valid private cache/join.parquet: {exc}")
     assert all(p.available for p in search_costar())
     assert len(search_costar(available_only=False)) > len(search_costar())
     assert all(p.year_built <= 1992 for p in search_costar(year_max=1992))
@@ -20,5 +27,7 @@ def test_filters():
 
 
 def test_logistics():
-    assert plan_logistics("mock-p1").truck_spaces == 4
     assert spaces_from_area(900) == 30
+    if not MOCK_MODE:
+        pytest.skip("mock-p1 exists only in mocks/logistics.json; live mode has no fixtures")
+    assert plan_logistics("mock-p1").truck_spaces == 4
