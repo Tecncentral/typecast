@@ -31,23 +31,32 @@ class Property(BaseModel):
     size_sqft: Optional[float] = None
     contact: Optional[str] = None
     model_id: Optional[str] = None
-
-
-class Logistics(BaseModel):
-    property_id: str
-    truck_spaces: int
-    car_spaces: int
-    parking_polygon: list[list[float]] = Field(default_factory=list)  # [[lat, lon], ...]
-    walk_m: Optional[float] = None
-    noise_flags: list[str] = Field(default_factory=list)
-    aerial_image_path: Optional[str] = None
-    estimated: bool = True
+    availability_status: Optional[Literal["available", "not_available", "unknown"]] = None
+    availability_reason: Optional[str] = None
+    parking_flags: dict[str, bool] = Field(default_factory=dict)
 
 
 class Evidence(BaseModel):
     source: Literal["costar", "matterport", "vexcel"]
     claim: str
     status: Literal["measured", "estimated", "unknown"]
+
+
+class Logistics(BaseModel):
+    property_id: str
+    truck_spaces: Optional[int] = Field(default=None, ge=0)
+    car_spaces: Optional[int] = Field(default=None, ge=0)
+    parking_polygon: list[list[float]] = Field(default_factory=list)  # [[lat, lon], ...]
+    walk_m: Optional[float] = None
+    noise_flags: list[str] = Field(default_factory=list)
+    aerial_image_path: Optional[str] = None
+    estimated: bool = True
+    parking_status: Optional[Literal["measured", "estimated", "unknown"]] = None
+    walk_status: Optional[Literal["measured", "estimated", "unknown"]] = None
+    noise_status: Optional[Literal["measured", "estimated", "unknown"]] = None
+    parking_area_m2: Optional[float] = Field(default=None, ge=0)
+    source_notes: list[str] = Field(default_factory=list)
+    source_evidence: list[Evidence] = Field(default_factory=list)
 
 
 class ShotFit(BaseModel):

@@ -5,7 +5,7 @@
 data/*.parquet
 data/*.csv
 data/*.xlsx
-cache/
+cache
 *.jsonl.gz
 *.zip
 costar*/
@@ -13,7 +13,7 @@ CoStar*/
 # python / node
 __pycache__/
 *.pyc
-.venv/
+.venv
 .pytest_cache/
 node_modules/
 dist/
