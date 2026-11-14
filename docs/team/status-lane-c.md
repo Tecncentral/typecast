@@ -101,3 +101,9 @@ The documented North America Overpass instance `https://ovp.dresel.systems/api-n
 Reviewed client, docs and regression cases. `scripts/verify.py`: 248 tests plus smoke, SSE/refine/local-draft and mock evaluation gates passed. Independent root rerun: eight OSM tests passed. Vexcel HTTP 403 now reports “outside Vexcel coverage”; missing evidence remains unknown.
 
 Next: 307 mapped available commercial properties plus about 20 available multifamily properties, retaining existing shots. Sixteen additional available commercial properties lack supplied model mappings. Then precompute, inspect frames, validate both engines and obtain human held-out labels.
+
+### Active listing categories — 2026-11-14 16:10 UTC
+
+OSM PR13 is merged into dev (`d6d6e2d`) after live verification and passing GitHub CI. Added optional Property.listing_types in Python and TypeScript, with the contract change announced before adapter use. Categories decode Active commercial listing types as lease, sale or auction; multiple categories coexist and missing categories stay empty. Availability rules are unchanged. Older joins remain readable.
+
+Rebuilt from the same supplied kit with a private pre-change backup: 13,096 pairs / 3,288 properties, **zero row differences across every existing column**. Category counts: empty 2,748; auction 7; auction+lease 8; auction+lease+sale 1; lease 424; lease+sale 35; sale 65. This additive change took under 20 minutes. Data tests: 29 passed. Combined current worktree gate: 254 tests plus smoke/SSE/refine/local-draft/mock-evaluation passed.

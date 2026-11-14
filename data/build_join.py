@@ -113,6 +113,23 @@ def availability(property_id: str, listings: list[dict], enums: dict) -> tuple[s
     raise AssertionError("Listing states must not be empty")
 
 
+def active_listing_types(listings: list[dict], enums: dict) -> list[str]:
+    """Active marketing categories, independent of verified lease availability."""
+    categories = {"lease": {"PropertyDirectSpaceForLease", "BuildingParkDirectSpaceLease",
+                            "ShoppingCenterDirectSpaceForLease", "LandDirectForLease",
+                            "CommercialSublease", "CommercialLeaseAssignment", "PropertyCoworking",
+                            "DisconnectedSpaceForLease"},
+                  "sale": {"PropertyForSale", "ResidentialPropertyForSale", "CondoForSale",
+                           "LandForSale", "CommercialPortfolioForSale", "ConsolidatedCondoForSaleListing",
+                           "DisconnectedForSale", "DisconnectedCondoForSale"},
+                  "auction": {"PropertyForAuction", "LandForAuction", "CondoForAuction",
+                              "LoanForAuction", "CommercialPortfolioForAuction"}}
+    labels = {enums.get("ListingType", {}).get(str(listing.get("listingType")))
+              for listing in listings
+              if enums["ListingStatus"].get(str(listing.get("listingStatus"))) == "Active"}
+    return sorted(category for category, members in categories.items() if labels & members)
+
+
 def _role_labels(record: dict, listings: list[dict], enums: dict) -> str | None:
     # Only enum labels enter this field. Never forward contact names or free text.
     contacts = list(record.get("contacts") or [])
@@ -151,6 +168,7 @@ def _normalize(record: dict, listings: list[dict], enums: dict) -> dict | None:
            "year_built": year, "size_sqft": size, "available": state == "available",
            "contact": _role_labels(record, listings, enums), "availability_status": state,
            "availability_reason": reason, "parking_flags": flags,
+           "listing_types": active_listing_types(listings, enums),
            "size_source": "grossBuildingAreaSquareFeet",
            "year_source": "constructionEvents[eventType=ConstructionComplete].year",
            "year_status": "reported" if year is not None else "unknown_or_ambiguous",
@@ -223,6 +241,7 @@ def build_join(kit_root: Path = KIT_ROOT, output: Path = JOIN_PATH) -> dict:
             ("year_built", pa.int32()), ("size_sqft", pa.float64()), ("available", pa.bool_()),
             ("contact", pa.string()), ("availability_status", pa.string()),
             ("availability_reason", pa.string()), ("parking_flags", pa.map_(pa.string(), pa.bool_())),
+            ("listing_types", pa.list_(pa.string())),
             ("size_source", pa.string()), ("year_source", pa.string()),
             ("year_status", pa.string()), ("join_method", pa.string())])
         connection.register("normalized_properties", pa.Table.from_pylist(rows, schema=schema))
