@@ -1,6 +1,6 @@
 # HANDOFF (coordinated, current)
 
-Branch `ai/claude-release-audit` (PR #31), base origin/dev dbceec2. Code head before this docs commit: c5dbfcb. Not pushed by this session. Details and per-finding evidence: `index/CLAUDE-RELEASE-REVIEW.md`. Demo script/checks: `index/GEMINI-DEMO-HANDOFF.md`.
+Branch `ai/claude-release-audit` (PR #31), base origin/dev dbceec2. Code head: c5dbfcb (no code changed in the browser pass). Not pushed by this session. Details and per-finding evidence: `index/CLAUDE-RELEASE-REVIEW.md`. Demo script/checks: `index/GEMINI-DEMO-HANDOFF.md`.
 
 ## 1. Goal
 Release QA for HackPrinceton Typecast (Director, reel, project import, viewfinder, AI dressing). Fix reproduced failures only; mock/synthetic data only; no push/merge/provider calls/private data. Interior labeling is complete; no more labeling.
@@ -12,7 +12,10 @@ fb1d54f rejected-location-after-failed-replan · 153c302 portable Windows symlin
 `scripts/verify.py` exit 0: 596 passed, 5 skipped (4 file-symlink skips with portable equivalents + 1 prior); smoke, SSE/refinement/no-send approval PASS; 20/20 unlabeled mock attempts, recall N/A. Node: director-audit 32 pass/1 skip (browser-only surface), director-project 29, director_reel 16, viewfinder 8, web lib 15, bridge/core 6; 0 failures. Linux counts from other workers (e.g. 597) are a different context; ignore the stale 539.
 
 ## 4. Browser check status (truthful)
-NOT RUN. `web/tests/check_viewer.py` needs the Python `playwright` package (`--executable` can point at an installed Chromium; Chrome and Edge exist on this machine). `playwright` is not installed in the project venv, system Python or global npm, and installing is outside this task. Everything above is Node/vm harness or pytest, not a real browser. Specifically unverified in a browser: in-page camera metrics panel rendering, MOCK labels, fixture Look-around message, availability/fit "unknown" badges, WebGL viewfinder stamp, WebM, file-picker import, microphone. Run on a machine with playwright: start a mock server, then `python web/tests/check_viewer.py --base-url http://localhost:8001 [--failure-states --mobile]` (old assertions may mention previous wording; inspect failures, do not blindly edit).
+RUN in a real Chromium (Playwright 1.65.2 + Chromium 1255, installed only into the test venv; clean ephemeral profiles; loopback mock server, mocks/fixed engine, model/vision/tracing off; tiny synthetic fixture images, not live proof). Evidence and screenshots live outside the repo in `../manager-drafts/browser-qa/` (README, JSON results, scripts, PNGs).
+- `web/tests/check_viewer.py --failure-states --mobile`: passed, 7 checks, no assertion edits.
+- Director acceptance (my scripts): initial status no longer says "real results"; after Build the status and plan summary say MOCK FIXTURE RESULTS / MOCK FIXTURES; Evidence shows availability, parking, walk, noise as unknown; the camera metric panel renders in-page from /api/plan with unknowns and the assumed-heading label; Look around shows the fixture explanation and opens no dialog; Reject removes mock-p1 ("Rejected: mock-p1", scenes move to mock-p2) and the frame-change notice appears; exported project JSON re-imported through the real file chooser restored staging (dialogue + 7 s duration, 3 drafts restored, 0 for review) with the MOCK label; no page errors.
+- Still not browser-verified: WebGL viewfinder / AI dressing / grab stamp (fixtures have no scan geometry), WebM recording, microphone, live-provider traces, the demo laptop's real cache. Cosmetic: the metric panel prints raw floats (e.g. 39.16239859440563); not changed.
 
 ## 5. Open items
 - Grok Worker4: still pending its own report; compare against review items "Grok Worker4 leads".
