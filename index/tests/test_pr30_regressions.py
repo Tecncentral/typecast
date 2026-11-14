@@ -215,8 +215,9 @@ def test_pr30_node_todos_stay_green():
     node = shutil.which("node")
     if node is None:
         pytest.skip("node is not installed")
+    # GitHub's Node defaults to the spec reporter, which has no "# fail 0" line.
     proc = subprocess.run(
-        [node, "--test", "index/tests/pr30-regressions.mjs"],
+        [node, "--test", "--test-reporter=tap", "index/tests/pr30-regressions.mjs"],
         cwd=ROOT, capture_output=True, text=True, timeout=30,
     )
     assert proc.returncode == 0, proc.stdout + proc.stderr

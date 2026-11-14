@@ -30,7 +30,7 @@ After these audit files (same SHA, tests only):
 |---|---|
 | `TYPECAST_USE_MOCKS=1 /tmp/typecast-venv/bin/python scripts/verify.py` | pytest `600 passed, 7 xfailed in 12.43s`; same smoke PASS, e2e PASS, and mock eval `20/20` unlabeled, `recall@10: N/A` |
 | `TYPECAST_USE_MOCKS=1 /tmp/typecast-venv/bin/python -m pytest -q index/tests/test_pr30_regressions.py` | `3 passed, 7 xfailed` |
-| `node --test index/tests/pr30-regressions.mjs` | `tests 2`, `pass 0`, `fail 0`, `todo 2` (exit 0) |
+| `node --test index/tests/pr30-regressions.mjs` | `tests 2`, `pass 0`, `fail 0`, `todo 2` (exit 0). The pytest wrapper passes `--test-reporter=tap` because GitHub's Node prints the spec reporter and omits the `# fail 0` summary. |
 
 `pytest --runxfail` on the new file fails those 7 tests. That is the reproduction. They are `xfail(strict=True)` in normal runs so the suite stays green. Node todos are the same two UI cases.
 
