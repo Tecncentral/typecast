@@ -1,6 +1,6 @@
 # Typecast demo runbook
 
-Use **Warehouse handoff** for the source reveal: live agents → inside-out descent → real viewfinder → optional AI dressing → five trucks → Director’s Room grouping. The other authored scenes are backups. Selected configuration: **20 candidates / concurrency 5 / batch size 5**, from the [tune selection](team/eval.md#tune-experiments). Previous warm medians were **10.092 / 44.160 seconds**; **three** optional trace links were unavailable and retained ([earlier rehearsal](team/eval.md#demo-refresh-after-v2)). Current stage measurements and actual dressing availability belong in [lane C’s stage report](team/status-lane-c.md).
+Use **Warehouse handoff** for the source reveal: live agents → inside-out descent → real viewfinder → optional AI dressing → five trucks → Director’s Room grouping. The other authored scenes are backups. Selected configuration: **20 candidates / concurrency 5 / batch size 5**, from the [tune selection](team/eval.md#tune-experiments). Previous warm medians were **10.092 / 44.160 seconds**; **three** optional trace links were unavailable and retained ([earlier rehearsal](team/eval.md#demo-refresh-after-v2)). Current stage medians are **8.923 s fixed / 40.923 s deep** with all **ten** strict checks passing; details and initialization differences are in [lane C’s stage report](team/status-lane-c.md) and the table below.
 
 ## Processes and ports
 
@@ -67,11 +67,35 @@ The first command makes actual model calls and exercises explicit local-draft ap
 
 ### Director grouping rehearsal
 
-The authored default comes from the `DEMO` constant in [director.js](../index/director.js). **Pending stream 1 acceptance:** use the updated default only after its PR is human-merged and the assigned frames have been visually checked. Do not claim “all scenes at one location” until the live plan shows that coverage. Record the exact accepted text and summary here after that gate. The planner’s bounded search and one-visit-per-property move assumption are documented in [production.py](../index/production.py).
+The script below was visually checked on `director-restyle` at `6ba671b`: **3/3 scenes · 1 location · 0 moves**. Source: [Director grouping PR #33](https://github.com/Tecncentral/typecast/pull/33), with private evidence in `cache/demo-checks/director-grouping/browser-report.json`. It becomes the shipped default only after the human merges that PR; until then paste it explicitly. Recheck the displayed count on the actual stage run. **Association caveat:** the optional private `property_models.parquet` is absent in this check, so the planner reports the scan/property association as unknown. Grouping uses the property identity recorded on indexed scans; marketed availability is confirmed by the property source. Do not describe this demo as an independently verified mapping.
+
+```text
+INT. HOUSTON APARTMENT KITCHEN - DAY | A bright Houston apartment kitchen with cabinets, an island and a counter; two sisters prepare coffee.
+INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.
+INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.
+```
+
+The default is authored in [director.js](../index/director.js). The inspected one-location plan has mean similarity **0.309**; the two-location alternative has **0.317** and **one** move (rounded display values; source: private `cache/demo-checks/director-grouping/apartment-houston.json`, summarized in [PR #33](https://github.com/Tecncentral/typecast/pull/33)). Similarity is a retrieval score, not a relevance probability. Compare the current displayed plans to show that trade-off. The bounded search and one-visit-per-property move assumption remain in [production.py](../index/production.py); grouping is not measured travel or crew-time savings.
 
 ### What the dressing demonstrates
 
 The real room stays available in the comparison. Atlas derives posed depth from its scan images and reuses those constraints for imagined furnishing ([pipeline](../worlds/dress.py)). This addresses consistent refurnishing; it does not certify measured geometry or buildability. Image dressing is the verified merged scope ([owner report](team/status-worlds.md)). The in-app tray marks AI dressing, but the reviewed merged JPEG export lacks a burned-in label; do not claim labeled exports until [PR #31](https://github.com/Tecncentral/typecast/pull/31) is human-merged and verified. Walkable splats are optional and unclaimed pending the owning session’s merged evidence. No World Labs generation belongs in this rehearsal.
+
+## Current stage rehearsal
+
+Source: [Job 8 stage report](team/status-lane-c.md), independently checked against private `cache/demo-checks/job8-stage/report.json`. These are authored demo measurements, separate from the frozen human evaluation.
+
+| Scene | Fixed seconds | Deep seconds | Top-pick AI dressing, both engines |
+| --- | ---: | ---: | --- |
+| LA glass office | 14.724 | 40.923 | Not offered; read-only endpoint returned 404 |
+| LA warehouse | 9.398 | 48.135 | Offered; four cached faces |
+| LA empty shop | 7.948 | 36.973 | Offered; four cached faces |
+| Houston office | 8.923 | 41.239 | Offered; four cached faces |
+| Houston apartment | 8.824 | 39.018 | Offered; four cached faces |
+
+All **10/10** searches, trace readbacks, same-pool five-truck refinements and original/refined local drafts passed. Each scout used **20/20** cached visual scores, with **zero** scoring failures or engine fallbacks. Refinements took **5.635–10.670 s** and made no new property/interior search. Medians are **8.923 s fixed / 40.923 s deep**. The first fixed request includes lazy encoder initialization; deep was warmed by **two** partial browser attempts before this batch, so the medians are not matched cold-start engine measurements. Source: [stage evidence](team/status-lane-c.md).
+
+These backend checks do not certify the combined browser path. Dressing availability is a read-only cache check, not generation; a different pick may not offer it. The later merged judge-path and approved recording remain separate gates.
 
 ## Scene texts
 
