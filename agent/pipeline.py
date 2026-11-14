@@ -66,7 +66,7 @@ def _build(req: dict, shots, events: list[Event]) -> list[Pick]:
             for i, (_, p, ss, f, l, r, n) in enumerate(scored[:3])]
 
 
-def scout(scene: Optional[str] = None, example_shot_id: Optional[str] = None,
+def _legacy_scout(scene: Optional[str] = None, example_shot_id: Optional[str] = None,
           thread_id: Optional[str] = None) -> ScoutResponse:
     if not scene and not example_shot_id:
         raise ValueError("give scene or example_shot_id")
@@ -100,7 +100,7 @@ def scout(scene: Optional[str] = None, example_shot_id: Optional[str] = None,
     return ScoutResponse(thread_id=thread_id, picks=picks, gave_up=gave_up, events=events)
 
 
-def refine(thread_id: str, message: str) -> ScoutResponse:
+def _legacy_refine(thread_id: str, message: str) -> ScoutResponse:
     """Re-rank cached candidates with updated requirements; no fresh search."""
     state = _threads[thread_id]
     upd = parse_scene(message)
@@ -110,3 +110,22 @@ def refine(thread_id: str, message: str) -> ScoutResponse:
     events = [Event(type="plan", agent="director", text=f"Re-ranking cached candidates for: {message}")]
     picks = _build(state["req"], state["shots"], events)
     return ScoutResponse(thread_id=thread_id, picks=picks, events=events)
+
+
+# Transitional overloads keep existing callers working while lanes adopt RunContext.
+def scout(ctx=None, req_or_example=None, thread_id=None, **kwargs):
+    from agent.interfaces import RunContext, Requirements
+    if isinstance(ctx, RunContext):
+        if isinstance(req_or_example, dict) and "example_shot_id" in req_or_example:
+            return _legacy_scout(example_shot_id=req_or_example["example_shot_id"], thread_id=ctx.thread_id)
+        scene = req_or_example.scene if isinstance(req_or_example, Requirements) else req_or_example
+        return _legacy_scout(scene=scene, thread_id=ctx.thread_id)
+    return _legacy_scout(kwargs.get("scene", ctx), kwargs.get("example_shot_id", req_or_example), thread_id)
+
+
+def refine(ctx, state, message=None):
+    from agent.interfaces import RunContext
+    if isinstance(ctx, RunContext):
+        _threads[ctx.thread_id] = state
+        return _legacy_refine(ctx.thread_id, message)
+    return _legacy_refine(ctx, state)
