@@ -34,3 +34,30 @@ def test_export_cannot_escape_private_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(build, 'ROOT', tmp_path)
     with pytest.raises(ValueError, match='cache'):
         build.cache_path('../outside.jpg')
+
+
+def test_prepare_preserves_browser_cache_paths_with_symlinked_cache(tmp_path, monkeypatch):
+    worktree = tmp_path / 'worktree'
+    shared_cache = tmp_path / 'shared-cache'
+    worktree.mkdir()
+    shared_cache.mkdir()
+    try:
+        (worktree / 'cache').symlink_to(shared_cache, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip('Directory symlinks are unavailable on this platform')
+    monkeypatch.setattr(build, 'ROOT', worktree)
+    Image.new('RGB', (32, 24), 'blue').save(shared_cache / 'sample.jpg')
+    manifest = {'records': [dict(property_id='p1', model_id='m1', sweep_id='s1',
+        image_path='cache/sample.jpg', format='perspective', heading_deg=90)]}
+    (shared_cache / 'source.json').write_text(json.dumps(manifest))
+
+    shots = build.prepare('cache/source.json')
+
+    assert len(shots) == 1
+    assert shots[0].image_path == '/cache/views/' + shots[0].shot_id + '.jpg'
+    image = worktree / shots[0].image_path.lstrip('/')
+    assert image.resolve().parent == shared_cache / 'views'
+    with Image.open(image) as prepared:
+        assert prepared.size == (32, 24)
+    provenance = json.loads((shared_cache / 'view-provenance.json').read_text())
+    assert shots[0].shot_id in provenance

@@ -66,7 +66,8 @@ def prepare(manifest_path):
             if not target.exists():
                 Image.fromarray(pixels).save(target, quality=90)
             shots.append(Shot(shot_id=identity, property_id=row['property_id'], model_id=row['model_id'],
-                sweep_id=row['sweep_id'], heading_deg=heading, image_path='/' + target.relative_to(ROOT).as_posix(),
+                sweep_id=row['sweep_id'], heading_deg=heading,
+                image_path='/cache/' + target.relative_to((ROOT / 'cache').resolve()).as_posix(),
                 room_area_m2=_dimension(row.get('room_area_m2')), ceiling_m=_dimension(row.get('ceiling_m')),
                 depth_m=_dimension(row.get('depth_m')) if row['format'] == 'perspective' else None,
                 measure_on_site=row.get('measure_on_site', True) or any(
