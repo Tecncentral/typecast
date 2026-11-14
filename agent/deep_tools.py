@@ -36,8 +36,11 @@ def _summary(name: str, rows: list[dict[str, Any]], **metadata) -> str:
 
 
 def _property_summary(prop: Property) -> dict[str, Any]:
-    return {"property_id": prop.property_id, "city": _brief(prop.city, 70), "type": _brief(prop.type),
+    result = {"property_id": prop.property_id, "city": _brief(prop.city, 70), "type": _brief(prop.type),
             "year_built": prop.year_built, "available": prop.available}
+    if prop.availability_status is not None:
+        result["availability_status"] = prop.availability_status
+    return result
 
 
 def _shot_summary(shot: Shot) -> dict[str, Any]:
@@ -47,11 +50,14 @@ def _shot_summary(shot: Shot) -> dict[str, Any]:
 
 
 def _logistics_summary(logi: Logistics) -> dict[str, Any]:
-    return {"property_id": logi.property_id, "truck_spaces": logi.truck_spaces,
+    result = {"property_id": logi.property_id, "truck_spaces": logi.truck_spaces,
             "car_spaces": logi.car_spaces, "walk_m": logi.walk_m,
             "noise_flags": [_brief(flag) for flag in logi.noise_flags[:4]],
             "noise_count": len(logi.noise_flags),
             "estimated": logi.estimated}
+    result.update({key: getattr(logi, key) for key in ("parking_status", "walk_status", "noise_status")
+                   if getattr(logi, key) is not None})
+    return result
 
 
 @dataclass
@@ -96,8 +102,7 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
     """Build typed tools whose records always come from the shared adapters."""
     def search_costar() -> str:
         """Load the requested city's broad CoStar pool, including occupied buildings for labelled alternatives."""
-        records = session.call("search_costar", pipeline.search_costar,
-                               city=session.req.city, available_only=False)
+        records = session.call("search_costar", pipeline.market_properties, session.ctx, session.req.city)
         with session.lock:
             session.properties = {p.property_id: p for p in records}
         return _summary("properties", [_property_summary(p) for p in records])
@@ -211,7 +216,15 @@ def make_tools(session: ToolSession) -> dict[str, StructuredTool]:
                 row["logistics"]["noise_flags"] = []
             result = _summary("picks", rows, gave_up=session.gave_up)
             if json.loads(result)["omitted"]:
-                raise ValueError("Shortlist source ids exceed the model summary budget")
+                # Keep live uncertainty and every source id when richer records
+                # exceed the budget; full evidence remains in private sources.
+                for row in rows:
+                    row["property"].pop("year_built", None)
+                    for key in ("estimated", "noise_count", "noise_flags"):
+                        row["logistics"].pop(key, None)
+                result = _summary("picks", rows, gave_up=session.gave_up)
+                if json.loads(result)["omitted"]:
+                    raise ValueError("Shortlist source ids exceed the model summary budget")
         return result
 
     def build_shortlist() -> str:

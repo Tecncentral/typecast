@@ -271,3 +271,11 @@ def test_zero_parking_requirement_does_not_require_known_capacity(monkeypatch):
     result = pipeline.scout(RunContext(thread_id="no-parking-required"),
                             Requirements(scene="Office", trucks=0, cars=0))
     assert not any("Parking capacity unknown" in n or "Parking short" in n for n in result.picks[0].skeptic_notes)
+
+
+def test_live_market_pool_excludes_unindexed_properties_before_logistics(monkeypatch):
+    from index import store
+    _, shots = dataset(monkeypatch, [{"pid": "indexed"}, {"pid": "not-indexed"}])
+    monkeypatch.setattr(store, "load_index", lambda: ([shots[0]], None, "synthetic"))
+    pool = pipeline.market_properties(RunContext(thread_id="live-market", source_mode="live"), "Los Angeles")
+    assert [p.property_id for p in pool] == ["indexed"]

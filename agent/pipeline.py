@@ -69,6 +69,17 @@ def _noise(logi: Logistics) -> str:
     return "unknown; nearby sources not verified" if logi.noise_status == "unknown" else "no noise flags reported"
 
 
+def market_properties(ctx: RunContext, city: str) -> list[Property]:
+    """Keep live scouting inside the real local index; logistics are cached for this set."""
+    properties = search_costar(city=city, available_only=False)
+    if ctx.source_mode == "live":
+        from index.store import load_index
+        shots, _, _ = load_index()
+        indexed = {shot.property_id for shot in shots}
+        properties = [prop for prop in properties if prop.property_id in indexed]
+    return properties
+
+
 def _fit(ctx: RunContext, req: Requirements, shot: Shot) -> ShotFit:
     raw = _call(ctx, "check_shot", check_shot, shot.shot_id, req.focal_mm, req.frame_width_m)
     data = raw.model_dump()
@@ -332,7 +343,7 @@ def scout(ctx=None, req_or_example=None, thread_id=None, **kwargs) -> ScoutRespo
         _parse_note(ctx, req)
     _event(ctx, "subagent_start", "Loading the CoStar city pool; era, availability and size are checked before ranking.", "market_scout")
     # Keep a broad pool for transparent relaxation and later cached-only refinement.
-    properties = _call(ctx, "search_costar", search_costar, city=req.city, available_only=False)
+    properties = _call(ctx, "search_costar", market_properties, ctx, req.city)
     _event(ctx, "subagent_result", f"{len(properties)} candidate buildings.", "market_scout")
     _event(ctx, "subagent_start", "Searching Matterport camera views.", "interior_scout")
     search = {"property_ids": [p.property_id for p in properties]}
