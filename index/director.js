@@ -1,14 +1,18 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
 const POSES = ['stand', 'sit', 'walk'];
+const ORIGIN_SAMPLE = 'authored-sample', ORIGIN_TAG = 'AUTHORED SAMPLE · not AI';
 const BADGE = 'UNCALIBRATED SCREEN-SPACE REHEARSAL · GEOMETRIC FIT UNKNOWN';
-// Replace with the repo's original demo script text if it differs.
+// Stage palette and type follow the scouting app (web/styles.css tokens).
+const INK = { bg: '#0b0d0d', text: '#f2efe8', muted: '#adb5b3', accent: '#edbd69', scrim: 'rgba(11,13,13,.74)' };
+const FACE = 'Barlow, "Segoe UI", system-ui, sans-serif', SLUG = '"Barlow Condensed", Barlow, system-ui, sans-serif';
+// Visually checked against live indexed frames: three rooms in one Houston building.
 const DEMO = [
-  'INT. KITCHEN - DAY | Warm kitchen with wood cabinets; two sisters prepare a meal',
-  'INT. LIVING ROOM - DAY | Bright living room with a sofa and large windows; Mara rehearses a speech',
-  'INT. OFFICE CORRIDOR - NIGHT | A security guard walks a long empty hallway, checking each locked door',
+  'INT. HOUSTON APARTMENT KITCHEN - DAY | A bright Houston apartment kitchen with cabinets, an island and a counter; two sisters prepare coffee.',
+  'INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.',
+  'INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.',
 ].join('\n');
-const S = { scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
+const S = { compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
@@ -26,6 +30,16 @@ const r3 = (v) => Math.round(v * 1000) / 1000;
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const fmt = (v) => (typeof v === 'number' ? v.toFixed(3) : 'unknown');
 const count = (v) => (Array.isArray(v) ? v.length : v ?? 'unknown');
+// The solver returns similarity-first alternatives. Recommend maximum coverage,
+// then fewer company moves; keep the higher-similarity alternatives selectable.
+function orderPlans(data) {
+  data.plans.sort((a, b) => (a.uncovered_scene_ids || []).length - (b.uncovered_scene_ids || []).length
+    || a.locations - b.locations || (b.mean_similarity ?? -Infinity) - (a.mean_similarity ?? -Infinity));
+}
+function planSummary(p) {
+  const covered = S.scenes.length - (p.uncovered_scene_ids || []).length;
+  return `${covered}/${S.scenes.length} scenes · ${p.locations} location${p.locations === 1 ? '' : 's'} · ${p.company_moves ?? '?'} move${p.company_moves === 1 ? '' : 's'}`;
+}
 
 // ---------- data access ----------
 const plan = () => (S.resp && S.resp.plans[S.planIdx]) || null;
@@ -54,14 +68,17 @@ function noteFrameChanges(prev) {
       S.frameChange[sid] = { from: old, to: a.shot_id };
   }
 }
-function sanitizeShot(s) {
+// `origin` is provenance, never content: model responses and unknown values cannot set it; only trusted callers pass keepOrigin.
+function sanitizeShot(s, keepOrigin = false) {
   const actors = (Array.isArray(s?.actors) ? s.actors : []).slice(0, 3).map((a, i) => {
     const x0 = r3(clamp(a?.x0, 0, 1, 0.5)), y0 = r3(clamp(a?.y0, 0, 1, 0.85));
     return { id: String(a?.id ?? `a${i + 1}`).slice(0, 32), name: String(a?.name ?? '').slice(0, 24) || `Actor ${i + 1}`,
       pose: POSES.includes(a?.pose) ? a.pose : 'stand', x0, y0,
       x1: r3(clamp(a?.x1, 0, 1, x0)), y1: r3(clamp(a?.y1, 0, 1, y0)), scale: clamp(a?.scale, 0.3, 2, 1) };
   });
-  return { duration_sec: clamp(s?.duration_sec, 1, 30, 5), dialogue: String(s?.dialogue ?? '').slice(0, 800), actors };
+  const out = { duration_sec: clamp(s?.duration_sec, 1, 30, 5), dialogue: String(s?.dialogue ?? '').slice(0, 800), actors };
+  if (keepOrigin && s?.origin === ORIGIN_SAMPLE) out.origin = ORIGIN_SAMPLE;
+  return out;
 }
 
 // ---------- backend ----------
@@ -96,6 +113,29 @@ function busy(on) {
   const frameSelect = $('framePicker').querySelector('select'); if (frameSelect) frameSelect.disabled = on;
   $('gen').disabled = on || !!S.gen.ctrl;
 }
+// Rejections remain authoritative even if a stale or faulty backend returns them (or no backend answers).
+function applyForbidden(data) {
+  const forbidden = new Set(S.forbidden);
+  data.scenes = data.scenes.map((scene) => ({ ...scene,
+    candidates: (scene.candidates || []).filter((c) => !forbidden.has(c.shot?.property_id)) }));
+  let changed = false;
+  data.plans = data.plans.map((p) => {
+    const removed = (p.assignments || []).filter((a) => forbidden.has(a.property_id));
+    if (!removed.length && !(p.property_ids || []).some((id) => forbidden.has(id))) return p;
+    changed = true;
+    // The solver publishes property_ids and a numeric locations count; rederive both from what remains.
+    const assignments = (p.assignments || []).filter((a) => !forbidden.has(a.property_id));
+    const property_ids = [...new Set(assignments.map((a) => a.property_id))].sort();
+    return { ...p, assignments, property_ids, locations: property_ids.length,
+      uncovered_scene_ids: [...new Set([...(p.uncovered_scene_ids || []), ...removed.map((a) => a.scene_id)])],
+      company_moves: null, mean_similarity: null };
+  });
+  if (changed && 'optimal_within_pool' in data) data.optimal_within_pool = false;
+  if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
+  return data;
+}
+const MOCK_NOTE = 'MOCK FIXTURE RESULTS: placeholder frames, fixture rankings and fixture statuses, not real rooms, sources or capacity. ';
+const modeNote = (data) => (data?.mode === 'mock' ? MOCK_NOTE : '');
 async function build(reuse) {
   if (S.planBusy) return;
   stopPlay(); cancelGen(); clearPending();
@@ -109,25 +149,20 @@ async function build(reuse) {
   try {
     const data = await api('/api/production/plan', body);
     if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
-    // Rejections remain authoritative even if a stale or faulty backend returns them.
-    const forbidden = new Set(S.forbidden);
-    data.scenes = data.scenes.map((scene) => ({ ...scene,
-      candidates: (scene.candidates || []).filter((c) => !forbidden.has(c.shot?.property_id)) }));
-    data.plans = data.plans.map((p) => {
-      const removed = (p.assignments || []).filter((a) => forbidden.has(a.property_id));
-      if (!removed.length) return p;
-      return { ...p, assignments: p.assignments.filter((a) => !forbidden.has(a.property_id)),
-        locations: (p.locations || []).filter((id) => !forbidden.has(id)),
-        uncovered_scene_ids: [...new Set([...(p.uncovered_scene_ids || []), ...removed.map((a) => a.scene_id)])],
-        company_moves: null, mean_similarity: null };
-    });
-    if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
+    applyForbidden(data);
+    orderPlans(data);
     S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {};
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
-    if (data.plans.length) status(`${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`);
+    if (data.plans.length) status(`${modeNote(data)}${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`, data.mode === 'mock');
     else status('Backend returned no plan for these constraints. Your staging is kept.', true);
-  } catch (e) { status(`Plan request failed: ${e.message}`, true); } finally { busy(false); }
+  } catch (e) {
+    if (reuse && S.resp && S.forbidden.length) {
+      // A rejection is the user's decision: never keep showing the rejected location because the replan failed.
+      applyForbidden(S.resp); renderAll();
+      status(`Replan failed: ${e.message}. The rejected location was removed locally; affected scenes are uncovered until a replan succeeds.`, true);
+    } else status(`Plan request failed: ${e.message}`, true);
+  } finally { busy(false); }
 }
 function reject() {
   const a = assignFor(S.sceneId);
@@ -146,9 +181,9 @@ function img(shotId) {
   r.el.src = `/image/${encodeURIComponent(shotId)}`;
   return (S.imgs[shotId] = r);
 }
-function provText(sid) {
+function provText(sid, v = S.variant) {
   const i = S.scenes.findIndex((s) => s.id === sid), a = assignFor(sid), c = a && candFor(sid, a.shot_id);
-  return `Scene ${i + 1} · Variant ${S.variant} · Matterport · property ${a ? safeId(a.property_id).slice(0, 12) : 'none'}`;
+  return `Scene ${i + 1} · Variant ${v} · Matterport · property ${a ? safeId(a.property_id).slice(0, 12) : 'none'}`;
 }
 function wrap(ctx, text, max) {
   const out = []; let line = '';
@@ -163,8 +198,8 @@ function wrap(ctx, text, max) {
 function figure(ctx, H, px, py, a, t, sel) {
   const u = (a.scale * 0.34 * H) / 7.6, hip = py - (a.pose === 'sit' ? 2 : 3) * u, neck = hip - 3 * u;
   ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.lineWidth = Math.max(2, u * 0.5);
-  ctx.strokeStyle = ctx.fillStyle = sel ? '#c6f432' : '#ffb547';
-  ctx.shadowColor = 'rgba(0,0,0,.85)'; ctx.shadowBlur = 8; ctx.beginPath();
+  ctx.strokeStyle = ctx.fillStyle = sel ? INK.accent : INK.text;
+  ctx.shadowColor = 'rgba(0,0,0,.85)'; ctx.shadowBlur = 8; ctx.shadowOffsetY = 1; ctx.beginPath();
   if (a.pose === 'sit') { ctx.moveTo(px, hip); ctx.lineTo(px + 1.7 * u, hip); ctx.lineTo(px + 1.7 * u, py); } else {
     const sw = a.pose === 'walk' ? (t == null ? 0.9 : Math.sin(t * 7) * 1.1) * u : 0.45 * u;
     ctx.moveTo(px - sw, py); ctx.lineTo(px, hip); ctx.lineTo(px + sw, py);
@@ -174,55 +209,128 @@ function figure(ctx, H, px, py, a, t, sel) {
   ctx.moveTo(px - 1.2 * u + arm, hip - u); ctx.lineTo(px, neck + 0.4 * u); ctx.lineTo(px + 1.2 * u - arm, hip - u);
   ctx.moveTo(px + 0.8 * u, neck - 0.8 * u); ctx.arc(px, neck - 0.8 * u, 0.8 * u, 0, Math.PI * 2);
   ctx.stroke(); ctx.shadowBlur = 4; ctx.textAlign = 'center';
-  ctx.font = `600 ${Math.max(14, u * 1.1)}px system-ui`; ctx.fillText(a.name, px, neck - 2 * u, 260);
+  ctx.font = `600 ${Math.max(15, u * 1.15)}px ${FACE}`; ctx.fillText(a.name, px, neck - 2 * u, 260);
   ctx.restore();
 }
+function pill(ctx, x, y, w, h) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, 5); else ctx.rect(x, y, w, h);
+  ctx.fill();
+}
+// Camera frame marks around the real frame: the same language as the 360° viewfinder.
+function frameMarks(ctx, x, y, w, h, alpha) {
+  const k = Math.min(w, h) * 0.06;
+  ctx.save(); ctx.strokeStyle = INK.accent; ctx.globalAlpha = alpha; ctx.lineWidth = 2; ctx.beginPath();
+  for (const [cx, cy, dx, dy] of [[x, y, 1, 1], [x + w, y, -1, 1], [x, y + h, 1, -1], [x + w, y + h, -1, -1]]) {
+    ctx.moveTo(cx, cy + dy * k); ctx.lineTo(cx, cy); ctx.lineTo(cx + dx * k, cy);
+  }
+  ctx.stroke(); ctx.restore();
+}
 function drawStage(ctx, W, H, o) {
-  ctx.save(); ctx.fillStyle = '#0b0807'; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.fillStyle = INK.bg; ctx.fillRect(0, 0, W, H);
+  let marks;
   if (o.imgEl) {
     const iw = o.imgEl.naturalWidth || o.imgEl.width, ih = o.imgEl.naturalHeight || o.imgEl.height, s = Math.min(W / iw, H / ih);
-    ctx.drawImage(o.imgEl, (W - iw * s) / 2, (H - ih * s) / 2, iw * s, ih * s);
+    const dw = iw * s, dh = ih * s, dx = (W - dw) / 2, dy = (H - dh) / 2;
+    if (dw < W - 1 || dh < H - 1) {
+      // Fill the letterbox with a dimmed, blurred cover of the same frame; the real frame stays uncropped on top.
+      const c = Math.max(W / iw, H / ih);
+      ctx.save(); ctx.filter = 'blur(28px) saturate(.7)'; ctx.globalAlpha = 0.5;
+      ctx.drawImage(o.imgEl, (W - iw * c) / 2, (H - ih * c) / 2, iw * c, ih * c); ctx.restore();
+      ctx.fillStyle = 'rgba(11,13,13,.45)'; ctx.fillRect(0, 0, W, H);
+    }
+    ctx.save(); ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 30; ctx.shadowOffsetY = 6;
+    ctx.drawImage(o.imgEl, dx, dy, dw, dh); ctx.restore();
+    marks = [dx + 12, dy + 12, dw - 24, dh - 24, 0.7];
   } else {
-    ctx.fillStyle = '#b49c86'; ctx.font = '28px system-ui'; ctx.textAlign = 'center';
-    ctx.fillText(o.missing || 'No frame', W / 2, H / 2, W - 80);
+    marks = [W * 0.08, H * 0.1, W * 0.84, H * 0.8, 0.35];
+    ctx.fillStyle = INK.text; ctx.globalAlpha = 0.86; ctx.font = `600 34px ${FACE}`; ctx.textAlign = 'center';
+    ctx.fillText(o.missing || 'No frame', W / 2, H / 2 + 10, W - 160); ctx.globalAlpha = 1;
   }
   const sh = o.shot;
   if (sh) sh.actors.forEach((a, i) => {
     const k = o.t == null ? 0 : clamp(o.t / sh.duration_sec, 0, 1, 0), moved = a.x1 !== a.x0 || a.y1 !== a.y0;
     if (o.editing && (moved || i === o.sel)) {
-      ctx.strokeStyle = 'rgba(198,244,50,.85)'; ctx.lineWidth = 3; ctx.setLineDash([10, 8]); ctx.beginPath();
+      const on = i === o.sel;
+      ctx.save(); ctx.strokeStyle = on ? INK.accent : 'rgba(242,239,232,.7)'; ctx.lineWidth = 3; ctx.setLineDash([10, 8]);
+      ctx.shadowColor = 'rgba(0,0,0,.7)'; ctx.shadowBlur = 4; ctx.shadowOffsetY = 1; ctx.beginPath();
       ctx.moveTo(a.x0 * W, a.y0 * H); ctx.lineTo(a.x1 * W, a.y1 * H); ctx.stroke(); ctx.setLineDash([]);
-      ctx.beginPath(); ctx.arc(a.x1 * W, a.y1 * H, 13, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.arc(a.x1 * W, a.y1 * H, 13, 0, Math.PI * 2); ctx.stroke(); ctx.restore();
     }
     figure(ctx, H, (a.x0 + (a.x1 - a.x0) * k) * W, (a.y0 + (a.y1 - a.y0) * k) * H, a, o.t, o.editing && i === o.sel);
   });
-  ctx.fillStyle = 'rgba(10,7,5,.75)'; ctx.fillRect(0, 0, W, 44);
-  ctx.textAlign = 'left'; ctx.font = '600 17px system-ui'; ctx.fillStyle = '#ffb547'; ctx.fillText(BADGE, 16, 28, W * 0.44);
-  ctx.textAlign = 'right'; ctx.font = '15px ui-monospace,monospace'; ctx.fillStyle = '#f4e8d8'; ctx.fillText(o.prov, W - 16, 28, W * 0.52);
+  frameMarks(ctx, ...marks);
+  // Honesty label and provenance travel with every still and reel frame.
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.font = `600 21px ${FACE}`;
+  const bw = Math.min(ctx.measureText(BADGE).width, W * 0.56) + 28;
+  ctx.fillStyle = INK.scrim; pill(ctx, 18, 18, bw, 40);
+  ctx.fillStyle = INK.accent; ctx.fillText(BADGE, 32, 38.5, W * 0.56);
+  if (sh && sh.origin) {
+    ctx.textAlign = 'left'; ctx.font = `600 19px ${FACE}`;
+    const tw = Math.min(ctx.measureText(ORIGIN_TAG).width, W * 0.5) + 28;
+    ctx.fillStyle = INK.scrim; pill(ctx, 18, 66, tw, 36); ctx.fillStyle = INK.text; ctx.fillText(ORIGIN_TAG, 32, 84.5, W * 0.5);
+  }
+  ctx.textAlign = 'right'; ctx.font = `500 19px ${FACE}`;
+  const pw = Math.min(ctx.measureText(o.prov).width, W * 0.36) + 28;
+  ctx.fillStyle = INK.scrim; pill(ctx, W - 18 - pw, 18, pw, 40);
+  ctx.fillStyle = INK.text; ctx.fillText(o.prov, W - 32, 38.5, W * 0.36);
+  ctx.textBaseline = 'alphabetic';
   if (sh && sh.dialogue) {
-    ctx.font = '24px Georgia,serif'; const lines = wrap(ctx, sh.dialogue, W - 160), bh = 20 + lines.length * 32;
-    ctx.fillStyle = 'rgba(10,7,5,.75)'; ctx.fillRect(0, H - bh, W, bh); ctx.fillStyle = '#fff6e8'; ctx.textAlign = 'center';
-    lines.forEach((l, i) => ctx.fillText(l, W / 2, H - bh + 36 + i * 32, W - 120));
+    // Subtitles, as on a cut: two lines at most over a soft scrim.
+    ctx.font = `500 30px ${FACE}`; const lines = wrap(ctx, sh.dialogue, W - 220), bh = 40 + lines.length * 40;
+    const g = ctx.createLinearGradient(0, H - bh - 40, 0, H);
+    if (g && g.addColorStop) { g.addColorStop(0, 'rgba(11,13,13,0)'); g.addColorStop(1, 'rgba(11,13,13,.82)'); ctx.fillStyle = g; }
+    else ctx.fillStyle = INK.scrim;
+    ctx.fillRect(0, H - bh - 40, W, bh + 40);
+    ctx.fillStyle = INK.text; ctx.textAlign = 'center'; ctx.shadowColor = 'rgba(0,0,0,.9)'; ctx.shadowBlur = 6; ctx.shadowOffsetY = 2;
+    lines.forEach((l, i) => ctx.fillText(l, W / 2, H - bh + 34 + i * 40, W - 160));
   }
   ctx.restore();
 }
-function liveArgs(sid, t) {
+function liveArgs(sid, t, v = S.variant, editing = t == null, sel = S.actorIdx) {
   const a = assignFor(sid), im = a ? img(a.shot_id) : null;
   const missing = !S.resp ? 'Build a plan to load real indexed frames' : !a ? 'Uncovered scene: no location assigned'
     : im.err ? `Indexed image unavailable (${a.shot_id})` : 'Loading indexed frame…';
-  return { imgEl: im && im.ok ? im.el : null, missing, prov: provText(sid), shot: a ? shotData(sid) : null, t, editing: t == null, sel: S.actorIdx };
+  return { imgEl: im && im.ok ? im.el : null, missing, prov: provText(sid, v), shot: a ? shotData(sid, v) : null, t, editing, sel };
 }
-function draw(t = null, sid = S.sceneId) { const c = $('stage'); drawStage(c.getContext('2d'), c.width, c.height, liveArgs(sid, t)); }
+// Read-only A/B preview of the SAME selected/playing frame: two natively sized panes (no stretching), one real-time clock.
+// A take shorter than the clock holds its last pose and says so; durations are never normalized.
+function drawCompare(ctx, W, H, sid, t) {
+  const pw = W / 2, ph = H / 2, py = (H - ph) / 2;
+  ctx.save(); ctx.fillStyle = INK.bg; ctx.fillRect(0, 0, W, H);
+  ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+  for (const [idx, v] of [[0, 'A'], [1, 'B']]) {
+    const sh = shotData(sid, v), x = idx * pw, dur = sh ? sh.duration_sec : null;
+    const tv = t == null || dur == null ? t : Math.min(t, dur);
+    ctx.save(); ctx.beginPath(); ctx.rect(x, py, pw, ph); ctx.clip(); ctx.translate(x, py);
+    drawStage(ctx, pw, ph, liveArgs(sid, tv, v, t == null, -1)); ctx.restore();
+    const ended = t != null && dur != null && t > dur;
+    const clock = dur == null ? 'no frame' : t == null ? `${dur}s` : ended ? `ended at ${dur}s, holding last pose` : `${t.toFixed(1)}s / ${dur}s`;
+    ctx.font = `600 26px ${FACE}`; ctx.fillStyle = S.variant === v ? INK.accent : INK.text;
+    ctx.fillText(`TAKE ${v}${S.variant === v ? ' (active take)' : ''}${sh?.origin ? ' · authored sample' : ''}`, x + 14, py - 62, pw - 28);
+    ctx.font = `500 22px ${FACE}`; ctx.fillStyle = INK.muted; ctx.fillText(clock, x + 14, py - 28, pw - 28);
+  }
+  ctx.fillStyle = INK.accent; ctx.fillRect(pw - 1, py, 2, ph);
+  ctx.font = `500 21px ${FACE}`; ctx.fillStyle = INK.muted; ctx.textAlign = 'center';
+  ctx.fillText('Comparison view only. Not an export. Same indexed frame; uncalibrated screen-space staging.', W / 2, py + ph + 44, W - 40);
+  ctx.restore();
+}
+function drawSingle(t = null, sid = S.sceneId) { const c = $('stage'); drawStage(c.getContext('2d'), c.width, c.height, liveArgs(sid, t)); }
+function draw(t = null, sid = S.sceneId) {
+  const c = $('stage');
+  if (S.compare) drawCompare(c.getContext('2d'), c.width, c.height, sid, t); else drawSingle(t, sid);
+}
 
 // ---------- playback ----------
 function play() {
   if (S.play.on) return;
-  const q = S.scenes.filter((s) => assignFor(s.id)).map((s) => ({ sid: s.id, dur: shotData(s.id).duration_sec }));
+  const q = S.scenes.filter((s) => assignFor(s.id)).map((s) => ({ sid: s.id,
+    dur: S.compare ? Math.max(shotData(s.id, 'A').duration_sec, shotData(s.id, 'B').duration_sec) : shotData(s.id).duration_sec }));
   if (!q.length) return status('Nothing to play: no scene has an assigned frame.', true);
   const total = q.reduce((n, x) => n + x.dur, 0);
   if (S.play.acc >= total) S.play.acc = 0;
   Object.assign(S.play, { on: true, q, total, start: performance.now() });
-  status(`Playing variant ${S.variant}.`);
+  status(S.compare ? 'Playing both takes side by side on one real-time clock; a shorter take holds its last pose.' : `Playing variant ${S.variant}.`);
   const tick = (now) => {
     if (!S.play.on) return;
     const t = Math.min(S.play.acc + (now - S.play.start) / 1000, total);
@@ -251,7 +359,11 @@ function stopPlay() {
   cancelAnimationFrame(S.play.raf); S.play.on = false; S.play.acc = 0;
   $('prog').value = 0; $('clock').textContent = '0.0s'; highlight(null);
 }
-function highlight(sid) { for (const b of $('timeline').querySelectorAll('button')) b.classList.toggle('now', b.dataset.sid === sid); }
+function highlight(sid) {
+  for (const b of $('timeline').querySelectorAll('button')) b.classList.toggle('now', b.dataset.sid === sid);
+  // The header names whatever the stage shows: the playing scene during playback, else the selected one.
+  if ((sid || S.sceneId) !== headSid) renderStageHead(sid || S.sceneId);
+}
 
 // ---------- rendering ----------
 function kv(title, obj) {
@@ -302,25 +414,49 @@ function warningMeaning(w) {
   if (w.field === 'property') return 'Property details are unavailable. Listing availability and filming permission are not established.';
   return 'Review this source field before production.';
 }
-function evidenceNodes(sid, summary = evidenceSummary(sid)) {
+// A plain-language brief built only from the sanitized summary; unknowns stay unknown.
+function evidenceBrief(a) {
+  const ul = el('ul', { class: 'brief' });
+  const item = (k, v, unknown = false) => ul.append(el('li', {}, el('b', { text: k }), el('span', { class: unknown ? 'unk' : '', text: v })));
+  const num = (v, d = 0) => (typeof v === 'number' ? v.toFixed(d) : null);
+  const p = a.property || {}, lg = a.logistics || {}, r = a.room || {};
+  const av = p.availability_status;
+  item('Listing', av === 'available' ? 'Marketed as available. Not filming permission.'
+    : av === 'not_available' ? 'Not marketed as available.' : 'Unknown.', av !== 'available' && av !== 'not_available');
+  const building = [num(p.year_built) && `built ${num(p.year_built)}`, num(p.size_sqft) && `${Number(p.size_sqft).toLocaleString('en-US')} sq ft`].filter(Boolean);
+  item('Building', building.length ? building.join(' · ') : 'Unknown.', !building.length);
+  const room = [num(r.room_area_m2) && `${num(r.room_area_m2)} m² floor`, num(r.ceiling_m, 1) && `ceiling ${num(r.ceiling_m, 1)} m`,
+    num(r.depth_m, 1) && `depth ${num(r.depth_m, 1)} m`].filter(Boolean);
+  item('Room', room.length ? `${room.join(' · ')} (index estimate)` : 'Unknown. Measure on site.', !room.length);
+  if (lg.parking_status === 'unknown') item('Parking', 'Unknown. Not a parking approval.', true);
+  else item('Parking', `${num(lg.truck_spaces) ?? '?'} trucks, ${num(lg.car_spaces) ?? '?'} cars, ${lg.parking_status}`
+    + (lg.enough_parking === true ? '. Covers the requested vehicles.' : lg.enough_parking === false ? '. Short of the requested vehicles.' : '.'));
+  item('Crew walk', lg.walk_status === 'unknown' ? 'Unknown.' : `${num(lg.walk_m) ?? '?'} m, ${lg.walk_status}.`, lg.walk_status === 'unknown');
+  item('Noise', lg.noise_status === 'unknown' ? 'Unknown.' : `Proximity screen, ${lg.noise_status}. Not a sound measurement.`, lg.noise_status === 'unknown');
+  return ul;
+}
+function evidenceNodes(sid, summary = evidenceSummary(sid), collapsible = true) {
   const f = document.createDocumentFragment(), a = summary;
   if (!a) { f.append(el('p', { class: 'unk', text: S.resp ? 'Uncovered in this plan: no location assigned.' : 'No plan yet.' })); return f; }
-  f.append(kv('Frame · Matterport index', a.frame),
+  const fields = [kv('Frame · Matterport index', a.frame),
     kv('Room metrics · index estimate, not calibrated to stage', a.room),
-    kv('Property · CoStar', a.property), kv('Logistics · Vexcel', a.logistics));
+    kv('Property · CoStar', a.property), kv('Logistics · Vexcel', a.logistics)];
   const w = el('section', { class: 'ev' }, el('h4', { text: 'Source warnings' })), ws = a.warnings;
   if (!ws.length) w.append(el('p', { class: 'meta', text: 'No warnings returned. Absence of a warning is not verification.' }));
   ws.forEach((x) => w.append(el('p', { class: 'warn', text: `[${x.source}] ${x.field} · ${x.status}: ${warningMeaning(x)}` })));
-  f.append(w); return f;
+  if (!collapsible) { f.append(...fields, w); return f; }
+  f.append(evidenceBrief(a), w,
+    el('details', { class: 'ev-details' }, el('summary', { text: 'Exact source fields' }), ...fields));
+  return f;
 }
 function renderPlan() {
   const sel = $('planSel'), plans = S.resp?.plans || []; sel.replaceChildren();
   plans.forEach((p, i) => {
-    const cov = S.scenes.length - (p.uncovered_scene_ids || []).length;
-    sel.append(el('option', { value: String(i), text: `Plan ${i + 1}: ${cov}/${S.scenes.length} covered · ${p.company_moves ?? '?'} moves · mean sim ${fmt(p.mean_similarity)}` }));
+    sel.append(el('option', { value: String(i), text: planSummary(p), title: `Mean similarity ${fmt(p.mean_similarity)}` }));
   });
   sel.value = String(S.planIdx); sel.disabled = S.planBusy || !plans.length;
-  $('planMeta').textContent = S.resp ? `Mode ${S.resp.mode ?? 'unknown'} · ${count(S.resp.evaluated_subsets)} subsets evaluated · pool ${count(S.resp.pool_properties)} properties. Mean sim is raw similarity, not shootability.` : 'No plan yet.';
+  sel.title = plan() ? `${planSummary(plan())} · mean similarity ${fmt(plan().mean_similarity)}` : '';
+  $('planMeta').textContent = S.resp ? `${S.resp.mode === 'mock' ? 'MOCK FIXTURES · ' : ''}Best coverage, then fewest locations. Selected similarity ${fmt(plan()?.mean_similarity)}. Mode ${S.resp.mode ?? 'unknown'} · ${count(S.resp.evaluated_subsets)} subsets evaluated · pool ${count(S.resp.pool_properties)} properties. Similarity is visual retrieval, not shootability.` : 'No plan yet.';
   $('forbidden').textContent = S.forbidden.length ? `Rejected: ${S.forbidden.join(', ')}` : 'No rejected locations.';
   $('clearRej').disabled = !S.forbidden.length;
 }
@@ -330,38 +466,89 @@ function sceneButton(s, i, cls, ...kids) {
   b.addEventListener('click', () => selectScene(s.id));
   return el('li', { class: cls }, b);
 }
+// Real indexed frames as thumbnails; identifiers stay in the evidence panel.
+// One element per list and frame, reused across re-renders so edits never re-decode or flash.
+const THUMBS = new Map();
+function thumb(shotId, where) {
+  const key = `${where}:${shotId}`;
+  let i = THUMBS.get(key);
+  if (!i) {
+    i = el('img', { class: 'thumb', alt: '', decoding: 'async' });
+    i.src = `/image/${encodeURIComponent(shotId)}`;
+    THUMBS.set(key, i);
+  }
+  return i;
+}
+const noThumb = () => el('span', { class: 'thumb', 'aria-hidden': 'true' });
+// Plans group scenes by property; a letter per location shows which scenes share a company move.
+function locLetter(pid) {
+  const order = [];
+  for (const s of S.scenes) { const a = assignFor(s.id); if (a && !order.includes(a.property_id)) order.push(a.property_id); }
+  const i = order.indexOf(pid);
+  return i < 0 ? '?' : String.fromCharCode(65 + (i % 26));
+}
 function renderRail() {
   $('rail').replaceChildren(...S.scenes.map((s, i) => { const a = assignFor(s.id);
-    return sceneButton(s, i, '', el('strong', { text: `${i + 1}. ${s.heading}` }), el('small', { text: s.description || '(no description)' }),
-      el('span', { class: a ? 'loc' : 'loc none', text: a ? `property ${a.property_id} · frame ${a.shot_id}` : S.resp ? 'uncovered' : 'not planned' })); }));
+    return sceneButton(s, i, '', a ? thumb(a.shot_id, 'rail') : noThumb(), el('strong', { class: 'slug', text: `${i + 1}. ${s.heading}` }),
+      el('small', { text: s.description || '(no description)' }),
+      el('span', { class: a ? 'loc' : 'loc none', text: a ? `Location ${locLetter(a.property_id)}${a.manual_frame ? ' · your frame' : ''}` : S.resp ? 'Uncovered: no location' : 'Not planned yet' })); }));
 }
 function renderTimeline() {
-  $('timeline').replaceChildren(...S.scenes.map((s, i) => { const sh = assignFor(s.id) ? shotData(s.id) : null;
-    return sceneButton(s, i, '', el('strong', { text: `${i + 1} · ${sh ? `${sh.duration_sec}s` : 'skipped'}` }), el('span', { text: s.heading }),
-      el('small', { text: sh ? `${sh.actors.length} actor(s) · var ${S.variant}` : 'no frame; not played' })); }));
+  $('timeline').replaceChildren(...S.scenes.map((s, i) => { const a = assignFor(s.id), sh = a ? shotData(s.id) : null;
+    const n = sh ? sh.actors.length : 0;
+    return sceneButton(s, i, '', a ? thumb(a.shot_id, 'cut') : noThumb(), el('strong', { text: `${i + 1} · ${sh ? `${sh.duration_sec}s` : 'skipped'}` }), el('span', { text: s.heading }),
+      el('small', { text: sh ? `${n ? `${n} stand-in${n > 1 ? 's' : ''}` : 'No stand-ins'} · take ${S.variant}${sh.origin ? ' · authored sample' : ''}` : 'no frame; not played' })); }));
+}
+function stageLocNodes(sid = S.sceneId) {
+  const a = assignFor(sid);
+  if (!S.resp) return [document.createTextNode('Build a plan to put real indexed rooms on the stage.')];
+  if (!a) return [document.createTextNode('Uncovered in this plan: no location assigned.')];
+  const shared = S.scenes.map((s, i) => [s, i + 1]).filter(([s]) => s.id !== sid && assignFor(s.id)?.property_id === a.property_id).map(([, n]) => n);
+  const parts = [`CoStar property ${safeId(a.property_id)}`];
+  if (shared.length) parts.push(`same location as scene${shared.length > 1 ? 's' : ''} ${shared.join(', ')}`);
+  if (a.manual_frame) parts.push('your frame choice');
+  return [el('strong', { text: `Location ${locLetter(a.property_id)}` }), document.createTextNode(` · ${parts.join(' · ')}`)];
+}
+let headSid = null;
+function renderStageHead(sid = S.sceneId) {
+  headSid = sid;
+  const title = $('stageTitle'), where = $('stageLoc'), mode = $('planMode');
+  const summary = $('stagePlanSummary');
+  if (summary) { summary.textContent = plan() ? planSummary(plan()) : ''; summary.hidden = !plan(); }
+  if (title) title.textContent = S.scenes.find((s) => s.id === sid)?.heading || 'Stage';
+  if (where) where.replaceChildren(...stageLocNodes(sid));
+  if (mode) {
+    const m = S.resp ? String(S.resp.mode ?? 'unknown').slice(0, 12) : null;
+    mode.dataset.mode = !m ? 'none' : ['live', 'mock', 'mixed'].includes(m) ? m : 'unknown';
+    mode.textContent = m ? `${m.toUpperCase()} DATA` : 'NO PLAN';
+  }
 }
 function syncActor(a) {
   $('aName').value = a ? a.name : ''; $('aPose').value = a ? a.pose : 'stand'; $('aScale').value = a ? a.scale : '';
   for (const f of ['x0', 'y0', 'x1', 'y1']) $(`a${f}`).value = a ? a[f].toFixed(2) : '';
 }
 function renderInspector() {
-  const shot = shotData(S.sceneId); $('varLbl').textContent = S.variant; $('shotForm').disabled = !shot;
+  const shot = shotData(S.sceneId); $('varLbl').textContent = S.variant; $('shotForm').disabled = !shot || S.compare;
   $('dur').value = shot ? shot.duration_sec : ''; $('dlg').value = shot ? shot.dialogue : '';
   if (shot && S.actorIdx >= shot.actors.length) S.actorIdx = Math.max(0, shot.actors.length - 1);
   const sel = $('actorSel'); sel.replaceChildren(...(shot?.actors || []).map((a, i) => el('option', { value: String(i), text: a.name })));
   sel.value = String(S.actorIdx); const a = shot?.actors[S.actorIdx];
-  $('actorForm').disabled = !a; $('addActor').disabled = !shot || shot.actors.length >= 3; $('delActor').disabled = !a;
+  $('actorForm').disabled = !a || S.compare; $('addActor').disabled = !shot || S.compare || shot.actors.length >= 3; $('delActor').disabled = !a || S.compare;
   syncActor(a);
+  const tag = $('originTag'); tag.hidden = !shot?.origin;
+  tag.textContent = shot?.origin ? `${ORIGIN_TAG}: take ${S.variant} derives from pre-written sample blocking (not AI-generated). Edits you make keep this origin.` : '';
 }
 function renderFrameNotice() {
   const n = $('frameNotice'), fc = S.frameChange[S.sceneId], a = assignFor(S.sceneId); n.replaceChildren();
   if (!fc || !a || a.shot_id !== fc.to) { n.hidden = true; return; }
   const copy = el('button', { type: 'button', text: 'Copy old staging (re-check by eye)' }), fresh = el('button', { type: 'button', text: 'Start fresh' });
   copy.addEventListener('click', () => {
+    S.rev++;
     S.edits[`${S.sceneId}::${fc.to}`] = clone(S.edits[`${S.sceneId}::${fc.from}`]); delete S.frameChange[S.sceneId];
     stopPlay(); renderAll(); status('Staging copied. Screen positions carry no geometry; re-stage against the new frame.');
   });
   fresh.addEventListener('click', () => {
+    S.rev++;
     stopPlay(); cancelGen(); clearPending(); S.edits[`${S.sceneId}::${fc.to}`] = { A: blankShot(), B: blankShot() };
     delete S.frameChange[S.sceneId]; renderAll();
   });
@@ -373,39 +560,74 @@ function renderFrames() {
   if (!a) return;
   const candidates = S.resp.scenes.find((s) => s.id === S.sceneId)?.candidates || [];
   const choices = candidates.filter((c) => c.eligible && c.shot.property_id === a.property_id);
-  const label = el('label', { text: 'Frame within assigned property (creative choice)' }), select = el('select', { 'aria-label': 'Frame within assigned property' });
-  choices.forEach((c) => select.append(el('option', { value: c.shot.shot_id, text: `${c.shot.shot_id} · similarity ${fmt(c.shot.score)}` })));
+  const label = el('label', { text: `Frames in this location (creative choice) · ${choices.length}` }), select = el('select', { 'aria-label': 'Frame within assigned property' });
+  const sim = (v) => (typeof v === 'number' ? v.toFixed(2) : 'unknown');
+  choices.forEach((c, n) => select.append(el('option', { value: c.shot.shot_id, text: `Frame ${n + 1} · similarity ${sim(c.shot.score)}` })));
   select.value = a.shot_id;
   select.disabled = S.planBusy;
   select.addEventListener('change', () => {
-    const prev = assignMap(); stopPlay(); cancelGen(); clearPending();
+    const prev = assignMap(); S.rev++; stopPlay(); cancelGen(); clearPending();
     S.frameOverrides[`${S.planIdx}::${S.sceneId}`] = select.value;
     noteFrameChanges(prev); renderAll(); status('Manual frame selected within the same property. Plan score still describes the original solver selection.');
   });
   label.append(select); box.append(label);
+  if (choices.length > 1) {
+    const strip = el('div', { class: 'frame-strip', role: 'group', 'aria-label': 'Frames in this location' });
+    choices.slice(0, 12).forEach((c, n) => {
+      const b = el('button', { type: 'button', 'aria-pressed': String(c.shot.shot_id === a.shot_id), 'aria-label': `Use frame ${n + 1}` },
+        thumb(c.shot.shot_id, 'frames'), el('span', { text: `${n + 1} · ${sim(c.shot.score)}` }));
+      b.disabled = S.planBusy;
+      b.addEventListener('click', () => {
+        if (select.value === c.shot.shot_id) return;
+        select.value = c.shot.shot_id; select.dispatchEvent(new Event('change'));
+      });
+      strip.append(b);
+    });
+    box.append(strip);
+  }
   if (a.manual_frame) box.append(el('p', { class: 'meta', text: 'Manual frame choice. Plan similarity describes the original solver selection; property budget is unchanged.' }));
+}
+function renderCompareStrip() {
+  const strip = $('compareStrip'), btn = $('cmpAB'), on = S.compare;
+  btn.setAttribute('aria-pressed', String(on));
+  $('stage').classList.toggle('comparing', on);
+  strip.hidden = !on; strip.replaceChildren();
+  if (!on) return;
+  const a = shotData(S.sceneId, 'A'), b = shotData(S.sceneId, 'B');
+  const durs = a && b ? `Take A runs ${a.duration_sec}s, take B ${b.duration_sec}s${a.duration_sec === b.duration_sec ? '' : ' (different lengths: scene playback lasts the longer one and the shorter take holds its last pose)'}.`
+    : 'This scene has no assigned frame to compare.';
+  const cap = (v, sh) => el('span', { class: 'cap' }, el('strong', { text: `Take ${v}${S.variant === v ? ' (active)' : ''}` }),
+    ` · ${sh ? `${sh.duration_sec}s` : 'no frame'}${sh?.origin ? ` · ${ORIGIN_TAG}` : ''}`);
+  strip.append(el('div', { class: 'caps' }, cap('A', a), cap('B', b)));
+  strip.append(el('span', {}, el('strong', { text: 'Read-only A/B comparison' }), ` · same frame, one real-time clock. ${durs}`),
+    el('span', { text: `Canvas drag/keys and take fields are locked while comparing. Active take ${S.variant}: PNG and WebM export that take only; Project JSON and Shoot pack include both. Uncalibrated screen-space staging.` }));
+}
+function toggleCompare() {
+  stopPlay(); S.compare = !S.compare; renderAll();
+  status(S.compare ? `Comparing take A and take B (read-only). Active take stays ${S.variant}.` : `Back to single-take view (take ${S.variant}).`);
 }
 function renderAll() {
   renderProjectReview();
-  renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames();
+  renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames(); renderStageHead(); renderCompareStrip();
   $('evidence').replaceChildren(evidenceNodes(S.sceneId));
   const a = assignFor(S.sceneId), pl = $('planner');
   $('lookAround').disabled = S.planBusy || !a;
   $('reject').disabled = S.planBusy || !a; $('expPack').disabled = !plan(); $('expReel').disabled = !plan() || !!reelCtrl; pl.hidden = !a;
   if (a) pl.href = `/api/plan/${encodeURIComponent(a.shot_id)}?heading=0&focal=35`;
+  if ($('plannerOut')) { $('plannerOut').hidden = true; $('plannerOut').replaceChildren(); }
   draw();
 }
 function invalidateProposal() {
   if (S.gen.ctrl || S.pending) { cancelGen(); clearPending(); status('Staging changed; generate a new proposal to review.'); }
 }
-function edited() { invalidateProposal(); stopPlay(); draw(); renderTimeline(); }
+function edited() { S.rev++; invalidateProposal(); stopPlay(); draw(); renderTimeline(); }
 function selectScene(sid) {
   stopPlay(); cancelGen();
   if (S.pending) { clearPending(); status('Pending proposal discarded because the scene changed.'); }
   S.sceneId = sid; S.actorIdx = 0; renderAll();
 }
 function setVariant(v) {
-  stopPlay(); cancelGen(); clearPending(); S.variant = v;
+  stopPlay(); cancelGen(); clearPending(); S.variant = v; S.compare = false;
   $('varA').setAttribute('aria-pressed', String(v === 'A')); $('varB').setAttribute('aria-pressed', String(v === 'B'));
   renderAll();
 }
@@ -449,14 +671,37 @@ async function generate() {
     status(`Brainstorm unavailable: ${e.message}. No changes made.`, true);
   } finally { if (tok === S.gen.tok) { S.gen.ctrl = null; setGen(false); } }
 }
+// Explicit opt-in, offline: a fixed authored blocking pattern. It makes no model call, ignores the direction text and
+// is staged through the same review step, so nothing changes until Apply to B. Take A is only read.
+const SAMPLE_NOTE = 'Pre-authored sample blocking, not AI-generated: it ignores your direction text and no model was called. It mirrors the stand-ins of take A left-to-right and gives any that stand still a short authored cross toward centre; a generic performer is used if take A is empty. It says nothing about real geometry or the source frame.';
+function loadSample() {
+  if (S.planBusy) return status('Wait for the new plan before loading a sample.', true);
+  const sid = S.sceneId, a = shotData(sid, 'A'), b = shotData(sid, 'B');
+  if (!a || !b) return status('Select a scene with an assigned frame first.', true);
+  cancelGen(); clearPending();               // aborts any in-flight model request; its late reply is dropped by token
+  const k = keyOf(sid), src = sanitizeShot(a);
+  const actors = src.actors.length ? src.actors.map((p) => {
+    const x0 = r3(1 - p.x0), moved = p.x1 !== p.x0 || p.y1 !== p.y0;
+    const x1 = moved ? r3(1 - p.x1) : r3(clamp(x0 + (x0 < 0.5 ? 0.2 : -0.2), 0.05, 0.95, x0));
+    return { ...p, x0, x1, y1: moved ? p.y1 : p.y0, pose: moved || p.pose !== 'stand' ? p.pose : 'walk' };
+  }) : [{ id: 'sample1', name: 'Performer', pose: 'walk', x0: 0.25, y0: 0.85, x1: 0.7, y1: 0.85, scale: 1 }];
+  S.pending = { k, sample: true, shot: { ...sanitizeShot({ duration_sec: src.duration_sec, dialogue: src.dialogue, actors }), origin: ORIGIN_SAMPLE } };
+  $('pSum').textContent = 'Authored sample alternative (pre-written, not AI-generated)';
+  $('pNote').textContent = SAMPLE_NOTE;
+  $('pDiff').replaceChildren(...diffLines(b, S.pending.shot).map((t) => el('li', { text: t })));
+  $('proposal').hidden = false;
+  status('Authored sample loaded for review (not AI, no model call). Nothing has changed yet: Apply to B or Discard.');
+}
 function applyB() {
   if (!S.pending || keyOf(S.sceneId) !== S.pending.k) { clearPending(); return status('Proposal no longer matches this scene; discarded.', true); }
-  const ed = S.edits[S.pending.k]; S.undo = { k: S.pending.k, prev: clone(ed.B) }; ed.B = clone(S.pending.shot);
+  const sample = !!S.pending.sample;
+  S.rev++; const ed = S.edits[S.pending.k]; S.undo = { k: S.pending.k, prev: clone(ed.B) }; ed.B = clone(S.pending.shot);
   clearPending(); $('undo').disabled = false; stopPlay(); renderAll();
-  status(S.variant === 'B' ? 'Applied to variant B.' : 'Applied to variant B. Switch to B to view it.');
+  status(`${sample ? 'Applied the authored sample to variant B' : 'Applied to variant B'}${S.variant === 'B' || S.compare ? '.' : '. Switch to B to view it.'}`);
 }
 function undoApply() {
   if (!S.undo || !S.edits[S.undo.k]) return;
+  S.rev++;
   S.edits[S.undo.k].B = S.undo.prev; S.undo = null; $('undo').disabled = true; stopPlay(); renderAll(); status('Apply undone.');
 }
 
@@ -500,8 +745,8 @@ function exportSnapshot() {
     source_mode: S.resp?.mode ?? 'unknown', locations: count(p?.locations), company_moves: p?.company_moves ?? null, mean_similarity: p?.mean_similarity ?? null,
     review_needed: S.importReview,
     scenes: S.scenes.map((s) => ({ ...s, evidence: evidenceSummary(s.id),
-      manual_frame: !!assignFor(s.id)?.manual_frame, staging: assignFor(s.id) ? sanitizeShot(shotData(s.id)) : null,
-      variants: assignFor(s.id) ? { A: sanitizeShot(shotData(s.id, 'A')), B: sanitizeShot(shotData(s.id, 'B')) } : null,
+      manual_frame: !!assignFor(s.id)?.manual_frame, staging: assignFor(s.id) ? sanitizeShot(shotData(s.id), true) : null,
+      variants: assignFor(s.id) ? { A: sanitizeShot(shotData(s.id, 'A'), true), B: sanitizeShot(shotData(s.id, 'B'), true) } : null,
       provenance_label: provText(s.id) })) });
 }
 async function exportPack() {
@@ -534,9 +779,10 @@ async function exportPack() {
           sec.append(E('h4', 'Staged frame (uncalibrated screen space)'), staged, E('h4', 'Indexed source frame'), raw);
         } catch (e) { sec.append(E('p', `Indexed image unavailable: ${e.message}`, 'unk')); }
         sec.append(E('h4', `Variant ${snapshot.variant} · ${sh.duration_sec}s`), E('p', sh.dialogue || '(no dialogue)'));
+        if (sh.origin) sec.append(E('p', 'This take is derived from an AUTHORED SAMPLE: pre-written blocking, not AI-generated, not an interpretation of any instruction.', 'unk'));
         sh.actors.forEach((ac) => sec.append(E('p', `${ac.name} (${ac.pose}, scale ${ac.scale}): (${ac.x0.toFixed(2)}, ${ac.y0.toFixed(2)}) → (${ac.x1.toFixed(2)}, ${ac.y1.toFixed(2)})`, 'meta')));
       }
-      sec.append(doc.importNode(evidenceNodes(s.id, s.evidence), true)); doc.body.append(sec);
+      sec.append(doc.importNode(evidenceNodes(s.id, s.evidence, false), true)); doc.body.append(sec);
     }
     download(new Blob([`<!doctype html>\n${doc.documentElement.outerHTML}`], { type: 'text/html' }), 'typecast-shootpack.html');
     status('Shoot pack downloaded. Open it and use Print to save a PDF.');
@@ -547,7 +793,7 @@ async function exportPack() {
 let reelCtrl = null;
 function reelInput() {
   return { variant: S.variant, scenes: S.scenes.filter((s) => assignFor(s.id)).map((s) => ({ id: s.id, heading: s.heading,
-    shot_id: assignFor(s.id).shot_id, prov: provText(s.id), shot: sanitizeShot(shotData(s.id)) })) };
+    shot_id: assignFor(s.id).shot_id, prov: provText(s.id), shot: sanitizeShot(shotData(s.id), true) })) };
 }
 async function exportReel() {
   if (reelCtrl) return;
@@ -578,21 +824,29 @@ function renderProjectReview() {
   for (const draft of S.importReview) box.append(el('p', { class: 'meta', text:
     `${draft.scene_id}: saved frame ${draft.frame.shot_id}, property ${draft.frame.property_id}. Both variants retained.` }));
 }
+const constraints = () => ({ max_locations: Math.floor(clamp($('maxLoc').value, 1, 4, 3)), require_available: $('reqAvail').checked,
+  trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)), cars: Math.floor(clamp($('cars').value, 0, 50, 0)) });
 async function importProject(file) {
-  if (!file || S.planBusy) return;
-  let project;
+  $('impProject').value = '';
+  if (!file) return;
+  if (S.planBusy) return status('Wait for the current plan or project import to finish.', true);
+  // Claim the operation and snapshot the user's state before the first await, so nothing
+  // typed during a slow file read or evidence request can be overwritten.
+  busy(true);
+  const rev = S.rev, scriptAtStart = $('script').value, limits = constraints();
   try {
     if (file.size > TypecastProject.MAX_BYTES) throw new Error('Project file exceeds 1 MB.');
-    project = TypecastProject.normalizeProject(await file.text());
-  } catch (e) { return status(`Project not loaded: ${e.message}`, true); }
-  stopPlay(); cancelGen(); clearPending(); busy(true);
-  status('Rebuilding project evidence using the current visible location and vehicle constraints…');
-  try {
+    const project = TypecastProject.normalizeProject(await file.text());
+    stopPlay(); cancelGen(); clearPending();
+    status('Rebuilding project evidence using the current visible location and vehicle constraints…');
     const scenes = project.scenes.map(({ id, heading, description }) => ({ id, heading, description }));
-    const data = await api('/api/production/plan', { scenes,
-      max_locations: Math.floor(clamp($('maxLoc').value, 1, 4, 3)), forbidden_property_ids: [],
-      require_available: $('reqAvail').checked, trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)),
-      cars: Math.floor(clamp($('cars').value, 0, 50, 0)) });
+    const data = await api('/api/production/plan', { scenes, forbidden_property_ids: [], ...limits });
+    orderPlans(data);
+    // Newer user work must never be silently overwritten by a slow import.
+    if (S.rev !== rev || $('script').value !== scriptAtStart)
+      throw new Error('you changed the script or staging while the project was loading, so nothing was replaced. Import again when ready');
+    if (JSON.stringify(constraints()) !== JSON.stringify(limits))
+      throw new Error('location or vehicle constraints changed while evidence was loading, so the result would not match the visible controls. Import again');
     const restored = TypecastProject.restoreEdits(project, data);
     // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
     Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
@@ -603,25 +857,45 @@ async function importProject(file) {
     $('varA').setAttribute('aria-pressed', String(S.variant === 'A'));
     $('varB').setAttribute('aria-pressed', String(S.variant === 'B'));
     renderAll();
-    status(`Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, !!restored.reviewNeeded.length);
+    status(`${modeNote(data)}Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, !!restored.reviewNeeded.length);
   } catch (e) { status(`Project not loaded; existing work kept: ${e.message}`, true); }
-  finally { busy(false); $('impProject').value = ''; }
+  finally { busy(false); }
 }
 $('impProject').addEventListener('change', (event) => importProject(event.target.files[0]));
 
 // ---------- events ----------
 $('build').addEventListener('click', () => build(false));
-$('demo').addEventListener('click', () => { $('script').value = DEMO; status('Demo script loaded. Press Build plan to fetch real results.'); });
+$('script').addEventListener('input', () => { S.rev++; });
+$('demo').addEventListener('click', () => { S.rev++; $('script').value = DEMO; status('Demo script loaded. Press Build plan; the plan summary states whether results are live or mock fixtures.'); });
 $('planSel').addEventListener('change', (e) => {
   const prev = assignMap(); stopPlay(); cancelGen(); clearPending();
   S.planIdx = clamp(e.target.value, 0, (S.resp?.plans.length || 1) - 1, 0); noteFrameChanges(prev); renderAll();
 });
 $('clearRej').addEventListener('click', () => { S.forbidden = []; renderPlan(); status('Rejections cleared. Build plan again to apply.'); });
 $('reject').addEventListener('click', reject);
+$('planner').addEventListener('click', async (event) => {
+  const out = $('plannerOut'), a = assignFor(S.sceneId);
+  if (!out || !a) return;
+  event.preventDefault();
+  out.hidden = false; out.replaceChildren(el('p', { class: 'meta', text: 'Loading camera metrics…' }));
+  const sid = S.sceneId, shotId = a.shot_id;
+  try {
+    const r = await fetch(`/api/plan/${encodeURIComponent(shotId)}?heading=0&focal=35`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const m = await r.json();
+    if (sid !== S.sceneId || assignFor(sid)?.shot_id !== shotId) return;
+    const rows = {}; for (const [k, v] of Object.entries(m)) if (v == null || ['string', 'number', 'boolean'].includes(typeof v)) rows[k] = v;
+    out.replaceChildren(kv('Camera metrics · heading 0° assumed, scan-relative, unverified', rows),
+      el('p', { class: 'meta', text: 'Source: /api/plan. Unknown means the source did not supply it; this is not a clearance approval.' }));
+  } catch (e) { out.replaceChildren(el('p', { class: 'warn', text: `Camera metrics unavailable: ${e.message}` })); }
+});
 let scanViewfinder;
 $('lookAround').addEventListener('click', async () => {
   const assignment = assignFor(S.sceneId);
   if (!assignment || S.planBusy) return;
+  if (S.resp?.mode === 'mock') {
+    return status('Look around and AI dressing need a real indexed scan point with verified 360° geometry. Mock fixture frames have neither, so nothing is opened.', true);
+  }
   try {
     const { Viewfinder } = await import('/app/viewfinder.js');
     if (!scanViewfinder) {
@@ -633,7 +907,7 @@ $('lookAround').addEventListener('click', async () => {
     source.alt = S.scenes.find(s => s.id === S.sceneId)?.heading || 'Indexed room';
     await source.decode();
     await scanViewfinder.open(assignment.shot_id, source);
-  } catch (error) { status('Scan view unavailable. The indexed rehearsal frame is still available.', true); }
+  } catch (error) { status('Scan view unavailable (the frame may lack verified 360° geometry). The indexed rehearsal frame is still available.', true); }
 });
 $('varA').addEventListener('click', () => setVariant('A'));
 $('varB').addEventListener('click', () => setVariant('B'));
@@ -672,6 +946,7 @@ function hit(p, sh) {
   return null;
 }
 cv.addEventListener('pointerdown', (e) => {
+  if (S.compare) return status('Comparison is read-only. Choose take A or B (or turn Compare off) to move stand-ins.');
   const sh = shotData(S.sceneId); if (!sh) return;
   if (S.play.on || S.play.acc) stopPlay();
   const h = hit(norm(e), sh); if (!h) return draw();
@@ -683,7 +958,7 @@ cv.addEventListener('pointermove', (e) => {
   if (drag.key !== keyOf(S.sceneId) || drag.variant !== S.variant || drag.pointerId !== e.pointerId) return endDrag();
   const a = shotData(S.sceneId)?.actors[drag.i]; if (!a) { drag = null; return; }
   const p = norm(e), x = r3(clamp(p.x, 0, 1, 0)), y = r3(clamp(p.y, 0, 1, 0));
-  invalidateProposal();
+  S.rev++; invalidateProposal();
   if (drag.end) { a.x1 = x; a.y1 = y; } else { a.x0 = x; a.y0 = y; if (drag.link) { a.x1 = x; a.y1 = y; } }
   syncActor(a); draw();
 });
@@ -691,20 +966,25 @@ const endDrag = () => { if (drag) { const id = drag.pointerId; drag = null; if (
 cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
 cv.addEventListener('lostpointercapture', endDrag);
 cv.addEventListener('keydown', (e) => {
+  if (S.compare) return;
   const a = curActor(), d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
   if (!a || !d) return;
   e.preventDefault(); const [fx, fy] = e.shiftKey ? ['x1', 'y1'] : ['x0', 'y0'], step = e.altKey ? 0.05 : 0.01;
   a[fx] = r3(clamp(a[fx] + d[0] * step, 0, 1, a[fx])); a[fy] = r3(clamp(a[fy] + d[1] * step, 0, 1, a[fy]));
   syncActor(a); edited();
 });
+$('cmpAB').addEventListener('click', toggleCompare);
 $('gen').addEventListener('click', generate);
+$('loadSample').addEventListener('click', loadSample);
 $('applyB').addEventListener('click', applyB);
 $('discard').addEventListener('click', () => { clearPending(); status('Proposal discarded. Nothing changed.'); });
 $('undo').addEventListener('click', undoApply);
 $('expPng').addEventListener('click', () => {
-  stopPlay(); draw();
+  stopPlay(); drawSingle();   // always the active take, never the comparison layout
   try { cv.toBlob((b) => (b ? download(b, `typecast-${S.sceneId || 'stage'}-${S.variant}.png`) : status('PNG export failed.', true)), 'image/png'); }
   catch (e) { status(`PNG export failed: ${e.message}`, true); }
+  draw();
+  if (S.compare) status(`Stage PNG saved for active take ${S.variant} only (not the comparison view).`);
 });
 $('expJson').addEventListener('click', () => {
   const proj = exportSnapshot();
@@ -718,4 +998,9 @@ window.addEventListener('pagehide', () => { if (rec) rec.stop(); if (reelCtrl) r
 
 $('script').value = DEMO;
 renderAll();
-status('Edit the script, then Build plan. Nothing appears on the stage until the backend returns real results.');
+// Canvas text uses the app's faces once they load; until then the system fallback draws.
+if (document.fonts?.load) {
+  Promise.all(['600 21px Barlow', '500 19px Barlow', '500 30px Barlow', '600 34px Barlow'].map((f) => document.fonts.load(f)))
+    .then(() => { if (!S.play.on) draw(); }).catch(() => {});
+}
+status('Edit the script, then Build plan. Nothing appears on the stage until the backend returns a plan; check its mode label.');

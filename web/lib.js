@@ -142,12 +142,14 @@ export function imageUrl(path) {
 
 const n1 = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Math.round(Number(v) * 10) / 10);
 
-export function fitInfo(fit) {
+// `shot` is optional; when given, only explicitly measured geometry (measure_on_site === false)
+// can yield fits/tight. Estimated or unsupplied geometry stays unknown.
+export function fitInfo(fit, shot) {
   if (!fit) return { status: "unknown", label: "Fit unknown", need: null, have: null, ceiling: null, note: "" };
   const have = n1(fit.have_depth_m);
-  // Unknown depth can never be "fits", whatever the boolean says.
-  let status = fit.status || (fit.fits ? "fits" : "tight");
-  if (have == null) status = "unknown";
+  // Unknown depth can never be "fits", whatever the boolean says; a missing status needs a real boolean.
+  let status = fit.status || (typeof fit.fits === "boolean" ? (fit.fits ? "fits" : "tight") : "unknown");
+  if (have == null || (shot !== undefined && shot?.measure_on_site !== false)) status = "unknown";
   const label = { fits: "Shot fits", tight: "Shot is tight", unknown: "Fit unknown" }[status] || "Fit unknown";
   return { status, label, need: n1(fit.needed_depth_m), have, ceiling: n1(fit.ceiling_m), note: fit.note || "" };
 }
@@ -157,7 +159,8 @@ export function availabilityInfo(p) {
   if (s === "unknown") return { status: "unknown", label: "Availability unknown" };
   if (s === "not_available") return { status: "occupied", label: "Occupied" };
   if (s === "available") return { status: "available", label: "Available" };
-  return p?.available ? { status: "available", label: "Available" } : { status: "occupied", label: "Occupied" };
+  // The legacy boolean is not evidence: a missing or null status is unknown (matches agent/pipeline.py).
+  return { status: "unknown", label: "Availability unknown" };
 }
 
 const count = (v, one, many) => (v == null ? `unknown ${many}` : `${v} ${v === 1 ? one : many}`);

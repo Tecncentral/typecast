@@ -305,33 +305,37 @@ def dressed_set(shot_id: str):
         raise HTTPException(404, "Unknown shot") from None
     except Exception:
         raise HTTPException(503, "Shot index unavailable") from None
-    record = load_dressed(shot.model_id, shot.sweep_id)
+    try:
+        record = load_dressed(shot.model_id, shot.sweep_id)
+    except Exception:
+        record = None
     if not record:
         raise HTTPException(404, "No dressed set for this scan point")
     base = record["dir"]
-    splat = record.get("splat") or None
-    room = record.get("room") or {}
+    splat = record["splat"]
+    room = record["room"]
+    # Everything below was validated by load_dressed. The cached label and generation
+    # prompt are deliberately not forwarded: the label is always the canonical one.
     return {
         "shot_id": shot.shot_id,
-        "scene_id": record.get("scene_id"),
-        "scene": record.get("scene"),
-        "prompt": record.get("prompt_used") or record.get("prompt"),
-        "label": record.get("label"),
-        "created_at": record.get("created_at"),
+        "scene_id": record["scene_id"],
+        "scene": record["scene"],
+        "label": record["label"],
+        "created_at": record["created_at"],
         "faces": [{"yaw_deg": f["yaw_deg"], "pitch_deg": f["pitch_deg"], "tan_h": f["tan_h"], "tan_v": f["tan_v"],
-                   "source_heading_deg": f.get("source_heading_deg"),
-                   "dressed_url": f"{base}/{f['dressed']}", "real_url": f"{base}/{f['real']}"}
-                  for f in record.get("faces", [])],
+                   "source_heading_deg": f["source_heading_deg"],
+                   "dressed_url": f"{base}/{f['dressed']}",
+                   "real_url": f"{base}/{f['real']}" if f["real"] else None}
+                  for f in record["faces"]],
         "splat_url": f"{base}/{splat['file']}" if splat else None,
         # Walkable reconstruction of the dressed frames; `eye` is the scan point in the splat's world.
-        "splat": {"url": f"{base}/{splat['file']}", "mode": splat.get("mode") or "refined",
-                  "splat_count": splat.get("splat_count"), "eye": splat.get("eye") or [0, 0, 0],
-                  # A whole-room set: built at Matterport's measured cameras, so its scale is known
-                  # and its floor is the scan's floor. One-point sets leave these empty.
+        # A whole-room set was built at Matterport's measured cameras, so its scale is known and
+        # its floor is the scan's floor. One-point sets leave those fields out.
+        "splat": {"url": f"{base}/{splat['file']}", "mode": splat["mode"], "splat_count": splat["splat_count"],
+                  "eye": splat["eye"],
                   **({"units_per_m": room["units_per_m"], "floor_y": 0.0,
-                      "scan_points": room.get("scan_point_positions") or []} if room.get("units_per_m") else {})}
-        if splat else None,
-        "room": {"scan_points": room.get("scan_points"), "views": room.get("views")} if room else None,
+                      "scan_points": room["scan_point_positions"]} if room else {})} if splat else None,
+        "room": {"scan_points": room["scan_points"], "views": room["views"]} if room else None,
     }
 
 

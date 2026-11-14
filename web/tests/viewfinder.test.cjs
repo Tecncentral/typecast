@@ -75,7 +75,7 @@ function harness() {
     waits.forEach((wait, i) => decodes.set(`/cache/views/${id}-${i * 90}.jpg`, wait));
     return () => waits.forEach(wait => wait.resolve());
   }
-  return { vf, classes, uploads, reveals, nodes, requests, open, respond, delayImages, isLost: () => lost };
+  return { vf, context, decodes, classes, uploads, reveals, nodes, requests, open, respond, delayImages, isLost: () => lost };
 }
 
 test('closing before fetch resolves cannot overwrite a newly opened scan', async () => {
@@ -143,10 +143,153 @@ test('a late AI-dressing response for a closed scan never dresses the next room'
   h.respond('fresh');
   await fresh;
   const faces = [0, 90, 180, 270].map(yaw => ({ yaw_deg: yaw, pitch_deg: 0, tan_h: 1, tan_v: 0.56,
-    dressed_url: `/cache/worlds/old/dressed_${yaw}.jpg` }));
+    dressed_url: `/cache/worlds/old/s1/dressed/dressed_${yaw}.jpg` }));
   lateDressing.resolve({ ok: true, json: async () => ({ scene: 'INT. OLD ROOM - DAY.', label: 'AI', faces }) });
   await tick(); await tick();
   assert.equal(h.vf.dressed ?? null, null);
   assert.ok(h.uploads.every(url => !url.includes('/worlds/old/')));
   assert.equal(h.uploads.length, 8);
+});
+
+// Provenance of saved frames: AI-imagined pixels must stay labelled once they leave the dialog.
+function grabbed(wipe) {
+  const h = harness();
+  const calls = [];
+  const out = { width: 0, height: 0, toDataURL: () => 'data:image/jpeg;base64,AA==',
+    getContext: () => ({ drawImage() {}, save() {}, restore() {}, measureText: () => ({ width: 10 }),
+      fillRect: () => calls.push('fillRect'), fillText: (text) => calls.push(String(text)), set fillStyle(v) {}, set font(v) {}, set textBaseline(v) {} }) };
+  h.context.document.createElement = () => out;
+  const rect = () => ({ left: 0, top: 0, width: 100, height: 50 });
+  Object.assign(h.vf, { wipe, shots: [], renderer: {}, sweep: { shot_id: 'shot1' }, frame: { getBoundingClientRect: rect },
+    canvas: { width: 100, height: 50, getBoundingClientRect: rect, style: {} }, renderShotList() {}, draw() {} });
+  h.vf.state = { lens: 35, pitch: 0, yaw: 90, aspect: { id: 'wide', label: 'Wide', ratio: 2 } };
+  h.classes.add('is-live'); h.vf.dialog.open = true;
+  h.vf.grab();
+  return { shot: h.vf.shots[0], calls, h };
+}
+
+test('a grab taken with AI dressing visible stamps the pixels and is recorded as AI', () => {
+  const { shot, calls } = grabbed(0);
+  assert.equal(shot.ai, true);
+  assert.ok(calls.some((t) => /AI-imagined/i.test(t) && /not the real room/i.test(t)), `stamp missing: ${calls}`);
+});
+
+test('a plain real-scan grab is not stamped or labelled AI', () => {
+  const { shot, calls } = grabbed(-1);
+  assert.equal(shot.ai, false);
+  assert.equal(calls.some((t) => /AI/.test(t)), false);
+});
+
+test('saved-frame filenames carry the AI marker and stay filesystem-safe', () => {
+  const { h } = grabbed(-1);
+  const name = h.context.shotFilename;
+  assert.equal(name({ lens: 35, yaw: 90, ai: false }), 'typecast-shot-35mm-90deg.jpg');
+  assert.equal(name({ lens: 35, yaw: 90, ai: true }), 'typecast-shot-35mm-90deg-ai-dressed.jpg');
+  assert.equal(/[\/:"<>|]/.test(name({ lens: '../x"', yaw: '<y>', ai: true })), false);
+});
+
+test('closing while AI-dressed faces are still decoding never uploads them to the next scan', async () => {
+  const h = harness();
+  const old = h.open('old');
+  h.respond('old');
+  await old;
+  const dressedReq = h.requests.get('old');
+  const faces = [0, 90, 180, 270].map((yaw) => ({ yaw_deg: yaw, pitch_deg: 0, tan_h: 1, tan_v: 0.56, dressed_url: `/cache/worlds/old/s1/dressed/d${yaw}.jpg` }));
+  const waits = faces.map(() => deferred());
+  faces.forEach((f, i) => h.decodes.set(f.dressed_url, waits[i]));
+  dressedReq.resolve({ ok: true, json: async () => ({ scene: 'INT. OLD.', label: 'AI', faces }) });
+  await tick();
+  await h.vf.close();
+  const fresh = h.open('fresh');
+  h.respond('fresh');
+  await fresh;
+  await tick(); await tick();
+  assert.equal(h.vf.dressed ?? null, null);
+  assert.equal(h.vf.$('.vf-dress').hidden === false, false);
+  waits.forEach((wait) => wait.resolve());
+  await tick(); await tick();
+  assert.ok(h.uploads.every((url) => !url.includes('/worlds/old/')));
+  assert.equal(h.vf.$('.vf-dress').hidden === false, false);
+});
+
+// ---- PR30 dressed-set boundary (canvas/WebGL double; no real decode, GPU or pixels) ----
+const SAFE = (name) => `/cache/worlds/m1/s1/dressed/${name}`;
+const face = (yaw, name = `dressed_${yaw / 90}.jpg`) => ({ yaw_deg: yaw, pitch_deg: 0, tan_h: 1, tan_v: 0.56, dressed_url: SAFE(name) });
+const FOUR = () => [0, 90, 180, 270].map((yaw) => face(yaw));
+const failing = (url, h) => h.decodes.set(url, { get promise() { return Promise.reject(new Error('missing')); } });
+async function openAndDress(h, body, id = 'room') {
+  const opening = h.open(id);
+  h.respond(id);
+  await opening;
+  h.requests.get(id).resolve({ ok: true, json: async () => body });
+  await tick(); await tick(); await tick();
+}
+const shown = (h) => h.vf.$('.vf-dress').hidden === false;
+
+test('valid synthetic dressing shows the AI controls, the canonical label even if the response lies, and uploads every dressed face', async () => {
+  const h = harness();
+  await openAndDress(h, { scene: 'INT. KITCHEN - DAY. Extra', label: 'Real captured Matterport property photograph', faces: FOUR() });
+  assert.equal(shown(h), true);
+  assert.equal(h.vf.$('.vf-ai-badge').textContent, 'AI-imagined set dressing, not the real room · dressed for “INT. KITCHEN - DAY”');
+  assert.match(h.vf.$('.vf-status').textContent, /ready/);
+  assert.equal(h.uploads.filter((u) => u.includes('/dressed/')).length, 4);
+  assert.ok(h.vf.dressed);
+});
+
+test('a response with no label still shows only the canonical label', async () => {
+  const h = harness();
+  await openAndDress(h, { scene: 'INT. KITCHEN - DAY.', faces: FOUR() });
+  assert.ok(h.vf.$('.vf-ai-badge').textContent.startsWith('AI-imagined set dressing, not the real room'));
+});
+
+test('when every dressed image fails to decode there are no AI controls and no ready claim', async () => {
+  const h = harness();
+  const faces = FOUR();
+  faces.forEach((f) => failing(f.dressed_url, h));
+  await openAndDress(h, { scene: 'INT. KITCHEN - DAY.', faces });
+  assert.equal(shown(h), false);
+  assert.equal(h.vf.dressed ?? null, null);
+  assert.doesNotMatch(h.vf.$('.vf-status').textContent || '', /ready|covers/i);
+  assert.equal(h.uploads.filter((u) => u.includes('/dressed/')).length, 0);
+  h.vf.toggleDressing();                           // D key with nothing loaded is inert
+  assert.equal(h.vf.wipe > -1, false);
+});
+
+test('partial dressed coverage is allowed but is stated as partial, with the real room dimmed elsewhere', async () => {
+  const h = harness();
+  const faces = FOUR();
+  failing(faces[1].dressed_url, h); failing(faces[3].dressed_url, h);
+  await openAndDress(h, { scene: 'INT. KITCHEN - DAY.', faces });
+  assert.equal(shown(h), true);
+  assert.match(h.vf.$('.vf-status').textContent, /covers 2 of 4 views.*real room shows dimmed/);
+  assert.equal(h.uploads.filter((u) => u.includes('/dressed/')).length, 2);
+});
+
+test('unsafe or malformed dressed faces from the server are never fetched or uploaded', async () => {
+  const h = harness();
+  const bad = [
+    { ...face(0), dressed_url: '/cache/views/real-property.jpg' },
+    { ...face(90), dressed_url: '/cache/worlds/m1/s1/dressed/../../../../views/real-property.jpg' },
+    { ...face(180), dressed_url: 'https://evil.example/x.jpg' },
+    { ...face(270), yaw_deg: 'NaN' },
+    { ...face(0, 'ok.jpg'), tan_h: 0 },
+  ];
+  await openAndDress(h, { scene: 'INT. KITCHEN - DAY.', faces: bad });
+  assert.equal(shown(h), false);
+  assert.equal(h.uploads.filter((u) => !u.includes('/room-')).length, 0);
+});
+
+test('a late decode that finishes after close leaves the next scan with no dressing and no ready claim', async () => {
+  const h = harness();
+  const faces = FOUR();
+  const waits = faces.map(() => deferred());
+  faces.forEach((f, i) => h.decodes.set(f.dressed_url, waits[i]));
+  await openAndDress(h, { scene: 'INT. OLD.', faces }, 'old');
+  await h.vf.close();
+  const fresh = h.open('fresh'); h.respond('fresh'); await fresh;
+  waits.forEach((w) => w.resolve());
+  await tick(); await tick();
+  assert.equal(shown(h), false);
+  assert.equal(h.vf.dressed ?? null, null);
+  assert.equal(h.uploads.filter((u) => u.includes('/dressed/')).length, 0);
 });

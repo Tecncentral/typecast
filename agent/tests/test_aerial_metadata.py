@@ -1,5 +1,7 @@
 import json
 import math
+import os
+import subprocess
 
 from PIL import Image
 import pytest
@@ -114,11 +116,29 @@ def test_rejects_malformed_cache_component(aerial_cache, filename):
     assert_unavailable(root)
 
 
+def link_directory(link, target):
+    """Create a directory alias without needing special privileges.
+
+    Uses a real symlink when permitted. Windows accounts without the symlink
+    privilege get a junction (mklink /J), which also resolves to another path
+    and therefore exercises the same containment check. Never changes privileges.
+    """
+    try:
+        link.symlink_to(target, target_is_directory=True)
+    except OSError:
+        if os.name != "nt":
+            raise
+        done = subprocess.run(["cmd", "/c", "mklink", "/J", str(link), str(target)], capture_output=True)
+        if done.returncode != 0:
+            pytest.skip("neither symlink nor junction creation is available")
+
+
 def test_rejects_property_directory_symlink(aerial_cache, tmp_path):
     root, directory = aerial_cache
     other = tmp_path / "other-property"
     directory.rename(other)
-    directory.symlink_to(other, target_is_directory=True)
+    link_directory(directory, other)
+    assert directory.resolve() != directory  # the alias is real
     assert_unavailable(root)
 
 
@@ -126,17 +146,40 @@ def test_rejects_vexcel_directory_symlink(aerial_cache, tmp_path):
     root, _ = aerial_cache
     other = tmp_path / "other-vexcel"
     (root / "vexcel").rename(other)
-    (root / "vexcel").symlink_to(other, target_is_directory=True)
+    link_directory(root / "vexcel", other)
+    assert (root / "vexcel").resolve() != root / "vexcel"
     assert_unavailable(root)
 
 
-@pytest.mark.parametrize("filename", ["aerial.png", "aerial-extent.json", "source-coordinates.json", "logistics.json"])
+CACHE_FILES = ["aerial.png", "aerial-extent.json", "source-coordinates.json", "logistics.json"]
+
+
+@pytest.mark.parametrize("filename", CACHE_FILES)
 def test_rejects_symlinked_cache_file(aerial_cache, tmp_path, filename):
     root, directory = aerial_cache
     original = directory / filename
     outside = tmp_path / filename
     original.rename(outside)
-    original.symlink_to(outside)
+    try:
+        original.symlink_to(outside)
+    except OSError:
+        pytest.skip("file symlinks need a privilege this account lacks (Windows junctions cannot alias files); "
+                    "test_rejects_aliased_cache_file covers the same check portably")
+    assert_unavailable(root)
+
+
+@pytest.mark.parametrize("filename", CACHE_FILES)
+def test_rejects_aliased_cache_file(aerial_cache, monkeypatch, filename):
+    """Portable equivalent: make one cache file resolve elsewhere, as a symlink would."""
+    root, directory = aerial_cache
+    victim = directory / filename
+    real_resolve = type(victim).resolve
+
+    def resolve(self, *args, **kwargs):
+        resolved = real_resolve(self, *args, **kwargs)
+        return resolved.with_name("elsewhere-" + resolved.name) if resolved == victim else resolved
+
+    monkeypatch.setattr(type(victim), "resolve", resolve)
     assert_unavailable(root)
 
 

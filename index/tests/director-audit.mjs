@@ -338,7 +338,7 @@ function createEnv({ speech = 'none' } = {}) {
   const tags = {
     status: 'p', script: 'textarea', build: 'button', demo: 'button', reject: 'button',
     planSel: 'select', maxLoc: 'select', reqAvail: 'input', trucks: 'input', cars: 'input',
-    planMeta: 'p', forbidden: 'p', clearRej: 'button', rail: 'ol', framePicker: 'div',
+    planMeta: 'p', stagePlanSummary: 'p', forbidden: 'p', clearRej: 'button', rail: 'ol', framePicker: 'div',
     frameNotice: 'div', stage: 'canvas', play: 'button', pause: 'button', reset: 'button',
     prog: 'progress', clock: 'span', timeline: 'ol', varLbl: 'span', varA: 'button', varB: 'button',
     shotForm: 'fieldset', dur: 'input', dlg: 'textarea', actorSel: 'select', addActor: 'button',
@@ -346,7 +346,7 @@ function createEnv({ speech = 'none' } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);
@@ -559,9 +559,11 @@ function planFor(body, assignments, extra = {}) {
       uncovered_scene_ids: extra.uncovered || [],
       company_moves: 1,
       mean_similarity: 0.37,
-      locations: [...new Set(assignments.map((row) => row.property_id))],
+      property_ids: [...new Set(assignments.map((row) => row.property_id))],
+      locations: new Set(assignments.map((row) => row.property_id)).size,
     }],
     evaluated_subsets: extra.evaluated_subsets ?? 4,
+    optimal_within_pool: true,
     pool_properties: [...new Set(assignments.map((row) => row.property_id))],
     trace: extra.trace ?? { steps: [{ text: 'RESPONSE_STEP_ONLY_zz' }] },
     events: extra.events ?? [{ type: 'plan', agent: 'solver', text: 'RESPONSE_EVENT_ONLY_zz' }],
@@ -844,6 +846,271 @@ test('a replanned response that still assigns the rejected property is not shown
   await drain();
   assert.equal(env.$('rail').textContent.includes('prop_a'), false);
   assert.equal(env.api.S.resp.plans[0].assignments.some((row) => row.property_id === 'prop_a'), false);
+  assert.deepEqual(copied(env.api.S.resp.plans[0].property_ids), ['prop_b']);
+  assert.equal(env.api.S.resp.plans[0].locations, 1);
+  assert.deepEqual(copied(env.api.S.resp.plans[0].uncovered_scene_ids), ['s1']);
+  assert.equal(env.api.S.resp.optimal_within_pool, false);
+  assert.equal(env.api.S.resp.plans[0].mean_similarity, null);
+  assert.equal(env.api.S.resp.plans[0].company_moves, null);
+  assert.match(env.$('stagePlanSummary').textContent, /1\/2 scenes · 1 location · \? moves/);
+});
+
+test('a failed replan still removes the rejected property and invalidates stale plan claims', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | coffee\nINT. BEDROOM | packing', [
+    assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b'),
+  ]);
+  env.$('reject').click();
+  env.take('/api/production/plan').reject(new Error('Backend unavailable'));
+  await drain();
+  const p = env.api.S.resp.plans[0];
+  assert.equal(p.locations, 1);
+  assert.deepEqual(copied(p.property_ids), ['prop_b']);
+  assert.deepEqual(copied(p.uncovered_scene_ids), ['s1']);
+  assert.equal(p.company_moves, null);
+  assert.equal(p.mean_similarity, null);
+  assert.equal(env.api.S.resp.optimal_within_pool, false);
+  assert.match(env.$('status').textContent, /rejected location was removed locally/);
+});
+
+test('recommends full coverage with fewer locations and keeps higher-similarity alternatives', async () => {
+  const env = boot();
+  env.$('script').value = 'INT. KITCHEN | coffee\nINT. LIVING ROOM | a visitor\nINT. BEDROOM | packing';
+  env.$('build').click();
+  const job = env.take('/api/production/plan'), body = JSON.parse(job.opts.body);
+  const rows = body.scenes.map((s, i) => assignment(s.id, `prop_${i}`, `shot_${i}`));
+  const data = planFor(body, rows);
+  data.plans = [
+    { ...data.plans[0], company_moves: 2, mean_similarity: 0.4 },
+    { ...data.plans[0], assignments: rows.map((a) => ({ ...a, property_id: 'prop_0' })),
+      property_ids: ['prop_0'], locations: 1, company_moves: 0, mean_similarity: 0.3 },
+    { ...data.plans[0], assignments: [rows[0]], uncovered_scene_ids: ['s2', 's3'],
+      property_ids: ['prop_0'], locations: 1, company_moves: 0, mean_similarity: 0.5 },
+  ];
+  job.resolve(jsonResponse(data)); await drain();
+  assert.equal(env.api.S.resp.plans[0].mean_similarity, 0.3);
+  assert.equal(env.api.S.resp.plans[1].mean_similarity, 0.4);
+  assert.equal(env.api.S.resp.plans[2].assignments.length, 1);
+  assert.equal(env.$('stagePlanSummary').textContent, '3/3 scenes · 1 location · 0 moves');
+  assert.equal(env.$('planSel').options[0].textContent, '3/3 scenes · 1 location · 0 moves');
+  assert.equal(env.$('planSel').options[0].getAttribute('title'), 'Mean similarity 0.300');
+  env.$('planSel').value = '1'; env.$('planSel').dispatchEvent({ type: 'change' });
+  assert.equal(env.$('stagePlanSummary').textContent, '3/3 scenes · 3 locations · 2 moves');
+});
+
+test('a failed replan after Reject still removes the rejected location from view and exports', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first\nINT. OFFICE | second', [
+    assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b'),
+  ]);
+  env.$('reject').click();
+  env.take('/api/production/plan').resolve(jsonResponse({ detail: 'backend down' }, 503));
+  await drain();
+  assert.match(env.$('forbidden').textContent, /prop_a/);
+  assert.equal(env.$('rail').textContent.includes('prop_a'), false);
+  assert.equal(env.api.S.resp.plans[0].assignments.some((row) => row.property_id === 'prop_a'), false);
+  assert.equal(JSON.stringify(env.api.exportSnapshot()).includes('shot_a'), false);
+  assert.match(env.$('status').textContent, /replan failed/i);
+});
+
+const PROJECT_JS = readFileSync(join(DIR, '..', 'director-project.js'), 'utf8');
+function savedProject(dialogue) {
+  const shot = (text) => ({ duration_sec: 5, dialogue: text, actors: [] });
+  return JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{
+    id: 's1', heading: 'INT. KITCHEN', description: 'first',
+    evidence: { frame: { shot_id: 'shot_a', property_id: 'prop_a' } },
+    variants: { A: shot(dialogue), B: shot('') } }] });
+}
+async function startImport(env, text) {
+  // The harness injects host Object/Array/JSON; the validator needs same-realm plain objects, as in a browser.
+  for (const name of ['Object', 'Array', 'JSON']) delete env.context[name];
+  vm.runInContext(PROJECT_JS, env.context, { filename: 'director-project.js' });
+  const file = { size: text.length, text: async () => text };
+  env.$('impProject').files = [file];
+  env.$('impProject').dispatchEvent({ type: 'change' });
+  await drain();
+  if (!env.jobs.length) throw new Error(env.$('status').textContent);
+  const job = env.take('/api/production/plan');
+  return { job, body: JSON.parse(job.opts.body) };
+}
+
+test('an in-flight project import never overwrites staging typed while it loads', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
+  const { job, body } = await startImport(env, savedProject('IMPORTED_LINE'));
+  env.$('dlg').value = 'NEWER_USER_WORK';
+  env.$('dlg').dispatchEvent({ type: 'input' });
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a')])));
+  await drain();
+  assert.equal(env.api.shotData('s1').dialogue, 'NEWER_USER_WORK');
+  assert.match(env.$('status').textContent, /nothing was replaced/);
+  assert.equal(env.api.S.importReview.length, 0);
+});
+
+test('an untouched in-flight project import still commits exact-frame staging', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
+  const { job, body } = await startImport(env, savedProject('IMPORTED_LINE'));
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a')])));
+  await drain();
+  assert.equal(env.api.shotData('s1').dialogue, 'IMPORTED_LINE', env.$('status').textContent);
+});
+
+// The real solver publishes locations as a COUNT and the property list as property_ids.
+function solverShaped(body, rows, extraPlans = []) {
+  const resp = planFor(body, rows);
+  const shape = (assignments) => {
+    const ids = [...new Set(assignments.map((a) => a.property_id))].sort();
+    const covered = new Set(assignments.map((a) => a.scene_id));
+    return { property_ids: ids, assignments, locations: ids.length,
+      uncovered_scene_ids: body.scenes.map((x) => x.id).filter((id) => !covered.has(id)),
+      company_moves: Math.max(0, ids.length - 1), mean_similarity: 0.5 };
+  };
+  resp.plans = [shape(rows), ...extraPlans.map(shape)];
+  resp.optimal_within_pool = true;
+  return resp;
+}
+const TWO = [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')];
+
+test('real solver-shaped plans: replan failure after Reject leaves no rejected ids or stale claims', async () => {
+  const env = boot();
+  env.$('script').value = 'INT. KITCHEN | first\nINT. OFFICE | second';
+  env.$('build').click();
+  let job = env.take('/api/production/plan');
+  const body0 = JSON.parse(job.opts.body);
+  // Partial coverage so the Director's coverage-first ordering keeps TWO as plan 0.
+  const other = [assignment('s1', 'prop_c', 'shot_c')];
+  job.resolve(jsonResponse(solverShaped(body0, TWO, [other])));
+  await drain();
+  env.$('reject').click();
+  env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503));
+  await drain();
+  const [p0, p1] = env.api.S.resp.plans;
+  assert.deepEqual(copied(p0.property_ids), ['prop_b']);
+  assert.equal(p0.locations, 1);
+  assert.deepEqual(copied(p0.uncovered_scene_ids), ['s1']);
+  assert.equal(p0.mean_similarity, null);
+  assert.equal(p0.company_moves, null);
+  assert.deepEqual(copied(p1.property_ids), ['prop_c']);       // unrelated plan untouched
+  assert.equal(p1.mean_similarity, 0.5);
+  assert.equal(env.api.S.resp.optimal_within_pool, false);
+  const exported = JSON.stringify(env.api.exportSnapshot());
+  assert.equal(exported.includes('prop_a'), false);
+  assert.equal(JSON.parse(exported).locations, 1);
+  assert.equal(JSON.parse(exported).mean_similarity, null);
+  assert.match(env.$('planSel').childNodes[0].textContent, /1\/2 scenes · 1 location/);
+});
+
+test('real solver-shaped plans: a backend that still returns the rejected property is cleaned', async () => {
+  const env = boot();
+  env.$('script').value = 'INT. KITCHEN | first\nINT. OFFICE | second';
+  env.$('build').click();
+  let job = env.take('/api/production/plan');
+  job.resolve(jsonResponse(solverShaped(JSON.parse(job.opts.body), TWO)));
+  await drain();
+  env.$('reject').click();
+  job = env.take('/api/production/plan');
+  job.resolve(jsonResponse(solverShaped(JSON.parse(job.opts.body), TWO)));
+  await drain();
+  const plan = env.api.S.resp.plans[0];
+  assert.deepEqual(copied(plan.property_ids), ['prop_b']);
+  assert.equal(plan.locations, 1);
+  assert.equal(/Plan request failed/.test(env.$('status').textContent), false);
+});
+
+function slowFile(text) {
+  let release; const gate = new Promise((r) => { release = r; });
+  return { file: { size: text.length, text: async () => { await gate; return text; } }, release };
+}
+function prepImportEnv(env) {
+  for (const name of ['Object', 'Array', 'JSON']) delete env.context[name];
+  vm.runInContext(PROJECT_JS, env.context, { filename: 'director-project.js' });
+}
+const ONE = [assignment('s1', 'prop_a', 'shot_a')];
+
+test('staging typed during a slow project-file read is not overwritten, and overlapping imports are refused', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', ONE);
+  prepImportEnv(env);
+  const slow = slowFile(savedProject('IMPORTED_LINE'));
+  env.$('impProject').files = [slow.file];
+  env.$('impProject').dispatchEvent({ type: 'change' });
+  await drain();
+  env.$('dlg').value = 'TYPED_DURING_READ';
+  env.$('dlg').dispatchEvent({ type: 'input' });
+  const second = slowFile(savedProject('SECOND'));
+  env.$('impProject').files = [second.file];
+  env.$('impProject').dispatchEvent({ type: 'change' });
+  await drain();
+  assert.match(env.$('status').textContent, /Wait for the current/);
+  assert.equal(env.$('build').disabled, true);
+  slow.release();
+  await drain();
+  const job = env.take('/api/production/plan');
+  assert.equal(env.jobs.length, 0);
+  job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), ONE)));
+  await drain();
+  assert.equal(env.api.shotData('s1').dialogue, 'TYPED_DURING_READ');
+  assert.match(env.$('status').textContent, /nothing was replaced/);
+});
+
+test('constraints changed while import evidence loads reject the import; unchanged constraints commit', async () => {
+  for (const change of ['maxLoc', 'trucks', 'cars', 'reqAvail', null]) {
+    const env = boot();
+    await buildScript(env, 'INT. KITCHEN | first', ONE);
+    const { job, body } = await startImport(env, savedProject('IMPORTED_LINE'));
+    if (change === 'reqAvail') env.$('reqAvail').checked = !env.$('reqAvail').checked;
+    else if (change) env.$(change).value = '2';
+    assert.equal(body.max_locations !== undefined && body.trucks !== undefined && body.cars !== undefined, true);
+    job.resolve(jsonResponse(planFor(body, ONE)));
+    await drain();
+    if (change) {
+      assert.match(env.$('status').textContent, /constraints changed/, change);
+      assert.notEqual(env.api.shotData('s1').dialogue, 'IMPORTED_LINE', change);
+    } else assert.equal(env.api.shotData('s1').dialogue, 'IMPORTED_LINE');
+  }
+});
+
+test('mock results are labelled as fixtures in status and plan summary; live results are not', async () => {
+  const mock = boot();
+  await buildScript(mock, 'INT. KITCHEN | first', ONE);
+  assert.match(mock.$('status').textContent, /MOCK FIXTURE RESULTS/);
+  assert.doesNotMatch(mock.$('status').textContent, /real results/i);
+  assert.match(mock.$('planMeta').textContent, /^MOCK FIXTURES/);
+  const live = boot();
+  await buildScript(live, 'INT. KITCHEN | first', ONE, { mode: 'live' });
+  assert.doesNotMatch(live.$('status').textContent, /MOCK/);
+  assert.doesNotMatch(live.$('planMeta').textContent, /MOCK/);
+  assert.doesNotMatch(boot().$('status').textContent, /real results/i);
+});
+
+test('Look around in mock mode explains that fixtures have no scan geometry instead of opening a dialog', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', ONE);
+  env.$('lookAround').click();
+  await drain();
+  assert.match(env.$('status').textContent, /Mock fixture frames/);
+  assert.match(env.$('status').textContent, /AI dressing/);
+});
+
+test('camera metrics render in-page from /api/plan with unknowns kept, and stale responses are dropped', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first\nINT. OFFICE | second', TWO);
+  env.$('planner').dispatchEvent({ type: 'click' });
+  const job = env.take('/api/plan/shot_a');
+  env.api.selectScene('s2');
+  job.resolve(jsonResponse({ status: 'unknown', note: 'Missing validated room boundary', position: null, shot_id: 'shot_a' }));
+  await drain();
+  assert.equal(env.$('plannerOut').textContent.includes('Missing validated'), false); // scene changed: dropped
+  env.api.selectScene('s1');
+  env.$('planner').dispatchEvent({ type: 'click' });
+  env.take('/api/plan/shot_a').resolve(jsonResponse({ status: 'unknown', note: 'Missing validated room boundary', position: null }));
+  await drain();
+  const text = env.$('plannerOut').textContent;
+  assert.match(text, /Missing validated room boundary/);
+  assert.match(text, /position/);
+  assert.match(text, /unknown/);
+  assert.match(text, /unverified/);
 });
 
 test('explicit unknown parking and availability render as unknown', async () => {
@@ -1006,7 +1273,7 @@ test('animatic layer is labelled uncalibrated and silhouettes do not claim metre
   assert.match(DIRECTOR_HTML, /Uncalibrated screen-space rehearsal/);
   assert.match(DIRECTOR_HTML, /Geometric fit: unknown/);
   assert.match(DIRECTOR_HTML, /screen space 0–1/);
-  assert.match(DIRECTOR_HTML, /separate metric panel/);
+  assert.match(DIRECTOR_HTML, /metric panel/);
   assert.match(DIRECTOR_HTML, /unverified/);
   const env = boot();
   await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
@@ -1025,7 +1292,7 @@ test('animatic layer is labelled uncalibrated and silhouettes do not claim metre
     assert.doesNotMatch(String(entry.args[0]), /metres|meters|\bFOV\b|focal length|clearance verified|fits the room/i);
   }
   assert.match(env.$('planner').href, /focal=35/);
-  assert.match(DIRECTOR_HTML, /id="planner"[\s\S]*separate metric panel/);
+  assert.match(DIRECTOR_HTML, /id="planner"[\s\S]*metric panel/);
 });
 
 test('playback sums shot durations, clamps entry values, and pause resumes', async () => {
@@ -1191,3 +1458,274 @@ function highlighted(env, sid) {
 }
 
 test('real browser surfaces this harness cannot drive', { skip: 'No display, microphone, or browser HTML parser in this vm. Canvas pixels, JPEG contents, SpeechRecognition audio, layout hit-testing, and Chrome/Firefox outerHTML byte-for-byte output are not exercised. The tests above drive director.js itself and serialize the textContent nodes it creates.' }, () => {});
+
+// ---------- Compare A/B (read-only) and the authored offline sample ----------
+async function twoTakes() {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first\nINT. OFFICE | second', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]);
+  env.api.selectScene('s1');
+  env.$('addActor').click();                                  // take A: one actor, 5 s
+  env.$('dlg').value = 'A_LINE'; env.$('dlg').dispatchEvent({ type: 'input' });
+  env.api.setVariant('B');
+  env.$('addActor').click();
+  env.$('dur').value = '8'; env.$('dur').dispatchEvent({ type: 'input' });   // take B: 8 s
+  env.$('dlg').value = 'B_LINE'; env.$('dlg').dispatchEvent({ type: 'input' });
+  env.api.setVariant('A');
+  return env;
+}
+const painted = (env) => env.drawLog.filter((e) => e.m === 'fillText').map((e) => String(e.args[0])).join('\n');
+const editsOf = (env) => JSON.stringify(env.api.S.edits);
+
+test('Compare A/B is a read-only view: nothing mutates, the active take stays, drag/keys/form are locked', async () => {
+  const env = await twoTakes();
+  const before = editsOf(env), rev = env.api.S.rev, variant = env.api.S.variant, mode = env.api.S.resp.mode;
+  env.$('cmpAB').click();
+  assert.equal(env.api.S.compare, true);
+  assert.equal(env.$('cmpAB').attrs['aria-pressed'], 'true');
+  assert.equal(env.$('compareStrip').hidden, false);
+  assert.match(env.$('compareStrip').textContent, /Read-only A\/B comparison/);
+  assert.match(env.$('compareStrip').textContent, /Take A runs 5s, take B 8s \(different lengths/);
+  assert.match(env.$('compareStrip').textContent, /PNG and WebM export that take only; Project JSON and Shoot pack include both/);
+  assert.equal(env.$('shotForm').disabled, true); assert.equal(env.$('addActor').disabled, true);
+  const text = painted(env);
+  assert.match(text, /TAKE A \(active take\)/); assert.match(text, /TAKE B/); assert.match(text, /Comparison view only\. Not an export/);
+  assert.match(text, /5s/); assert.match(text, /8s/);
+  assert.ok(env.drawLog.filter((e) => e.m === 'fillText' && String(e.args[0]).includes(env.api.BADGE)).length >= 2, 'uncalibrated label in both panes');
+  // Pointer drag on the actor and arrow keys must not edit either take.
+  const cv = env.$('stage'), a = env.api.shotData('s1', 'A').actors[0];
+  cv.dispatchEvent({ type: 'pointerdown', clientX: a.x0 * 1280, clientY: (a.y0 - 0.05) * 720, pointerId: 1 });
+  cv.dispatchEvent({ type: 'pointermove', clientX: 100, clientY: 100, pointerId: 1 });
+  cv.dispatchEvent({ type: 'pointerup', pointerId: 1 });
+  cv.dispatchEvent({ type: 'keydown', key: 'ArrowLeft' }); cv.dispatchEvent({ type: 'keydown', key: 'ArrowUp', shiftKey: true });
+  assert.equal(editsOf(env), before); assert.equal(env.api.S.rev, rev);
+  assert.equal(env.api.S.variant, variant); assert.equal(env.api.S.resp.mode, mode);
+  env.$('cmpAB').click();                                       // toggle off restores single view, still unmutated
+  assert.equal(env.api.S.compare, false); assert.equal(env.$('compareStrip').hidden, true); assert.equal(env.$('shotForm').disabled, false);
+  assert.equal(editsOf(env), before);
+});
+
+test('selecting take A or B leaves comparison and edits only that take afterwards', async () => {
+  const env = await twoTakes();
+  env.$('cmpAB').click(); env.api.setVariant('B');
+  assert.equal(env.api.S.compare, false);
+  env.$('dlg').value = 'B_EDIT'; env.$('dlg').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.shotData('s1', 'B').dialogue, 'B_EDIT'); assert.equal(env.api.shotData('s1', 'A').dialogue, 'A_LINE');
+});
+
+test('compare playback uses one real-time clock: scene lasts the longer take; the shorter holds and says so', async () => {
+  const env = await twoTakes();
+  env.$('cmpAB').click();
+  env.nowMs = 1000; env.$('play').click();
+  assert.equal(env.api.S.play.total, 8 + 5);                    // s1: max(5,8)=8, s2 default 5/5
+  env.flushRaf(); env.drawLog.length = 0; env.nowMs = 1000 + 6500; env.flushRaf();
+  const text = painted(env);
+  assert.match(text, /ended at 5s, holding last pose/);          // take A (5 s) is past its end
+  assert.match(text, /6\.5s \/ 8s/);                             // take B still running
+  assert.doesNotMatch(text, /6\.5s \/ 5s/);
+  assert.match(env.$('status').textContent, /both takes side by side on one real-time clock/);
+  // Single-take playback is unchanged: active take A only.
+  env.$('cmpAB').click(); env.$('play').click();
+  assert.equal(env.api.S.play.total, 5 + 5);
+});
+
+test('exports keep their take semantics while comparing: PNG is the active take only, JSON/pack still carry both', async () => {
+  const env = await twoTakes();
+  env.$('cmpAB').click();
+  const cv = env.$('stage'), orig = cv.toBlob.bind(cv); let atExport = null;
+  cv.toBlob = (cb, type) => { atExport = painted(env); orig(cb, type); };
+  env.drawLog.length = 0; env.$('expPng').click(); await drain();
+  assert.doesNotMatch(atExport, /Comparison view only|TAKE A|TAKE B/);     // canvas was the single-take layout at capture time
+  assert.ok(env.downloads.some((d) => d.name === 'typecast-s1-A.png'));
+  assert.equal(env.api.S.compare, true);                                    // comparison restored afterwards
+  const snap = env.api.exportSnapshot();
+  assert.equal(snap.variant, 'A');
+  assert.equal(snap.scenes[0].variants.A.dialogue, 'A_LINE'); assert.equal(snap.scenes[0].variants.B.dialogue, 'B_LINE');
+  assert.equal(snap.scenes[0].variants.B.duration_sec, 8); assert.equal(snap.scenes[0].staging.dialogue, 'A_LINE');
+});
+
+test('brainstorm still fails honestly without a model and never substitutes the authored sample', async () => {
+  const env = await twoTakes();
+  const before = editsOf(env);
+  env.$('instr').value = 'Have the actor enter from the window'; env.$('gen').click();
+  env.take('/api/production/brainstorm').resolve(jsonResponse({ detail: 'Configured model provider unavailable' }, 503));
+  await drain();
+  assert.match(env.$('status').textContent, /Brainstorm unavailable: Configured model provider unavailable\. No changes made/);
+  assert.equal(env.api.S.pending, null); assert.equal(env.$('proposal').hidden, true); assert.equal(editsOf(env), before);
+  assert.equal(env.jobs.length, 0);
+});
+
+test('authored sample: opt-in, no model call, labelled, A untouched, Apply writes only B, Undo and Discard keep semantics', async () => {
+  const env = await twoTakes();
+  const aBefore = JSON.stringify(env.api.shotData('s1', 'A')), bBefore = JSON.stringify(env.api.shotData('s1', 'B')), mode = env.api.S.resp.mode;
+  env.$('instr').value = 'something completely different that must be ignored';
+  env.$('loadSample').click();
+  assert.equal(env.jobs.length, 0, 'no network request for the sample');
+  assert.equal(env.$('proposal').hidden, false);
+  assert.match(env.$('pSum').textContent, /Authored sample alternative \(pre-written, not AI-generated\)/);
+  assert.match(env.$('pNote').textContent, /ignores your direction text and no model was called/);
+  assert.match(env.$('status').textContent, /not AI, no model call/);
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'A')), aBefore); assert.equal(JSON.stringify(env.api.shotData('s1', 'B')), bBefore);
+  const a = env.api.shotData('s1', 'A').actors[0];
+  env.$('discard').click();
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'B')), bBefore);
+  env.$('loadSample').click(); env.$('applyB').click();
+  const b = env.api.shotData('s1', 'B');
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'A')), aBefore);          // A never changes
+  assert.equal(b.dialogue, 'A_LINE'); assert.equal(b.duration_sec, 5);          // derived from A, no invented dialogue
+  assert.equal(b.actors[0].x0, Math.round((1 - a.x0) * 1000) / 1000);          // mirrored from A
+  assert.ok(b.actors[0].x1 !== b.actors[0].x0 && b.actors.length === 1);
+  assert.match(env.$('status').textContent, /Applied the authored sample to variant B/);
+  assert.equal(env.api.S.resp.mode, mode); assert.equal(env.$('proposal').hidden, true);
+  env.$('undo').click();
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'B')), bBefore); assert.equal(JSON.stringify(env.api.shotData('s1', 'A')), aBefore);
+  assert.equal(env.jobs.length, 0);
+});
+
+test('authored sample with an empty take A uses one generic performer and invents no source facts', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
+  const evBefore = JSON.stringify(env.api.exportSnapshot().scenes[0].evidence);
+  env.$('loadSample').click(); env.$('applyB').click();
+  const b = env.api.shotData('s1', 'B');
+  assert.equal(b.actors.length, 1); assert.equal(b.actors[0].name, 'Performer');
+  assert.equal(env.api.shotData('s1', 'A').actors.length, 0);
+  assert.equal(JSON.stringify(env.api.exportSnapshot().scenes[0].evidence), evBefore);
+});
+
+test('loading the sample cancels an in-flight model request whose late reply is then ignored', async () => {
+  const env = await twoTakes();
+  env.honorAbort = false;
+  env.$('instr').value = 'model direction'; env.$('gen').click();
+  const job = env.take('/api/production/brainstorm');
+  env.$('loadSample').click();
+  const sample = JSON.stringify(env.api.S.pending.shot);
+  job.resolve(jsonResponse({ summary: 'late', shot: { duration_sec: 9, dialogue: 'LATE_MODEL', actors: [] } }));
+  await drain();
+  assert.equal(JSON.stringify(env.api.S.pending.shot), sample);
+  assert.equal(editsOf(env).includes('LATE_MODEL'), false);
+  assert.match(env.$('pSum').textContent, /Authored sample/);
+});
+
+test('a pending sample is dropped when the scene changes or the take is edited, and Apply refuses a stale one', async () => {
+  const env = await twoTakes();
+  const before = editsOf(env);
+  env.$('loadSample').click(); env.api.selectScene('s2');
+  assert.equal(env.api.S.pending, null); assert.equal(env.$('proposal').hidden, true);
+  env.$('applyB').click();
+  assert.match(env.$('status').textContent, /no longer matches|discarded/i);
+  assert.equal(editsOf(env), before);
+  env.api.selectScene('s1'); env.$('loadSample').click();
+  env.$('dlg').value = 'typed meanwhile'; env.$('dlg').dispatchEvent({ type: 'input' });       // staging edit invalidates it
+  assert.equal(env.api.S.pending, null);
+});
+
+// ---------- authored-sample provenance must travel with the take everywhere ----------
+const TAG = 'AUTHORED SAMPLE · not AI';
+async function sampleOnB() {
+  const env = await twoTakes();
+  env.$('loadSample').click(); env.$('applyB').click();
+  return env;
+}
+const tagDrawn = (env) => painted(env).includes(TAG);
+
+test('origin: a sample-derived B carries a validated origin; A, manual and untouched takes do not', async () => {
+  const env = await sampleOnB();
+  assert.equal(env.api.shotData('s1', 'B').origin, 'authored-sample');
+  assert.equal(env.api.shotData('s1', 'A').origin, undefined);
+  assert.equal(env.api.shotData('s2', 'B').origin, undefined);
+  // card: the inspector tag is shown on B only
+  env.api.setVariant('B');
+  assert.equal(env.$('originTag').hidden, false); assert.match(env.$('originTag').textContent, /AUTHORED SAMPLE · not AI/);
+  env.drawLog.length = 0; env.api.setVariant('B'); assert.ok(tagDrawn(env), 'tag drawn on the stage for take B');
+  env.api.setVariant('A'); assert.equal(env.$('originTag').hidden, true);
+  env.drawLog.length = 0; env.api.setVariant('A'); assert.equal(tagDrawn(env), false);
+  // human edits keep a sample-derived take sample-derived
+  env.api.setVariant('B'); env.$('dlg').value = 'edited by a person'; env.$('dlg').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.shotData('s1', 'B').origin, 'authored-sample');
+  // the user's own dialogue/name text is never used as the label
+  assert.equal(env.api.shotData('s1', 'B').dialogue, 'edited by a person');
+  // undo restores the previous B including its (absent) origin
+  env.$('undo').click(); assert.equal(env.api.shotData('s1', 'B').origin, undefined);
+});
+
+test('origin: a live model proposal is never tagged as the sample, even if the response claims it', async () => {
+  const env = await twoTakes();
+  env.$('instr').value = 'x'; env.$('gen').click();
+  env.take('/api/production/brainstorm').resolve(jsonResponse({ summary: 'model', shot: { duration_sec: 4, dialogue: 'M', origin: 'authored-sample', actors: [] } }));
+  await drain(); env.$('applyB').click();
+  assert.equal(env.api.shotData('s1', 'B').dialogue, 'M'); assert.equal(env.api.shotData('s1', 'B').origin, undefined);
+  // a model proposal applied over a sample-derived B replaces the take, and the old origin goes with it
+  env.$('loadSample').click(); env.$('applyB').click(); assert.equal(env.api.shotData('s1', 'B').origin, 'authored-sample');
+  env.$('instr').value = 'y'; env.$('gen').click();
+  env.take('/api/production/brainstorm').resolve(jsonResponse({ summary: 'model2', shot: { duration_sec: 6, dialogue: 'M2', actors: [] } }));
+  await drain(); env.$('applyB').click();
+  assert.equal(env.api.shotData('s1', 'B').origin, undefined);
+  // a manually staged take is untagged
+  assert.equal(env.api.shotData('s1', 'A').origin, undefined);
+});
+
+test('origin: after a 503 the user can explicitly choose the sample, and it is tagged only then', async () => {
+  const env = await twoTakes();
+  env.$('instr').value = 'z'; env.$('gen').click();
+  env.take('/api/production/brainstorm').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();
+  assert.equal(env.api.shotData('s1', 'B').origin, undefined); assert.equal(env.api.S.pending, null);
+  env.$('loadSample').click(); assert.equal(env.api.S.pending.shot.origin, 'authored-sample');
+  assert.equal(env.api.shotData('s1', 'B').origin, undefined);          // review only: nothing tagged before Apply
+});
+
+test('origin: Project JSON saves it per take, Project JSON import restores it, and bad values are refused', async () => {
+  const env = await sampleOnB();
+  const snap = env.api.exportSnapshot(), v = snap.scenes[0].variants;
+  assert.equal(v.B.origin, 'authored-sample'); assert.equal('origin' in v.A, false);
+  assert.equal(snap.scenes[0].staging.origin, undefined);               // active take A
+  env.api.setVariant('B'); assert.equal(env.api.exportSnapshot().scenes[0].staging.origin, 'authored-sample');
+  env.$('expJson').click(); const file = env.downloads.find((d) => d.name === 'typecast-project.json');
+  const text = await blobText(file.blob);
+  assert.equal(JSON.parse(text).scenes[0].variants.B.origin, 'authored-sample');
+  // import into a fresh app
+  const fresh = boot();
+  await buildScript(fresh, 'INT. KITCHEN | first\nINT. OFFICE | second', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]);
+  const { job, body } = await startImport(fresh, text);
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]))); await drain();
+  assert.equal(fresh.api.shotData('s1', 'B').origin, 'authored-sample');
+  assert.equal(fresh.api.shotData('s1', 'A').origin, undefined);
+  // a hand-edited file may not smuggle a free-text or look-alike origin
+  for (const bad of ['AI', 'ai-generated', 'authored sample', { x: 1 }, 7]) {
+    const tampered = JSON.parse(text); tampered.scenes[0].variants.B.origin = bad;
+    const again = boot();
+    await buildScript(again, 'INT. KITCHEN | first\nINT. OFFICE | second', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]);
+    for (const name of ['Object', 'Array', 'JSON']) delete again.context[name];
+    vm.runInContext(PROJECT_JS, again.context, { filename: 'director-project.js' });
+    assert.throws(() => again.context.TypecastProject.normalizeProject(JSON.stringify(tampered)), /unsupported take origin/);
+  }
+});
+
+test('origin: PNG, shoot pack and reel snapshot of a sample-derived take carry the tag', async () => {
+  const env = await sampleOnB();
+  env.api.setVariant('B');
+  const cv = env.$('stage'), orig = cv.toBlob.bind(cv); let atExport = '';
+  cv.toBlob = (cb, type) => { atExport = painted(env); orig(cb, type); };
+  env.drawLog.length = 0; env.$('expPng').click(); await drain();
+  assert.ok(atExport.includes(TAG), 'PNG pixels were drawn with the tag');
+  env.drawLog.length = 0; env.$('expPack').click(); await drain();
+  const pack = env.downloads.find((d) => d.name.endsWith('.html')); const html = await blobText(pack.blob);
+  assert.match(html, /AUTHORED SAMPLE: pre-written blocking, not AI-generated/); assert.ok(tagDrawn(env), 'pack staged image drawn with the tag');
+  // reel input -> snapshot keeps origin; drawing a reel frame with that shot paints the tag
+  const reel = (await import('../director-reel.js')).default ?? (await import('../director-reel.js'));
+  const R = reel.buildSnapshot ? reel : reel.default;
+  const snap = R.buildSnapshot({ variant: 'B', scenes: [{ id: 's1', heading: 'h', shot_id: 'shot_a', prov: 'p', shot: env.api.shotData('s1', 'B') }] });
+  assert.equal(snap.scenes[0].shot.origin, 'authored-sample');
+  const bogus = R.buildSnapshot({ variant: 'B', scenes: [{ id: 's1', heading: 'h', shot_id: 'shot_a', prov: 'p', shot: { ...env.api.shotData('s1', 'B'), origin: 'AI' } }] });
+  assert.equal(bogus.scenes[0].shot.origin, undefined);
+  env.drawLog.length = 0;
+  env.api.drawStage(env.$('stage').getContext('2d'), 1280, 720, { imgEl: null, missing: '', prov: 'p', shot: snap.scenes[0].shot, t: 1, editing: false, sel: -1 });
+  assert.ok(tagDrawn(env), 'reel frame drawn with the tag');
+});
+
+test('origin: compare strip captions name the sample-derived take in readable HTML text', async () => {
+  const env = await sampleOnB();
+  env.$('cmpAB').click();
+  assert.match(env.$('compareStrip').textContent, /Take B · 5s · AUTHORED SAMPLE · not AI/);
+  assert.doesNotMatch(env.$('compareStrip').textContent, /Take A \(active\) · \d+s · AUTHORED/);
+  assert.ok(painted(env).includes('authored sample'));
+});

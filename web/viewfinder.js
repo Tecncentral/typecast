@@ -42,6 +42,26 @@ function addressFromAlt(alt) {
   return at >= 0 ? alt.slice(at + 4) : "";
 }
 
+const AI_STAMP = "AI-imagined set dressing · not the real room";
+
+// Saved frames leave the dialog, so AI provenance must live in the filename and the pixels themselves.
+function shotFilename(shot) {
+  const part = (v) => String(v).replace(/[^\w.-]/g, "");
+  return `typecast-shot-${part(shot.lens)}mm-${part(shot.yaw)}deg${shot.ai ? "-ai-dressed" : ""}.jpg`;
+}
+
+function stampAiLabel(ctx, width, height) {
+  const band = Math.max(18, Math.round(height * 0.07));
+  ctx.save();
+  ctx.fillStyle = "rgba(10, 7, 5, 0.78)";
+  ctx.fillRect(0, height - band, width, band);
+  ctx.fillStyle = "#ffb547";
+  ctx.font = `600 ${Math.round(band * 0.55)}px system-ui, sans-serif`;
+  ctx.textBaseline = "middle";
+  ctx.fillText(AI_STAMP, Math.round(band * 0.4), height - band / 2, width - band * 0.8);
+  ctx.restore();
+}
+
 function loadShotList() {
   try {
     const raw = localStorage.getItem(STORE_KEY);
@@ -320,6 +340,14 @@ function buildDialog() {
     </aside>`;
   document.body.append(dialog);
   return dialog;
+}
+
+const AI_LABEL = "AI-imagined set dressing, not the real room";
+const DRESSED_URL = /^\/cache\/worlds\/[A-Za-z0-9_-]{1,80}\/[A-Za-z0-9_-]{1,80}\/dressed\/[A-Za-z0-9][A-Za-z0-9_-]{0,63}\.(?:jpg|jpeg|png|webp)$/;
+function validDressedFace(face) {
+  return !!face && DRESSED_URL.test(face.dressed_url)
+    && [face.yaw_deg, face.pitch_deg, face.tan_h, face.tan_v].every((n) => typeof n === "number" && Number.isFinite(n))
+    && face.tan_h > 0 && face.tan_v > 0;
 }
 
 class Viewfinder {
@@ -617,39 +645,39 @@ class Viewfinder {
     } catch {
       return;
     }
-    if (!current() || !data?.faces?.length) return;
-    this.dressed = data;
-    const slug = (data.scene || "").match(/^((?:INT\.?\/EXT|INT|EXT)\.\s*[^.]+)/i);
-    const scene = (slug ? slug[1] : (data.scene || "").split(".")[0]).trim();
-    this.$(".vf-ai-badge").textContent = `${data.label || "AI-imagined set dressing, not the real room"}${scene ? ` · dressed for “${scene}”` : ""}`;
+    if (!current() || !Array.isArray(data?.faces)) return;
+    // The server response is untrusted at this boundary: keep only well-formed faces from the
+    // dressed cache path, and never take the provenance label from the response.
+    const faces = data.faces.filter(validDressedFace).slice(0, 4);
+    if (!faces.length) return;
     let loaded = 0;
     await Promise.all(
-      data.faces.slice(0, 4).map(async (face, i) => {
+      faces.map(async (face, i) => {
         const img = new Image();
         img.decoding = "async";
         img.src = face.dressed_url;
         try {
           await img.decode();
-          if (current()) {
-            renderer.setDressedFace(i, img, face);
-            loaded += 1;
-          }
+          if (!current()) return;
+          renderer.setDressedFace(i, img, face);
+          loaded += 1;
         } catch {
           /* a missing dressed frame leaves the real room visible there */
         }
       }),
     );
-    if (!current()) return;
-    if (!loaded) {
-      // Never offer a comparison with nothing to compare: the toggle would only dim the real room.
-      this.dressed = null;
-      this.$(".vf-status").textContent = "The AI-dressed frames for this room couldn't load. Reload to get the current set.";
-      return;
-    }
+    // No usable dressed texture means no AI controls and no "ready" claim.
+    if (!current() || !loaded) return;
+    this.dressed = data;
+    const slug = (data.scene || "").match(/^((?:INT\.?\/EXT|INT|EXT)\.\s*[^.]+)/i);
+    const scene = (typeof data.scene === "string" ? (slug ? slug[1] : data.scene.split(".")[0]) : "").trim().slice(0, 120);
+    this.$(".vf-ai-badge").textContent = `${AI_LABEL}${scene ? ` · dressed for “${scene}”` : ""}`;
     const toggle = this.$(".vf-dress");
     toggle.hidden = false;
     if (!reducedMotion()) toggle.animate([{ transform: "scale(0.9)", opacity: 0 }, { transform: "scale(1)", opacity: 1 }], { duration: 420, easing: EASE_OUT });
-    this.$(".vf-status").textContent = "An AI-dressed version of this room is ready: press D or AI dressing.";
+    this.$(".vf-status").textContent = loaded === faces.length
+      ? "An AI-dressed version of this room is ready: press D or AI dressing."
+      : `AI dressing covers ${loaded} of ${faces.length} views; the real room shows dimmed elsewhere. Press D or AI dressing.`;
   }
 
   setWipe(value) {
@@ -912,7 +940,10 @@ class Viewfinder {
     const out = document.createElement("canvas");
     out.width = 480;
     out.height = Math.round(480 / this.state.aspect.ratio);
-    out.getContext("2d").drawImage(c, sx, sy, sw, sh, 0, 0, out.width, out.height);
+    const outCtx = out.getContext("2d");
+    outCtx.drawImage(c, sx, sy, sw, sh, 0, 0, out.width, out.height);
+    const ai = this.wipe > -1;
+    if (ai) stampAiLabel(outCtx, out.width, out.height);
     const shot = {
       id: `${Date.now()}`,
       thumb: out.toDataURL("image/jpeg", 0.82),
@@ -922,7 +953,7 @@ class Viewfinder {
       pitch: Math.round(this.state.pitch),
       shotId: this.sweep?.shot_id,
       address: this.$(".vf-address").textContent,
-      ai: this.wipe > -1,
+      ai,
     };
     this.shots = [shot, ...this.shots].slice(0, 12);
     saveShotList(this.shots);
@@ -965,7 +996,7 @@ class Viewfinder {
       });
       const save = el("a", "vf-shot-save", "Save");
       save.href = shot.thumb;
-      save.download = `typecast-shot-${shot.lens}mm-${shot.yaw}deg.jpg`;
+      save.download = shotFilename(shot);
       li.append(button, save);
       if (shot.id === freshId && !reducedMotion()) {
         li.animate(
