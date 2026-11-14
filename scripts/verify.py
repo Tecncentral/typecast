@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 env = {
@@ -23,3 +24,9 @@ result = subprocess.run([sys.executable, "-m", "pytest", "-q"], cwd=ROOT, env=en
 if result.returncode:
     raise SystemExit(result.returncode)
 subprocess.run([sys.executable, str(ROOT / "scripts/smoke.py")], cwd=ROOT, env=env, check=True)
+subprocess.run([sys.executable, str(ROOT / "scripts/e2e.py")], cwd=ROOT, env=env, check=True)
+with tempfile.TemporaryDirectory(prefix="typecast-eval-") as directory:
+    subprocess.run([
+        sys.executable, str(ROOT / "agent/eval/run_eval.py"), "--mode", "mock",
+        "--output", str(Path(directory) / "eval.md"),
+    ], cwd=ROOT, env=env, check=True)
