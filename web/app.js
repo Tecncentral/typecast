@@ -18,6 +18,12 @@ function h(tag, attrs = {}, ...kids) {
   return el;
 }
 
+// replaceChildren() would turn null into the text "null"; drop empty kids first.
+function fill(el, ...kids) {
+  el.replaceChildren(...kids.flat().filter((k) => k != null && k !== false));
+  return el;
+}
+
 const state = {
   config: null,        // GET /config, or null if unavailable
   events: [],
@@ -176,7 +182,7 @@ function renderPlan() {
   const relaxed = [...new Set(state.events.filter((e) => e.type === "relaxed").map((e) => e.text))];
   const gaveUp = state.response?.gave_up || [];
   $("relaxed").hidden = !relaxed.length && !gaveUp.length;
-  $("relaxed").replaceChildren(
+  fill($("relaxed"), 
     h("strong", {}, gaveUp.length ? `Relaxed: ${gaveUp.join(", ")}` : "Relaxed a requirement"),
     h("ul", {}, relaxed.map((t) => h("li", {}, t))));
 
@@ -228,7 +234,7 @@ function renderResultsHead() {
   const head = $("results-head");
   if (state.running || state.refining) {
     const t = elapsed();
-    head.replaceChildren(h("p", { class: "loading" },
+    fill(head, h("p", { class: "loading" },
       state.refining ? `Re-ranking for “${state.pendingFollowUp}”… ${secs(t)}` : `Scouting… ${secs(t)}`,
       t > 20 ? h("span", { class: "slow" }, "  Still working. Real runs can take up to two minutes.") : null));
     return;
@@ -240,7 +246,7 @@ function renderResultsHead() {
     const { moves, dropped } = rankDiff(state.previous, res);
     const changed = moves.filter((m) => m.move !== "same").length + dropped.length;
     const notes = moves.reduce((a, m) => a + m.newNotes.length, 0);
-    head.replaceChildren(
+    fill(head,
       h("h2", {}, `Re-ranked for “${state.followUp}”`),
       h("span", { class: "sub" }, [
         "Same saved candidates, no new search",
@@ -249,9 +255,10 @@ function renderResultsHead() {
       ].filter(Boolean).join(" · ")));
     return;
   }
-  head.replaceChildren(
+  fill(head,
     h("h2", {}, n ? `${n} pick${n === 1 ? "" : "s"}` : "No building fits this scene"),
-    n && n < 3 ? h("span", { class: "sub" }, `Only ${n} survived. Nothing was padded to make three.`) : null);
+    h("span", { class: "sub" }, n && n < 3 ? `Only ${n} survived. Nothing was padded to make three.`
+      : n ? `${res.engine || "?"} engine · ${res.source_mode === "live" ? "live data" : "fixture data"}` : ""));
 }
 
 function renderResults() {
@@ -279,7 +286,7 @@ function renderEarlier(diff) {
   if (!diff) { box.hidden = true; box.replaceChildren(); return; }
   const now = new Map(state.response.picks.map((p) => [p.property.property_id, p.rank]));
   box.hidden = false;
-  box.replaceChildren(
+  fill(box,
     h("span", { class: "eyebrow" }, "Before the follow-up"),
     h("div", { class: "strip" }, state.previous.picks.map((p) => {
       const rank = now.get(p.property.property_id);
@@ -344,7 +351,7 @@ function frame(pick, { mini = false } = {}) {
   const box = h("div", { class: "frame" });
   const draw = () => {
     const shot = shots[i];
-    box.replaceChildren(
+    fill(box,
       frameImg(shot, `Camera view ${i + 1} inside ${pick.property.address}`),
       h("span", { class: "rank" }, `#${pick.rank}`),
       !mini && shot ? h("span", { class: "frame-id" }, shot.shot_id) : null,
@@ -425,7 +432,58 @@ function card(pick, move = null) {
       logistics(pick),
       objectionList(pick, move?.newNotes || [], CARD_OBJECTIONS),
       h("div", { class: "card-actions" },
-        h("button", { type: "button", class: "details-btn", onclick: () => openDrawer(pick) }, "Details and 3D tour"))));
+        h("button", { type: "button", class: "details-btn", onclick: () => openDrawer(pick) }, "Details and 3D tour"),
+        draftButton(pick))));
+}
+
+/* ---------------- owner note approval ---------------- */
+
+// Keyed by thread and rank, so a re-rank does not carry a draft badge to another building.
+const drafts = new Map();
+const draftKey = (pick) => `${state.response?.thread_id}:${pick.rank}:${pick.property.property_id}`;
+
+function draftButton(pick) {
+  const saved = drafts.get(draftKey(pick));
+  if (saved) return h("span", { class: "draft-state" }, saved);
+  return h("button", { type: "button", class: "draft-btn", onclick: () => askApproval(pick) }, "Draft note to owner");
+}
+
+let approving = null;
+
+function askApproval(pick) {
+  approving = pick;
+  $("approve-title").textContent = `Draft a note about ${pick.property.address}?`;
+  $("approve-body").textContent = `Typecast drafts an inquiry to the listing contact for pick #${pick.rank}, `
+    + "asking about filming availability, permissions and parking access.";
+  $("approve-result").textContent = "";
+  $("approve-yes").hidden = false;
+  $("approve-yes").disabled = false;
+  $("approve-close").textContent = "Cancel";
+  $("approve").showModal();
+}
+
+async function approve() {
+  const pick = approving;
+  const threadId = state.response?.thread_id;
+  if (!pick || !threadId) return;
+  $("approve-yes").disabled = true;
+  $("approve-result").textContent = "Saving the draft…";
+  try {
+    const r = await fetch("/approve", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ thread_id: threadId, pick_rank: pick.rank, decision: "yes" }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : `HTTP ${r.status}`);
+    if (j.status !== "draft_saved") throw new Error(`the server answered “${j.status || "unknown"}”`);
+    const msg = "Saved as a local draft, not sent.";
+    drafts.set(draftKey(pick), msg);
+    $("approve-result").textContent = `${msg} It is in the team's local outbox for review.`;
+    $("approve-yes").hidden = true;
+    $("approve-close").textContent = "Done";
+    renderResults();
+  } catch (err) {
+    $("approve-result").textContent = `No draft was saved: ${err.message}.`;
+    $("approve-yes").disabled = false;
+  }
 }
 
 /* ---------------- detail drawer + tour ---------------- */
@@ -439,7 +497,7 @@ function openDrawer(pick) {
   const by = evidenceBySource(pick);
   const aerial = imageUrl(lg.aerial_image_path);
   const body = $("drawer-body");
-  body.replaceChildren(
+  fill(body,
     h("div", { class: "drawer-top" },
       h("div", {},
         h("span", { class: "eyebrow" }, `Pick #${pick.rank}`),
@@ -567,6 +625,7 @@ $("refine-form").addEventListener("submit", (e) => {
   const message = $("refine").value.trim();
   if (message) runRefine(message);
 });
+$("approve-yes").addEventListener("click", approve);
 $("scrim").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("drawer").hidden) closeDrawer(); });
 $("scene").addEventListener("keydown", (e) => {
