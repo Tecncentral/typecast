@@ -10,7 +10,7 @@ import pytest
 
 from agent import models, parse, rerank
 from agent.interfaces import Requirements, RunContext
-from contracts.schemas import Shot
+from contracts.schemas import Event, Shot
 
 SCENE = "INT. 1980s POLICE STATION, NIGHT. Big open room, drop ceiling. Parking for 3 trucks and 30 crew cars."
 PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXioAAAAASUVORK5CYII=")
@@ -26,6 +26,7 @@ def isolated_models(monkeypatch):
     monkeypatch.setenv("TYPECAST_LLM_PROVIDER", "openai")
     monkeypatch.setenv("TYPECAST_ENABLE_MODEL_PARSE", "1")
     monkeypatch.setenv("TYPECAST_ENABLE_VISION_RERANK", "1")
+    monkeypatch.setenv("TYPECAST_VISION_BATCH_SIZE", "1")
     monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "0")
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
     models.reset_rate_limit()
@@ -90,6 +91,49 @@ def test_structured_parse_police_station(monkeypatch):
     assert req.time_of_day == "night" and "drop ceiling" in req.look
     assert "city" not in req.explicit_fields and "trucks" in req.explicit_fields
     assert len(fake.calls) == 1 and fake.calls[0][2] is parse.SceneFields
+
+
+@pytest.mark.parametrize("kind", ["model_request", "rate_limit", "fallback", "model_failure"])
+def test_parse_preserves_provider_event_type_and_records_only_failure_notes(monkeypatch, kind):
+    message = json.dumps({"images": 0, "provider_calls": 1, "vision": False}) if kind == "model_request" else "Controlled provider event"
+    class EmittingProvider(FakeProvider):
+        def structured(self, *args, **kwargs):
+            self.emit(Event(type=kind, agent="models", text=message))
+            return super().structured(*args, **kwargs)
+    fake = EmittingProvider({"city": "Los Angeles", "explicit_fields": []})
+    def provider(**kwargs):
+        fake.emit = kwargs["emit"]
+        return fake
+    monkeypatch.setattr(parse, "get_provider", provider)
+    events = []
+    req = parse.parse_scene(SCENE, emit=events.append)
+    assert req.parsed_with_model and len(events) == 1
+    assert (events[0].type, events[0].agent, events[0].text) == (kind, "models", message)
+    assert req.parse_note == (message if kind in {"fallback", "model_failure"} else None)
+
+
+def test_successful_parser_accounting_does_not_emit_director_fallback(monkeypatch):
+    from fastapi.testclient import TestClient
+    from agent.eval.harness import mock_app
+
+    class AccountingProvider(FakeProvider):
+        def structured(self, *args, **kwargs):
+            self.emit(Event(type="model_request", agent="models", text=json.dumps(
+                {"images": 0, "provider_calls": 1, "vision": False})))
+            return super().structured(*args, **kwargs)
+    fake = AccountingProvider({"city": "Los Angeles", "explicit_fields": []})
+    def provider(**kwargs):
+        fake.emit = kwargs["emit"]
+        return fake
+    monkeypatch.setattr(parse, "get_provider", provider)
+    with mock_app() as app:
+        monkeypatch.setenv("TYPECAST_ENABLE_MODEL_PARSE", "1")
+        with TestClient(app) as client:
+            response = client.post("/scout", json={"scene": SCENE})
+        assert response.status_code == 200
+        events = response.json()["events"]
+        assert sum(event["type"] == "model_request" for event in events) == 1
+        assert not any(event["type"] in {"fallback", "model_failure"} for event in events)
 
 
 def test_unconfigured_falls_back_and_preserves_original_era_bounds():
