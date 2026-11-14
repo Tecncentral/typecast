@@ -34,6 +34,7 @@ class Property(BaseModel):
     availability_status: Optional[Literal["available", "not_available", "unknown"]] = None
     availability_reason: Optional[str] = None
     parking_flags: dict[str, bool] = Field(default_factory=dict)
+    listing_types: list[Literal["lease", "sale", "auction"]] = Field(default_factory=list)
 
 
 class Evidence(BaseModel):

@@ -309,7 +309,7 @@ def _response(ctx: RunContext, picks: list[Pick], gave_up: list[str], events: li
 
 
 def _rerank(ctx: RunContext, req: Requirements, shots: list[Shot]) -> list[Shot]:
-    ranked = list(_call(ctx, "rerank_shots", rerank.rerank_shots, ctx, req, shots, k=20))
+    ranked = list(_call(ctx, "rerank_shots", rerank.rerank_shots, ctx, req, shots, k=10))
     seen = {shot.shot_id for shot in ranked}
     return ranked + [shot for shot in shots if shot.shot_id not in seen]
 

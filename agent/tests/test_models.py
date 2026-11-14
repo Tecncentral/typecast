@@ -1,5 +1,7 @@
 """Model paths use fakes only: no network calls or real credentials."""
 import base64
+import json
+from pathlib import Path
 import threading
 import time
 from types import SimpleNamespace
@@ -144,6 +146,84 @@ def test_rerank_cache_and_concurrency(tmp_path, monkeypatch):
     assert second == first and len(fake.calls) == 12
     assert len(list(rerank.CACHE_ROOT.rglob("*.json"))) == 12
     assert "12 cached" in events[-1].text
+
+
+def test_rerank_uses_exact_authored_scene_across_inferred_parse_variation(tmp_path, monkeypatch):
+    shots = shots_fixture(tmp_path, monkeypatch, count=1)
+    monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "1")
+    fake = FakeProvider()
+    monkeypatch.setattr(rerank, "get_provider", lambda **kwargs: fake)
+    ctx = RunContext("test-stable-visual-payload")
+    first_req = Requirements(scene=SCENE, look="large room with drop ceiling", mood="tense",
+                             time_of_day="night", year_max=1992, parsed_with_model=True,
+                             explicit_fields={"look", "time_of_day"})
+    varied_req = first_req.model_copy(update={"look": "open room; fluorescent ceiling", "mood": "gritty",
+                                             "year_max": 1989, "explicit_fields": {"look", "mood"}})
+    first = rerank.rerank_shots(ctx, first_req, shots)
+    second = rerank.rerank_shots(ctx, varied_req, shots)
+    assert first == second and len(fake.calls) == 1
+    assert json.loads(fake.calls[0][1]) == {"scene": SCENE}
+    for number, text in enumerate((SCENE + "\nFollow-up: Warmer light and exposed brick.",
+                                   SCENE.replace("NIGHT", "DAY")), 2):
+        rerank.rerank_shots(ctx, varied_req.model_copy(update={"scene": text}), shots)
+        assert len(fake.calls) == number
+        assert json.loads(fake.calls[-1][1]) == {"scene": text}
+    assert first_req.look == "large room with drop ceiling" and shots[0].score == .6
+
+
+@pytest.mark.parametrize("change", ["provider", "prompt", "image", "legacy_cache_version"])
+def test_rerank_cache_invalidates_changed_scoring_inputs(tmp_path, monkeypatch, change):
+    shots = shots_fixture(tmp_path, monkeypatch, count=1)
+    monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "1")
+    fake = FakeProvider()
+    monkeypatch.setattr(rerank, "get_provider", lambda **kwargs: fake)
+    ctx, req = RunContext("test-visual-invalidation"), Requirements(scene=SCENE)
+    rerank.rerank_shots(ctx, req, shots)
+    rerank.rerank_shots(ctx, req, shots)
+    assert len(fake.calls) == 1
+    if change == "provider":
+        fake.cache_identity = "other-provider:other-model:other-effort"
+    elif change == "prompt":
+        prompt = tmp_path / "changed-rerank-prompt.md"
+        prompt.write_text(rerank.PROMPT_PATH.read_text() + "\nPrefer visible architectural cues.\n")
+        monkeypatch.setattr(rerank, "PROMPT_PATH", prompt)
+    elif change == "image":
+        Path(shots[0].image_path).write_bytes(PNG + b"changed image bytes")
+    else:
+        path = next(rerank.CACHE_ROOT.rglob("*.json"))
+        cached = json.loads(path.read_text())
+        cached["identity"]["version"] = 1
+        path.write_text(json.dumps(cached))
+    rerank.rerank_shots(ctx, req, shots)
+    assert len(fake.calls) == 2
+    assert json.loads(fake.calls[-1][1]) == {"scene": SCENE}
+    assert fake.calls[-1][0] == rerank.PROMPT_PATH.read_text()
+    rerank.rerank_shots(ctx, req, shots)
+    assert len(fake.calls) == 2
+
+
+@pytest.mark.parametrize(("gate", "message"), [
+    ("permission", "TYPECAST_ALLOW_VISION_UPLOAD=1"),
+    ("enabled", "model reranking is disabled"),
+    ("configured", "no configured vision provider"),
+])
+def test_warm_rerank_cache_still_requires_permission_and_configured_enabled_model(tmp_path, monkeypatch, gate, message):
+    shots = shots_fixture(tmp_path, monkeypatch, count=1)
+    monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "1")
+    fake = FakeProvider()
+    monkeypatch.setattr(rerank, "get_provider", lambda **kwargs: fake)
+    events = []
+    ctx, req = RunContext("test-warm-permission", emit=events.append), Requirements(scene=SCENE)
+    assert rerank.rerank_shots(ctx, req, shots)[0].score == .85
+    if gate == "permission":
+        monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "0")
+    elif gate == "enabled":
+        monkeypatch.setenv("TYPECAST_ENABLE_VISION_RERANK", "0")
+    else:
+        fake.available = False
+    monkeypatch.setattr(rerank, "_image_input", lambda *args: pytest.fail("Gated rerank loaded an image"))
+    assert rerank.rerank_shots(ctx, req, shots) == shots
+    assert len(fake.calls) == 1 and message in events[-1].text
 
 
 def test_one_shot_timeout_keeps_original_score_and_batch_succeeds(tmp_path, monkeypatch):

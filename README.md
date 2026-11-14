@@ -1,12 +1,23 @@
 # Typecast
 
-Cast real buildings for your script. Text a scene and get back camera frames from inside real, vacant Los Angeles buildings that could play it, with a check that the shot fits the room, where the crew parks, and a drafted note to the owner.
+Cast real buildings for your script. Text a scene and retrieve interior camera frames from Los Angeles and Houston, with source-backed availability, parking estimates, explicit shot-fit uncertainty and a local inquiry draft. Marketed lease availability does not establish vacancy or filming permission.
 
 Built at HackPrinceton Fall 2026 on CoStar property data, Matterport 3D scans and Vexcel aerial imagery.
 
 ## Status
 
-The API runs end to end on **fake data** in `mocks/`, with real streaming, evidence and uncertainty, cached refinement, and local draft approval. Model parsing and vision reranking use configured providers when enabled. Real property/interior/aerial adapters and the private join still belong to lanes A/B; a working API key alone does not make those adapters live. See [verified lane C status](docs/team/status-lane-c.md).
+Both fixed and deep engines have completed real-data runs with model parsing, vision reranking, CoStar/Matterport/Vexcel evidence, LangSmith traces, same-thread refinement and local draft approval. Private sources must be provisioned separately; a fresh checkout defaults to explicit fixtures in `mocks/`. See [verified integration status](docs/team/status-lane-c.md) for coverage, timings and remaining evidence limits.
+
+The November 14 private index contains **10,568 views across 343 properties and 329 models**, built in 14.15 minutes while preserving the original 608 views. It covers all 307 mapped, available commercial properties plus 20 available multifamily properties. Sixteen additional available commercial properties have no supplied scan mapping.
+
+| City | Available office | Industrial | Flex | Retail | Multifamily | Retained unavailable/unknown |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Los Angeles | 75 | 8 | 3 | 15 | 10 | 16 |
+| Houston | 127 | 50 | 9 | 20 | 10 | 0 |
+
+All 343 indexed properties have cached aerials and OSM noise screening. Parking is estimated for 224; 119 remain unknown. Proximity screening flags 128 properties and does not establish measured sound levels or quiet at unflagged sites. One mapped walking route is estimated; 342 remain unknown. Five Vexcel parcel-detail requests returned 404, while imagery succeeded. Shot depth remains unmeasured. Held-out accuracy for this expanded index awaits the 15 human test reviews; older-index scores do not apply.
+
+Five real demo scenes now pass with both engines, including model parsing, vision scoring, three-source evidence, browser imagery, same-pool five-truck refinement and unsent draft approval. On the same scenes, fixed median scouting fell from **22.825 to 9.651 seconds** and deep from **52.875 to 39.988 seconds**. Final deep runs took 39.490–45.017 seconds, each with ten cached visual scores and independently fetched traces. All 32 scouting attempts across baseline, cache fill and optimization stayed below 90 seconds with no engine fallback. Four earlier trace-diagnostic failures remain documented; final deep passed all five on its first attempt. See [the full measured comparison](docs/team/status-lane-c.md) and [human evaluation status](docs/team/eval.md).
 
 ## Team agents: start here
 
@@ -71,6 +82,8 @@ The verification gate forcibly disables model calls and tracing, even when priva
 
 The deep engine uses actual Deep Agents director/scout/skeptic graphs over the same source tools and ranking logic. After market retrieval, interior and logistics scouts run concurrently; the shortlist combines their full source records from session state. Model-facing tool responses are compact summaries. A failed run or 90-second deadline triggers a visible fixed-engine fallback. Deep approval resumes a human-approval checkpoint; both engines save drafts locally and always report `sent=false`.
 
+The director writes its initial plan once; subsequent progress comes from actual tool/scout events. The application completes the persisted plan only after validating the returned ids, skeptic reviews and staged approval checkpoints. Visual scoring uses the exact authored scene, including follow-ups, and scores ten candidates while retaining the full retrieval pool. Cache checks include provider/model, prompt and image identity; changing inferred parser wording alone does not cause a miss.
+
 Configure `LANGSMITH_API_KEY` and `LANGSMITH_PROJECT` (default `typecast`) for traces of fixed and deep runs. `LANGSMITH_TRACING=false` disables tracing. A response includes a trace URL only after the client retrieves the completed run and returns its URL; absent credentials or tracing failures leave `trace_url=null`.
 
 `GET /config` gives the viewer exactly `mode`, `engine`, `tracing`, and `matterport_sdk_key`. Mode is `mock`, `live`, or `mixed` when adapters disagree; engine is the configured selection, while scout responses identify the engine that actually finished. The only exposed key is the browser SDK application key, or null when absent/unsafe. Matterport documents its [browser use and domain allowlist](https://developers.matterport.com/embed-sdk/). API credentials are never included.
@@ -84,6 +97,10 @@ python scripts/benchmark_deep.py --runs 3 --director-effort medium --scout-effor
 
 This command uses the configured model API. It disables model parsing and vision reranking; add `--tracing` to include real trace upload and verified link retrieval. Without that flag, it measures director/delegate changes without trace-service latency. Reports count fallbacks separately from successful deep runs and require a verified link on every traced trial. The output contains timing metadata, not source records.
 
+For the private five-scene demo set, run the API in live mode with model parsing and vision enabled, then use `python scripts/check_demo.py --engine fixed --phase baseline --verify-trace` (or `--engine deep` against a deep server). Each scene must return three available picks with known parking, real images, all three evidence sources and a source-grounded skeptic caveat. It also checks five-truck refinement without another search and unsent local drafts. Use `--phase precompute` to fill a changed cache, then `--phase warm` to measure it; every attempt is retained under ignored `cache/demo-checks/`.
+
+`scripts/check_demo_browser.py` uses an optional separate Playwright environment to decode the actual interior and aerial images from saved scout and refinement responses in Chromium. It saves private screenshots and fails on missing images. This verifies API imagery; the separately owned viewer UI needs its own acceptance check. Local evidence caches do not remove the live parser/director model or tracing service's network dependency.
+
 With a mock server running on port 8000 and tracing enabled, verify actual SSE delivery, public configuration, and a fetched LangSmith run with:
 
 ```bash
@@ -96,8 +113,21 @@ Tracing waits at most eight seconds for a run to become readable after upload. I
 ```bash
 python scripts/e2e.py
 python agent/eval/run_eval.py --mode mock
-# After real data and hand labels exist:
-python agent/eval/run_eval.py --mode live --labels cache/eval/labels.jsonl --split test
 ```
 
 The authored benchmark has 15 test and 5 tuning scenes. Empty labels are skipped, so mock runs never become a retrieval accuracy claim. Keep real labels in ignored `cache/`. The 15 mock frame images are explicitly labelled placeholders, not photographs; regenerate them with `python scripts/make_mock_images.py`.
+
+For the live blinded lab, freeze the exact index and candidate pools before human review. Use the immutable generation path printed by `freeze` for the lab, export and evaluation:
+
+```bash
+python agent/eval/label_bridge.py freeze
+# Set TYPECAST_INDEX_DIR to the printed generation path, then start the lab:
+TYPECAST_USE_MOCKS=0 uvicorn index.preview:app --port 8765
+# Review all 15 test scenes at http://localhost:8765/evaluate as Human review.
+python agent/eval/label_bridge.py export --split test
+TYPECAST_ENABLE_MODEL_PARSE=1 TYPECAST_ENABLE_VISION_RERANK=1 \
+  TYPECAST_ALLOW_VISION_UPLOAD=1 python agent/eval/run_eval.py --mode live --split test \
+  --scenes cache/evaluation/agent/scenes.jsonl --labels cache/evaluation/agent/labels.jsonl
+```
+
+The exporter rejects stale, incomplete, AI or mock reviews. This evaluation measures pipeline recall@10 against human judgments of a frozen global top-40 pool, not exhaustive catalog recall. The pipeline's city filter can exclude relevant views from that global pool; the report includes a city-eligibility diagnostic. Empty judged pools are counted separately and excluded from recall. Never use held-out test judgments for tuning.

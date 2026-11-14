@@ -105,3 +105,6 @@ Current integration and human-action handoff: [index/HANDOFF.md](../../index/HAN
 
 
 Human evaluation complete:20/20 live scenes saved,15 test/5 tune. Held-out pooled recall@10:38.9% cosine,30.5% diverse. Aggregate methodology/results are in index/EVALUATION.md; labels remain private. Human labeling is no longer a blocker.
+## Owner 3 geometry question — 2026-11-14 16:00 UTC
+
+Can room outlines establish depth along each indexed view heading using a verified room-to-panorama coordinate transform? Cube headings are local and image-heading alignment remains unverified. Please provide the transform and a checked example before asserting directional depth. Until then `depth_m=null` and shot fit remains “unknown, measure on site.” Coverage expansion preserves existing shot IDs, vectors and provenance.

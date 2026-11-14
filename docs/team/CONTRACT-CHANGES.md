@@ -41,3 +41,13 @@ Owner: C integration captain, coordinated with both B adapter implementers. Prod
 - Coordinates remain `[lat, lon]`, area is square metres, walk is metres. Source evidence separates recorded CoStar parking flags from imagery estimates; no personal contact fields are added.
 - C updates evidence, ranking and skeptic wording; D should render these optional fields and nulls. All new fields default to absent/empty, except missing capacity defaults null.
 - SAM3 mask follow-up: optional Logistics.parking_geometry is standard GeoJSON Polygon/MultiPolygon with **[longitude, latitude]** coordinates and interior rings, so real mask holes and disjoint regions survive. The legacy parking_polygon remains **[latitude, longitude]** and is empty when a single ring cannot accurately express the geometry. The annotated aerial always depicts the actual mask; consumers should prefer parking_geometry when available.
+
+## Active listing categories — 2026-11-14
+
+Owner: C integration captain, requested by Owner 2; producers B, consumers C/D.
+Property adds `listing_types: list["lease" | "sale" | "auction"]`, default empty.
+It records distinct categories of linked **Active** commercial listings, decoded
+from the supplied ListingType enum. Multiple categories can coexist. Empty means
+no recognized active category, not proof that the property is off market.
+Sale/auction never imply lease-space availability; availability rules are unchanged.
+Older private joins without this additive column return an empty list until rebuilt.

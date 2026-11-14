@@ -15,6 +15,7 @@ ENUMS = {
     "AvailabilityType": {"0": "Unknown", "1": "ThirtyDays", "5": "ToBeDetermined", "7": "Negotiable"},
     "ConstructionEventType": {"2": "ConstructionComplete", "4": "RenovationFinished"},
     "ContactRole": {"0": "Unknown", "4": "PropertyManager", "11": "ListingBroker"},
+    "ListingType": {"0": "Unknown", "9": "PropertyForSale", "14": "PropertyDirectSpaceForLease", "22": "PropertyForAuction"},
 }
 
 
@@ -33,7 +34,7 @@ def listing(pid=1, status=1, **space_changes):
     space = {"propertyId": pid, "squareFeetMax": 1000, "isLeasePending": False,
              "availabilityType": 0, "availableOnDate": "2027-01-01T00:00:00Z"}
     space.update(space_changes)
-    return {"propertyId": pid, "listingStatus": status,
+    return {"propertyId": pid, "listingStatus": status, "listingType": 14,
             "listingContacts": [{"contactRole": 11, "name": "ANOTHER PRIVATE PERSON"}],
             "forLeaseSummary": {"totalAvailableSquareFeet": 1000, "spaces": [space], "properties": []}}
 
@@ -53,7 +54,7 @@ def private_join(tmp_path, monkeypatch):
                 "commercial-listing-summary": [listing(), listing(3, availabilityType=5, availableOnDate=None), listing(4, status=3)]}
     for name in builder.DATASETS:
         (kit / "data" / f"{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in datasets.get(name, [])))
-    with (kit / "commercial-properties.csv").open("w") as handle:
+    with (kit / "commercial-properties.csv").open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["PropertyId", "MatterportModelId", "Address", "City", "State"])
         writer.writerows((pid, model, "Synthetic St", "Los Angeles", "CA")
@@ -79,6 +80,7 @@ def test_exact_pair_join_and_no_personal_contacts(private_join):
     assert prop.contact == "ListingBroker; PropertyManager"
     assert prop.parking_flags == {"hasNoParkingAvailable": False}
     assert prop.availability_status == "available" and prop.available
+    assert prop.listing_types == ["lease"]
     assert "future-dated" in prop.availability_reason
     assert costar.get_property("3").type == "Industrial"
     import duckdb
@@ -204,3 +206,24 @@ def test_era_ranges(label, bounds):
 def test_ambiguous_eras_are_rejected(label):
     with pytest.raises(ValueError):
         costar.era_year_range(label)
+
+
+def test_active_listing_categories_do_not_infer_lease_availability():
+    sale = {"propertyId": 1, "listingStatus": 1, "listingType": 9, "forSaleSummary": {}}
+    auction = {"propertyId": 1, "listingStatus": 1, "listingType": 22, "auctionForSaleSummary": {}}
+    unknown = {"propertyId": 1, "listingStatus": 1, "listingType": 0}
+    assert builder.active_listing_types([sale, auction, sale, unknown, listing()], ENUMS) == ["auction", "lease", "sale"]
+    assert builder.availability("1", [sale, auction], ENUMS)[0] == "unknown"
+    assert builder.active_listing_types([{**sale, "listingStatus": 3}, unknown], ENUMS) == []
+    assert builder.active_listing_types([sale], {k: v for k, v in ENUMS.items() if k != "ListingType"}) == []
+
+
+def test_older_join_without_listing_types_is_compatible(private_join):
+    import duckdb
+    _, path, _ = private_join
+    older = path.with_name("older.parquet")
+    with duckdb.connect() as connection:
+        connection.execute("COPY (SELECT * EXCLUDE(listing_types) FROM read_parquet(?)) TO ? (FORMAT PARQUET)", [str(path), str(older)])
+    older.replace(path)
+    prop = costar.get_property("1")
+    assert prop.available and prop.listing_types == []

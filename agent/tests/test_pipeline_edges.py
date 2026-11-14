@@ -195,7 +195,7 @@ def test_events_are_emitted_in_order_during_tools_and_rerank(monkeypatch):
         return original_search(**kwargs)
 
     def rerank_while_running(ctx, req, shots, k):
-        assert k == 20
+        assert k == 10
         assert any(e.agent == "search_shots" and e.type == "tool" for e in observed)
         ctx.event(Event(type="fallback", agent="rerank", text="Vision skipped in test."))
         assert observed[-1].text == "Vision skipped in test."
@@ -227,7 +227,7 @@ def test_minimum_area_chooses_large_enough_alternate_view(monkeypatch):
     assert "minimum size" in result.gave_up  # Still fewer than three viable properties.
 
 
-def test_rerank_top_twenty_preserves_other_cached_views(monkeypatch):
+def test_rerank_top_ten_preserves_other_cached_views(monkeypatch):
     _, shots = dataset(monkeypatch, [{} for _ in range(25)])
     calls = []
 
@@ -239,7 +239,9 @@ def test_rerank_top_twenty_preserves_other_cached_views(monkeypatch):
     ctx = RunContext(thread_id="rerank-cap")
     pipeline.scout(ctx, Requirements(scene="Office"))
     cached = pipeline._threads[ctx.thread_id]["candidates"]
-    assert calls == [20]
+    assert calls == [10]
+    assert [shot.shot_id for shot in cached[:10]] == [shot.shot_id for shot in reversed(shots[:10])]
+    assert [shot.shot_id for shot in cached[10:]] == [shot.shot_id for shot in shots[10:]]
     assert {shot.shot_id for shot in cached} == {shot.shot_id for shot in shots}
     assert len(cached) == 25
 

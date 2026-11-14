@@ -14,7 +14,7 @@ INDEX_ROOT = ROOT / "cache/shot-index"
 USE_MOCKS = os.getenv("TYPECAST_USE_MOCKS", "1") == "1"
 _COLUMNS = ("property_id", "address", "city", "lat", "lon", "type", "year_built",
             "available", "size_sqft", "contact", "model_id", "availability_status",
-            "availability_reason", "parking_flags")
+            "availability_reason", "parking_flags", "listing_types")
 
 
 def era_year_range(era: str) -> tuple[int, int]:
@@ -84,6 +84,9 @@ def _live(where: str = "TRUE", parameters: list | None = None, limit: int | None
         values.append(limit)
     try:
         with duckdb.connect(":memory:") as connection:
+            columns = {row[0] for row in connection.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(JOIN_PATH)]).fetchall()}
+            if "listing_types" not in columns:
+                query = query.replace(",listing_types FROM", ",[]::VARCHAR[] AS listing_types FROM", 1)
             rows = connection.execute(query, values).fetchall()
         return [Property(**dict(zip(_COLUMNS, row))) for row in rows]
     except Exception:
