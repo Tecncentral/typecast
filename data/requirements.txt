@@ -1,0 +1,6 @@
+duckdb>=0.10
+pyarrow>=14
+requests>=2.31
+shapely>=2.0
+pillow>=10.0
+pytz
