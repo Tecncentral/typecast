@@ -1776,7 +1776,7 @@ test('decisions: swap keeps both takes, durations, dialogue and origin, and mark
   assert.deepEqual(JSON.parse(JSON.stringify(env.api.S.transfer['s1::shot_b'])), { from_shot_id: 'shot_a', from_property_id: 'prop_a', reviewed: false });
   assert.equal(env.$('swapNotice').hidden, false);
   assert.match(env.$('swapNotice').textContent, /prop_a → prop_b.*carried over as a draft.*NOT verified against this frame.*previous scan identity does not apply/);
-  assert.match(env.$('planSel').childNodes[0]?.textContent || env.$('stagePlanSummary').textContent, /manual swap, not recalculated/);
+  assert.match(env.$('planSel').childNodes[0]?.textContent || env.$('stagePlanSummary').textContent, /swapped by hand, totals not recalculated/);
   env.drawLog.length = 0; env.api.setVariant('A');
   assert.ok(painted(env).includes('STAGING CARRIED OVER · UNREVIEWED ON THIS FRAME'));
   assert.equal(env.api.viewShot('s1').carried, true);
@@ -1824,6 +1824,9 @@ test('decisions: a rejected location never returns through swap, and replans cle
   env.api.swapLocation('s1', 'shot_b');
   env.$('reject').click();                                              // rejects the swapped property, prop_b
   assert.deepEqual(copied(env.api.S.forbidden), ['prop_b']);
+  // while the replan is still in flight the response still lists prop_b: it must already be unusable
+  assert.equal(env.api.validSwap('s1'), null); assert.equal(env.api.altChoices('s1').some((c) => c.shot.property_id === 'prop_b'), false);
+  assert.doesNotMatch(env.$('rail').textContent, /swapped/);
   // replan fails: the swap is no longer honoured and the rejected property is not offered
   env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();
   assert.equal(env.api.validSwap('s1'), null);

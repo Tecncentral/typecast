@@ -39,7 +39,7 @@ function orderPlans(data) {
 function planSummary(p) {
   const covered = S.scenes.length - (p.uncovered_scene_ids || []).length;
   const base = `${covered}/${S.scenes.length} scenes · ${p.locations} location${p.locations === 1 ? '' : 's'} · ${p.company_moves ?? '?'} move${p.company_moves === 1 ? '' : 's'}`;
-  return p === plan() && anySwap() ? `${base} · manual swap, not recalculated` : base;
+  return p === plan() && anySwap() ? `${covered}/${S.scenes.length} scenes · location swapped by hand, totals not recalculated` : base;
 }
 
 // ---------- data access ----------
@@ -124,6 +124,7 @@ function busy(on) {
   $('lookAround').disabled = on || !assignFor(S.sceneId);
   $('planSel').disabled = on || !(S.resp?.plans.length);
   const frameSelect = $('framePicker').querySelector('select'); if (frameSelect) frameSelect.disabled = on;
+  for (const b of $('framePicker').querySelectorAll('button')) b.disabled = on;   // strips rendered mid-build must not stay disabled
   $('gen').disabled = on || !!S.gen.ctrl;
 }
 // Rejections remain authoritative even if a stale or faulty backend returns them (or no backend answers).
@@ -181,6 +182,7 @@ function reject() {
   const a = assignFor(S.sceneId);
   if (!a) return status('This scene has no assigned location to reject.', true);
   if (!S.forbidden.includes(a.property_id)) S.forbidden.push(a.property_id);
+  renderAll();   // a hand-swapped rejected location must vanish immediately, not after the replan returns
   build(true);
 }
 
@@ -892,7 +894,7 @@ function exportSnapshot() {
   const p = plan();
   return clone({ app: 'Typecast Director', exported_at: new Date().toISOString(), variant: S.variant, plan_index: S.planIdx,
     honesty: 'Candidate plans only. Uncalibrated screen-space rehearsal; geometric fit unknown. Plan score describes original solver frames; manual frame choices retain the assigned property.',
-    source_mode: S.resp?.mode ?? 'unknown', locations: count(p?.locations), company_moves: anySwap() ? null : p?.company_moves ?? null, mean_similarity: anySwap() ? null : p?.mean_similarity ?? null,
+    source_mode: S.resp?.mode ?? 'unknown', locations: anySwap() ? null : count(p?.locations), company_moves: anySwap() ? null : p?.company_moves ?? null, mean_similarity: anySwap() ? null : p?.mean_similarity ?? null,
     plan_note: anySwap() ? 'A location was swapped by hand; plan locations, moves and similarity were not recalculated.' : undefined,
     review_needed: S.importReview,
     scenes: S.scenes.map((s) => ({ ...s, ...sceneProduction(s.id), evidence: evidenceSummary(s.id),
@@ -939,14 +941,15 @@ async function exportPack() {
     csp.setAttribute('content', "default-src 'none'; img-src data:; style-src 'unsafe-inline'");
     const st = doc.createElement('style'); st.textContent = PACK_CSS; doc.head.prepend(cs, csp); doc.head.append(st);
     doc.body.append(E('h1', 'Typecast shoot pack'),
-      E('p', `Generated ${snapshot.exported_at} · Variant ${snapshot.variant} · Plan ${snapshot.plan_index + 1}: ${snapshot.locations} location(s), ${snapshot.company_moves ?? 'unknown'} company move(s), mean original-plan similarity ${fmt(snapshot.mean_similarity)} · mode ${snapshot.source_mode}`, 'meta'),
+      E('p', `Generated ${snapshot.exported_at} · Variant ${snapshot.variant} · Plan ${snapshot.plan_index + 1}: ${snapshot.locations ?? 'unknown'} location(s), ${snapshot.company_moves ?? 'unknown'} company move(s), mean original-plan similarity ${fmt(snapshot.mean_similarity)} · mode ${snapshot.source_mode}`, 'meta'),
       E('p', 'Candidate plan only, not verified shootability. Staging is an uncalibrated screen-space rehearsal; geometric fit is unknown. Missing source fields are marked unknown.', 'unk'));
     for (const [i, s] of snapshot.scenes.entries()) {
       const sec = E('section', null, 'scene'), a = s.evidence?.frame;
       sec.append(E('h2', `${i + 1}. ${s.heading}`), E('p', s.description || '(no description)'));
       if (a) {
         const sh = s.staging;
-        if (s.manual_frame) sec.append(E('p', 'Manual frame choice within assigned property; plan score refers to original solver selection.', 'meta'));
+        if (s.location_choice) sec.append(E('p', 'Location chosen by hand from the candidate pool; plan score and totals describe the original solver selection.', 'meta'));
+        else if (s.manual_frame) sec.append(E('p', 'Manual frame choice within assigned property; plan score refers to original solver selection.', 'meta'));
         try {
           const url = await dataUrl(`/image/${encodeURIComponent(a.shot_id)}`), im = await loadImg(url), cv = document.createElement('canvas');
           cv.width = 1280; cv.height = 720;
