@@ -22,6 +22,8 @@ const BODY_M = 0.25;
 // half-million splats. A denser reconstruction puts more splats on the same surface.
 const SOLID_SPLATS = 5;
 const DRAFT_SPLATS = 524288;
+const DOOR_MAX_DEPTH_M = 0.6; // a door or partition, not a desk
+const DOOR_HALF_WIDTH_M = 0.5;
 const ICON_WALK = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 const MOVE_KEYS = { w: "forward", arrowup: "forward", s: "back", arrowdown: "back", a: "left", d: "right" };
 
@@ -202,6 +204,7 @@ function measureRoom(mesh, splat, eye) {
   // Solid cells, grown by a body's half-width.
   const grow = Math.round(BODY_M / ROOM_CELL_M);
   const solid = new Uint8Array(nx * nz);
+  const door = doorways(points, counts, solidAt, { minX, minZ, cell, nx, nz });
   for (let iz = 0; iz < nz; iz += 1) {
     for (let ix = 0; ix < nx; ix += 1) {
       if (counts[iz * nx + ix] < solidAt) continue;
@@ -223,7 +226,7 @@ function measureRoom(mesh, splat, eye) {
       for (let ix = Math.max(0, Math.floor(cx - reachCells)); ix < Math.min(nx, cx + reachCells); ix += 1) {
         const d = Math.hypot(ix + 0.5 - cx, iz + 0.5 - cz);
         // A tripod stood at every scan point, so the floor right there is free whatever the splat says.
-        if (d <= reachCells && (!solid[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M)) open[iz * nx + ix] = 1;
+        if (d <= reachCells && (!solid[iz * nx + ix] || door[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M)) open[iz * nx + ix] = 1;
       }
     }
   }
@@ -248,6 +251,49 @@ function measureRoom(mesh, splat, eye) {
     }
   }
   return { scale, free: null, grid: { minX, minZ, cell, nx, nz, walk, cells: tail, points, splats: total, solidAt } };
+}
+
+// The scan was walked from point to point, so neighbouring scan points are joined by a real
+// passage even where the dressed set shows a closed door or a glass partition across it.
+// Where the straight line between two neighbours crosses only something thin, a doorway is
+// opened there. Furniture and thick walls are left alone.
+function doorways(points, counts, solidAt, { minX, minZ, cell, nx, nz }) {
+  const door = new Uint8Array(nx * nz);
+  const joined = [0];
+  const edges = [];
+  while (joined.length < points.length) { // shortest links that connect every scan point
+    let best = null;
+    for (const a of joined) {
+      for (let b = 0; b < points.length; b += 1) {
+        if (joined.includes(b)) continue;
+        const d = Math.hypot(points[a][0] - points[b][0], points[a][2] - points[b][2]);
+        if (!best || d < best.d) best = { a, b, d };
+      }
+    }
+    joined.push(best.b);
+    edges.push(best);
+  }
+  const width = Math.round(DOOR_HALF_WIDTH_M / ROOM_CELL_M);
+  for (const { a, b, d } of edges) {
+    const steps = Math.ceil(d / (cell / 2));
+    const hits = [];
+    for (let k = 0; k <= steps; k += 1) {
+      const ix = Math.floor((points[a][0] + ((points[b][0] - points[a][0]) * k) / steps - minX) / cell);
+      const iz = Math.floor((points[a][2] + ((points[b][2] - points[a][2]) * k) / steps - minZ) / cell);
+      if (ix >= 0 && iz >= 0 && ix < nx && iz < nz && counts[iz * nx + ix] >= solidAt) hits.push([ix, iz]);
+    }
+    if (!hits.length || (hits.length * ROOM_CELL_M) / 2 > DOOR_MAX_DEPTH_M) continue;
+    for (const [hx, hz] of hits) {
+      for (let dz = -width; dz <= width; dz += 1) {
+        for (let dx = -width; dx <= width; dx += 1) {
+          const jx = hx + dx;
+          const jz = hz + dz;
+          if (dx * dx + dz * dz <= width * width && jx >= 0 && jz >= 0 && jx < nx && jz < nz) door[jz * nx + jx] = 1;
+        }
+      }
+    }
+  }
+  return door;
 }
 
 function walkable(grid, x, z) {

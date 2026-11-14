@@ -1,6 +1,6 @@
 # AI-dressed sets (World Labs Atlas)
 
-Updated 2026-11-14 ~23:00 UTC. Branch `dressed-set`.
+Updated 2026-11-14 ~23:30 UTC. Branch `dressed-set`.
 
 ## Works (verified)
 - `python -m worlds.dress --demo` dressed the top pick's scan point for all 5 demo scenes: images2PosedRGBD (4 real horizon faces, 1280x720, first frame canonical) then atlasChisel (depth-only targets plus a set-dressing prompt). Each step finished in seconds. Estimated camera headings came back within 4° of 0/90/180/270, which independently confirms the viewfinder's face order.
@@ -13,26 +13,29 @@ Updated 2026-11-14 ~23:00 UTC. Branch `dressed-set`.
 - Scale: a one-point capture has no metric scale (0.23 and 0.39 world units per metre in the two sets). The viewer finds the floor in the splat and assumes the scan camera stood 1.5 m above it, so walking speed and wall limits are in metres. Before this fix the empty shop let the camera walk through walls.
 - Direct link: `/app/#walk=<shot_id>` (optional `&yaw=<degrees>`) opens the scan point and steps inside, facing the most open direction. Precinct: `http://localhost:8006/app/#walk=10463354-LZFBoH68TzD-kpggz0sc9c3ichwidtgf7i1wa-270.000-3c5d2e61a5af`.
 - Whole-room set (new, `worlds/room.py`): the LA open-plan office is dressed and reconstructed from 6 real scan points spanning about 11 m, 32 views in all (the limit of one atlasChisel request and of a draft splat). `python -m worlds.room --scene-id la-office-confrontation --points gmmx31,t7bq2e,gcrbzn,kf87kd,ix54mc` pulls the scan points from Matterport, renders overlapping 1280x720 views from their cube faces, estimates depth (images2PosedRGBD), dresses all views in one request with rebuilt depth (`returnDepth`), then `worlds.dress --splat --draft` builds one splat (8.3 MB).
+- Refined room (new): the room was re-dressed with a brightly lit precinct scene (lit tubes, brick, corkboards, filing cabinets, desk rows; a few views into the glass rooms stay dark), then `python -m worlds.dress --splat --scene-id la-office-confrontation --allow-spend-credits 5000` ran the refined reconstruction: 2,000,000 splats, 32 MB, 24 minutes. It is sharp and consistent from all six scan points and renders at 61 fps on an M4 Pro. Demo link: `http://localhost:8006/app/#walk=10463354-LZFBoH68TzD-kpggz0sc9c3ichwidtgf7i1wa-270.000-3c5d2e61a5af&yaw=0`.
+- The refined splat's body-height slice is a clean floor plan (walls, desks, columns). It also showed the doorway between the second and third scan points as a solid partition, which cut the walk in two. The viewer now opens a doorway where the straight line between neighbouring scan points crosses only something thin (up to 0.6 m), because the scan was walked through there. Walkable floor: 46 m².
 - Cameras come from the scan, not from Atlas. Atlas's own camera estimate was unreliable here: 2 of 6 scan points were posed inconsistently on both attempts (the ones beside glass partitions), with a layout error of 0.8 m and then 1.9 m RMS against Matterport. Where Atlas was consistent, its turns matched Matterport's scan rotations within 2.4°, and neighbouring distances gave one unit (0.869 world units per metre). So every camera is built from Matterport's measured positions and rotations, scaled by that unit; Atlas supplies depth only. `room/posed.json` and the record's `room.atlas_estimate` keep the comparison.
-- Walking a room: `/api/dressed` adds `splat.units_per_m`, `splat.floor_y` and `splat.scan_points`. The viewer builds a 10 cm floor grid from the splat (solid at body height, within 2.2 m of a scan point for a draft, reachable from the start), shows it as a floor plan with the scan points and your position, slides along obstacles, and Shift doubles the pace. This set has 40 m² of walkable floor.
+- Walking a room: `/api/dressed` adds `splat.units_per_m`, `splat.floor_y` and `splat.scan_points`. The viewer builds a 10 cm floor grid from the splat (solid at body height, within 2.2 m of a scan point for a draft, reachable from the start), shows it as a floor plan with the scan points and your position, slides along obstacles, and Shift doubles the pace. Reach is 3 m for a refined splat, and the solid-surface threshold scales with splat count.
 - `/cache` serves `.spz` only under `cache/worlds/`. All world outputs stay in git-ignored `cache/worlds/`.
 - Tests: `agent/tests/test_worlds.py` (14), `agent/tests/test_room.py` (5). `python scripts/verify.py`: 607 passed.
 
 ## Spend
-18 Atlas operations, listed in `cache/worlds/atlas-operations.jsonl`: 7 images2PosedRGBD (2 of them on 32 views), 8 atlasChisel (2 on 32 views) and 3 draft posedImages2Splats at 500 credits each (empty shop, one-point precinct, whole-room precinct), all three approved by Zukhriddin on Nov 14. One further splat submission was refused with HTTP 409 for a reused idempotency key and cost nothing. Atlas publishes no price for the first two tasks, and the 32-view runs are likely the largest unpriced items; check the balance at https://atlas.worldlabs.ai/settings/credits/developer (it was 9,960 credits before any run). No refined splat (5,000 credits) has been run.
+20 Atlas operations, listed in `cache/worlds/atlas-operations.jsonl`: 7 images2PosedRGBD (2 of them on 32 views), 9 atlasChisel (3 on 32 views), 3 draft posedImages2Splats at 500 credits each (empty shop, one-point precinct, whole-room precinct) and 1 refined posedImages2Splats at 5,000 credits (the bright whole-room precinct). Splats total 6,500 credits, all approved by Zukhriddin on Nov 14. One further splat submission was refused with HTTP 409 for a reused idempotency key and cost nothing. Atlas publishes no price for the first two tasks; check the balance at https://atlas.worldlabs.ai/settings/credits/developer (it was 9,960 credits before any run, so at most about 3,400 remain).
 
-## What the drafts showed
+## What the runs showed
 - A bold scene is what makes this a reveal. The first five dressed sets are plain because their scenes describe the rooms as they already are; the precinct prompt changed the room and reads immediately.
 - Standing at the scan point the precinct holds together toward the bullpen (headings 315 to 45). Toward the glass partition one metre away (heading 270) it smears, and above and below about ±30° there is nothing, because the four source frames are 1280x720.
 - One metre from the scan point the sets are still coherent but softer. These are drafts from four views that share one optical centre.
+- The refined run is what makes the room read as a place: the draft was soft and, in its first dressing, dark; the refined splat of the bright dressing is sharp enough to read the corkboards. Close to a wall (the walk stops 0.25 m away) it still blurs.
 - The whole-room draft agrees with itself from all six scan points: the same desks, columns and windows in the same places. This dressing pass came out darker and plainer than the one-point precinct (few props, several near-black views), so it proves the geometry more than the look.
 
 ## Not done / limits
-- Refined splat of the room: `python -m worlds.dress --splat --scene-id la-office-confrontation --allow-spend-credits 5000` (15 to 25 minutes). Not run; needs a go-ahead and enough balance.
-- The room's dressing is dark. A brighter prompt needs one more 32-view atlasChisel run before refining.
+- No budget is left for a second refined splat without a top-up.
+- Doorways are inferred from the scan path, not detected: where one is opened, the camera passes through whatever the dressed set drew there.
 - 32 views is the ceiling for one consistent dressing request. A larger room needs a second request that uses the first as context; not built.
 - The desk area in front of the anchor scan point has no scan point inside it, so it is seen from one side only and is not walkable.
 - Matterport's cube up and down faces are not used (their rotation is undocumented), so views tilt at most 5° down and floors right under a scan point come from other scan points.
-- One look per scan point is live at a time; the one-point precinct and earlier looks are archived under `dressed/looks/`. Switching looks inside the walk is not built.
+- One look per scan point is live at a time; the one-point precinct, the dark room draft and earlier looks are archived under `dressed/looks/` (copied, so open viewers keep working). Switching looks inside the walk is not built.
 - Walk mode has no touch controls.
 - In the 360° comparison the dressed frames are 1280x720, so they cover about ±30° vertically; above and below, the real room shows dimmed.
