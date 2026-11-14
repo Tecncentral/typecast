@@ -1,6 +1,6 @@
 # Owner 1 status
 
-Updated 2026-11-14 10:47 UTC. Branch lane-a, PR #6 into dev.
+Updated 2026-11-14 10:59 UTC. Branch lane-a, PR #6 into dev.
 
 Implemented real cosine retrieval over private CLIP embeddings, strict cache/model
 validation, pre-top-k filters, cross-model/property example matching, atomic index
@@ -8,10 +8,12 @@ generation builder, bounded/resumable Matterport horizon importer, and evaluatio
 CLI. Estimated geometry now returns explicit unknown status with current shared
 ShotFit schema. No shared schema or root dependency edits.
 
-Verified locally: 51 index tests pass, including recovery and local-image isolation.
+Verified locally: 65 index tests pass, including recovery and local-image isolation.
 The initial integrated baseline passed 46 tests plus API smoke. At fcc9a1d, both
 push and PR Linux CI passed the full shared gate (117 tests, smoke, SSE and mock
-evaluation). Later recovery/anchor/preview tests are being submitted next.
+evaluation). Latest feature code 9faab10 is also green in CI. Combined with the
+separate Windows-fix PR #8, local verification passes 139 tests plus API smoke,
+SSE/refinement/no-send and the unlabelled 20-scene mock evaluation.
 Controlled vectors cover ranking, null filters, corruption, duplicate IDs and
 source exclusion. Synthetic HTTP clients cover retries, partial failure, unsafe
 redirect refusal and resume. Import/build/search generation roundtrip passes.
@@ -39,17 +41,17 @@ One-command bootstrap is live verified: `python -m index.bootstrap --max-models 
 available models, enriched room evidence with zero room-fetch failures and
 published a complete index. No manual catalog/model-pair preparation is required.
 
-Private team bundle: cache/typecast-owner1-team-bundle.zip (no credentials).
-Extract into another checkout's repository root to use the prebuilt index. The
-bundle must be refreshed after the latest anchor-enriched rebuild. Alternatively
-each teammate can re-ingest with their own sponsor key and an agreed model list.
+A current local Typecast-Owner1-Team.zip (no credentials) was prepared for private
+team handoff outside the public repository. Extract into the repository root to
+use the prebuilt index. Alternatively re-ingest with your own sponsor key and an
+agreed model list through the one-command bootstrap.
 
 Remaining: 20 human-labelled held-out scenes, Owner 2's property/aerial alignment,
 and Owner 4's shared viewer integration. Exact SDK tour-pose alignment is unverified;
 links open the correct model without promising a matched camera. Windows-only
-shared dev bugs remain: offline harness blocks asyncio's internal socketpair;
-rerank treats C: image paths as URL schemes. These are recorded in PR #6 for
-Owner 3; Linux CI is green. Grok audited the code and identified recovery and
+shared dev bugs have fixes in PR #8: offline harness socketpairs and Windows C:
+image paths. Owner 3 should inspect that separate fix; its CI and the combined
+Windows gate pass. Grok audited the code and identified recovery and
 configuration issues now fixed; Gemini supplied retrieval, ingestion and room
 drafts. Claude login works but quota blocks review. User explicitly authorized
 the sponsor agreement and confirmed hackathon-demo permission. Raw data/keys
