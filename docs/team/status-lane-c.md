@@ -1,87 +1,69 @@
 # Lane C status
 
-UTC: 2026-11-14T09:31:39.179287+00:00
-Baseline commit: 5a449bcc9952d038ce7b0de12a1d401099c62574
+Updated UTC: 2026-11-14T10:03:32Z
+Verified integrated commit: `d3ca338f12f29bb0ef318a9b88ea5960a344edb2` (dev and local lane-c).
+Verified tree: `d6bd490d8580b7967a68a7160c9a1871989265cb`.
 
 ## Works
-- `git fetch origin && git merge origin/dev`: Already up to date (network sandbox required elevated fetch).
-- `.venv/bin/python scripts/verify.py` baseline: 13 passed, 1 warning in 0.28s; PASS mock search -> validated picks -> same-thread refinement -> SSE result -> no-send approval.
-- Step 0 verification: 13 passed in 0.16s; same smoke PASS.
-- Added shared RunContext/Requirements, transitional engine interfaces, optional evidence/fit/runtime contract fields in Python/TypeScript and fixture updates; separated API tests.
 
-## Broken / not yet implemented
-- Real streaming, persistent threads, model parsing/rerank, deep engine and evaluation are next.
-- Live lanes currently raise NotImplementedError; no real picks claimed.
+- M1 complete: shared interfaces, null-safe geometry, real streaming during execution, and one runtime for JSON/SSE requests.
+- M2 complete: structured model parsing, bounded vision reranking with cache and explicit fallback events, cached refinement including explicit zero, thread validation, and local approval drafts with `sent=false`.
+- M3 complete over mocks using the real provider: actual deepagents director, market, interior, logistics and skeptic delegates; real approval checkpoint; response identifies the engine that ran. No trace URL is invented.
+- M5 implementation complete: 20 authored scenes (15 test / 5 tune), private human-label input, recall@10 and p50/p95 reporting, and a test proving refinement makes no new search. Actual retrieval quality remains unmeasured until real data and labels exist.
+- Fifteen labelled synthetic mock frames make fixture image URLs work. Private thread/outbox data cannot be served through `/cache`.
+- User-requested `gpt-6.1-sol` with high app reasoning is configured in ignored `.env`. All five coding subagents used `gpt-6.1-sol` with xhigh reasoning.
 
-## Next
-- SA1-SA5 implementations, independent review, API/e2e checks, clean dependency install.
+## Verification
 
-## Blocked on
-- Private join and real interior/aerial adapters from A/B remain absent. Matterport credentials are now present and verified (see checks below).
-- LangSmith key absent; trace_url stays null.
-- Real hand labels absent; no retrieval metric claimed.
+Final combined lane A/C checkout used `/tmp/typecast-review-lane-a` and the clean environment `/tmp/typecast-clean-venv`. Its tree exactly matches the integrated dev commit above.
 
-## Foundation integrated and access checks
+```text
+/tmp/typecast-clean-venv/bin/python scripts/verify.py
+97 passed in 2.28s
+PASS mock search -> validated picks -> same-thread refinement -> SSE result -> no-send approval
+e2e: first event 1.46 ms; result 5.91 ms; refine 3.66 ms; approval 1.13 ms
+search counts after scout/refine: 1 each, unchanged by refine
+mock evaluation: 20/20 completed; 0 labelled / 20 skipped; recall@10 N/A
+mock evaluation latency: p50 2.79 ms; p95 3.24 ms
 
-- Foundation commit `d3ab730`; PR #1 merged into dev as `93224a9`.
-- Installed/pinned openai 3.51.0, deepagents 0.7.38, langchain-openai 1.8.0.
-- Clean `/tmp/typecast-clean-venv` installation from requirements.lock.txt succeeded.
-- Clean environment `python scripts/verify.py`: 13 passed in 0.38s; smoke PASS. `pip check`: No broken requirements found.
-- `scripts/check_access.py --network`: OpenAI model list confirms requested text/vision model; Matterport HTTP 200, zero GraphQL errors after user supplied secret. No credential values or licensed rows printed.
-- User requested gpt-6.1-sol with high app reasoning; configured only in ignored .env. All coding subagents use gpt-6.1-sol xhigh.
-- Live data join remains absent. Vexcel auth/verify returned HTTP 404; checking documented WMTS capabilities next.
-- SA1, SA2 and SA3 running; SA4/SA5 queued for available slots.
+/tmp/typecast-clean-venv/bin/python -m pip check
+No broken requirements found.
+```
 
-Updated UTC: 2026-11-14T09:36:50.849577+00:00
+These evaluation timings describe local fixture execution, not real retrieval performance. The evaluation report explicitly says "mock run: not a result".
 
-- Vexcel key validated using documented WMTS GetCapabilities: HTTP 200, XML root Capabilities. Control request without credentials returned HTTP 401. Authentication-only endpoint returned 404 and is not used by the diagnostic.
-- Browser SDK key is verified on the official public sample; real matched-building tour remains lane D integration work.
+Actual uvicorn HTTP checks on the combined checkout, using the police-station scene with model calls disabled:
 
-- Matterport SDK browser check at localhost:8766 succeeded using the official SDK bootstrap and public sample model: "PASS: SDK connected and model metadata is readable." This verifies SDK/domain access, not a matched sponsor-building tour. Temporary helper is outside the repository and reads the key only at runtime.
+- `/health`: 200, all three adapters mock.
+- `POST /scout` and `GET /scout/stream`: same three picks; first event 1.10 ms, result 4.73 ms. Every pick carried all three evidence sources.
+- `POST /refine`: same thread, updated parking objections, no new search.
+- `POST /approve`: `draft_saved`, `sent=false`; invalid rank 422 and unknown thread 404.
+- All mock image URLs: 200. Private cache paths: 404.
 
-Dependency/access PR #2 merged into dev as eeb2000; both GitHub verify jobs passed (32s and 29s). Updated UTC: 2026-11-14T09:40:44.467675+00:00.
+Clean installation from `requirements.lock.txt` succeeded. Pinned direct integrations: openai 3.51.0, deepagents 0.7.38, langchain-openai 1.8.0. GitHub verification passed for PR #4 (35 s and 32 s). No tracked file contains any configured credential value; `.env` and private cache remain ignored.
 
-## First runtime/pipeline proof (working tree)
+## Provider checks and real model execution
 
-- Live OpenAI structured-output probe: ok=true, 2.899 s.
-- Live parser police-station scene: parsed_with_model=true, Los Angeles, 1980s/year_max=1992, 3 trucks, 30 cars, night; 3.565 s.
-- Local uvicorn at 127.0.0.1:8765 with models disabled/mock adapters: health 200 (all three adapters mock); POST scout 200 with 3 picks; GET stream first event 1.40 ms and result 4.32 ms (53 events); POST refine 200 same thread and two parking objections; POST approve 200 draft_saved, sent=false; unknown refine thread 404. Every returned pick had all three evidence sources.
-- SA2 focused tests: 19 passed in 0.05s. Current full verify while SA1 finishes: 30 passed, one old approval test needs updating for thread validation; not merged as complete.
+- `python scripts/check_access.py --network`: OpenAI model-list access succeeded and includes the requested model; Matterport HTTP 200 with zero GraphQL errors; Vexcel WMTS GetCapabilities HTTP 200 with XML Capabilities (unauthenticated control 401). No keys or licensed records were printed.
+- Matterport browser SDK connected to the official public sample and read model metadata. This verifies SDK/domain access, not a matched sponsor-building tour.
+- Live structured-output probe: 2.899 s. Live police-station parsing: 3.565 s, model parsed Los Angeles / 1980s / 3 trucks / 30 cars / night correctly.
+- Live vision request on a synthetic test image: one scored, zero failures, 5.259 s; identical cached result in 0.0004 s.
+- Real deepagents run with `gpt-6.1-sol` / high reasoning completed in **87.828 s**, `engine=deep`, `source_mode=mock`, three picks, `trace_url=null`. Delegate completion: market 15.57 s, interior 40.34 s, logistics 57.78 s, skeptic 82.84 s. HTTP approval resumed its actual checkpoint and saved a local draft without another model generation.
+- An earlier deep attempt failed after 56.26 s and explicitly fell back to fixed at 56.267 s. The successful run is close to the 90 s cutoff, so the default remains fixed. Deep failure/timeout is surfaced in a fallback event.
+- Verified deepagents APIs from installed source: declarative subagents, StateBackend, explicit TodoListMiddleware, InMemorySaver, streamed updates/subgraphs, interrupt_on and Command(resume).
 
-## M1/M2 integrated verification
+## Broken / blocked on
 
-- `.venv/bin/python scripts/verify.py`: 59 passed in 0.51s; mock API smoke PASS.
-- SA1 runtime/API tests: 22 passed in 0.21s. SA2 pipeline tests: 19 passed in 0.05s. SA3 fake provider/rerank tests: 11 passed in 0.31s.
-- Live vision request on a synthetic test image: 1/1 scored, zero failures, 5.259 s. Second call: 1 cached, identical score, 0.0004 s.
-- Live-mode error probe: all adapters report live; stream HTTP 200, agent error then terminal error, no result. Sanitized terminal text: "Scouting failed. Please try again." Actual current adapter prerequisite is `NotImplementedError: Owner 2: query the joined table here`. No mock fallback.
-- Working directory still has no private join; no real property pick or retrieval accuracy claim. Mock frame paths supplied by the scaffold point at missing image files; viewer fixtures need local placeholders or lane D assets.
-- Deep engine + evaluation work remain in progress; no deep success claimed yet.
+- **M4:** `cache/join.parquet` is absent, and lane A/B live adapters remain stubs. Sanitized implementation errors: `Owner 1: load the real index here`, `Owner 2: query the joined table here`, `Owner 2: call Vexcel here and cache the result`. Credentials work; a real joined pick has not been validated.
+- Live-mode failure probe with `TYPECAST_USE_MOCKS=0`: health reported live adapters; SSE emitted an agent error and terminal error, no result and no silent mock fallback. Client message: `Scouting failed. Please try again.`
+- **M5 measurement:** no real shot corpus or human relevance labels. Recall@10 remains N/A; no accuracy claim.
+- LangSmith key absent. Tracing is optional; no live trace validation or URL is claimed.
+- Sponsor engineer name remains TBD in DECISIONS.md. Existing sponsor permission is recorded; no name was invented.
 
-## Integration review fixes
-- Reviewing lane A PR #3 at db0daf6 in an isolated checkout merged with current dev and lane C exposed a fresh-checkout /cache RuntimeError (77 tests passed, one failed). Fixed cache serving to return 404 when no cache exists yet and to pick up later images.
-- Fixed pipeline failed-fit filtering to use unrounded geometric depth, compatible with lane A's precision fix. Focused API/pipeline regressions: 27 passed in 0.28s.
-- Independent review also found vision workers could overrun the configured deadline; SA3 is adding a wall-clock watchdog before PR #4 is merged.
+## Integration and next handoff
 
-## Evaluation and remaining deep validation
-- Full verification including real-graph fake-model tests: 73 passed in 1.27s; smoke PASS; gated ASGI e2e first event 1.43 ms, result 5.45 ms, refine 3.75 ms, approval 1.29 ms. Search counts remain 1 each after refine.
-- Eval: 20/20 authored scenes completed on mocks; 0 labeled/20 skipped; recall@10 N/A, p50 2.80 ms and p95 3.13 ms. These are local fixture timings, not retrieval results.
-- Added 15 explicitly labelled synthetic mock image placeholders to repair scaffold image URLs; all return HTTP 200. No real building imagery represented.
-- First real deepagents/gpt-6.1-sol-high attempt reached market and interior delegates, then failed at 56.26 s; runtime transparently returned fixed-engine picks at 56.267 s. No deep success or trace claimed. Tightening summaries and capturing sanitized failure details before retry.
-
-## M3 live model proof — 2026-11-14T09:59:11.452829+00:00
-
-- Second real gpt-6.1-sol/high deepagents run completed successfully over mock data in **87.828 s**, returning engine=deep, source_mode=mock, 3 picks, trace_url=null.
-- Observed delegate completion: market 15.57 s, interior 40.34 s, logistics 57.78 s, skeptic 82.84 s; final 87.83 s. Actual stream updates, not invented progress.
-- HTTP POST /approve on this run resumed the real human-approval checkpoint and returned draft_saved, sent=false. No additional model generation was required for approval.
-- Latency is close to the 90 s deep cutoff. Default remains fixed; failures/timeouts explicitly return fixed with a fallback event.
-- Installed API confirmed from package source: create_deep_agent with declarative subagents, StateBackend virtual files, explicit TodoListMiddleware, InMemorySaver, stream_mode=updates/subgraphs=True, interrupt_on and Command(resume) for approval.
-- Deep tests: 10 passed in 1.04 s, including real graph/tool execution with deterministic chat, HTTP approval, rejection, source errors, invalid output, and cancellation.
-- Final lane C gate so far: **78 passed in 1.69 s**, smoke PASS, e2e PASS (first1.85 ms/result5.98 ms; zero new search on refine), mock evaluation20/20 with no labels and recall N/A.
-
-## Current milestone state
-- M1 complete: shared interfaces, null safety, real streaming, shared runtime.
-- M2 complete: model parse/vision with announced fallback; explicit zero refine; validated threads; local drafts only.
-- M3 complete on mocks with a real provider run and actual four delegates. LangSmith is optional and unconfigured, so no trace URL is claimed.
-- M4 blocked: lane A/B live adapters and private cache/join.parquet are absent. Credential access is verified; a joined real pick is not.
-- M5 harness complete:20 scenes, split15/5, recall@10 and p50/p95, proven cache-only refine. Actual labelled retrieval result awaits private real corpus and human labels.
-- No remaining lane C implementation task is known; finish current PR integration and rerun combined lane A regression gate.
+- PR #1 (interfaces/contracts) merged as `93224a9`; PR #2 (dependencies/access checks) as `eeb2000`.
+- [PR #4](https://github.com/Tecncentral/typecast/pull/4) (complete lane C implementation) merged into dev as `cdaac5c`.
+- [PR #3](https://github.com/Tecncentral/typecast/pull/3) (reviewed lane A geometry fixes) merged into dev as `d3ca338`. Integration exposed and fixed fresh-cache serving and unrounded depth filtering before merge. A separate review fixed vision requests overrunning their wall-clock deadline.
+- Latest dev was merged into lane-c. No main merge, deployment, delivery, or external submission was performed. No other lane PR was open at this check.
+- No independent lane C implementation task remains. When A/B supply real adapters and the private join, run the go-live prompt in `docs/team/OWNER-3-PROMPTS.md`: one known building through both engines, then three where supported, real frame browser checks, and labelled evaluation before tuning. Keep the source mode and measured/estimated/unknown evidence explicit.
