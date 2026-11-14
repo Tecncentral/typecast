@@ -12,7 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
-from time import perf_counter
+from time import perf_counter, sleep
 from urllib.parse import urlparse
 
 import httpx
@@ -28,6 +28,18 @@ DEFAULT_SCENE = ("INT. LOS ANGELES APARTMENT, DAY. Bright living room with windo
 def require(condition: bool, message: str):
     if not condition:
         raise RuntimeError(message)
+
+
+def read_trace(client, run_id: str):
+    # A completed root can become readable before all parent/child rows do.
+    # The SDK raises KeyError while assembling that incomplete hierarchy.
+    for attempt in range(1, 4):
+        try:
+            return client.read_run(run_id, load_child_runs=True), attempt
+        except KeyError:
+            if attempt == 3:
+                raise
+            sleep(1)
 
 
 def check(base: str, engine: str, scene: str, output: Path, verify_trace: bool) -> dict:
@@ -82,13 +94,22 @@ def check(base: str, engine: str, scene: str, output: Path, verify_trace: bool) 
             aerial_count += 1
             unknown_fit += pick["shot_fit"]["status"] == "unknown"
 
-    trace_verified, spans = False, 0
+    summary = {"engine": engine, "source_mode": "live", "picks": 3,
+               "elapsed_s": round(elapsed, 3), "model_parse": True,
+               "vision_scored": int(match[1]), "vision_cached": int(match[3]),
+               "vision_failures": int(match[4]), "frames_http_verified": frame_count,
+               "aerials_http_verified": aerial_count, "source_evidence_counts": source_counts,
+               "unknown_shot_fits": unknown_fit, "trace_verified": False,
+               "trace_spans": 0, "trace_read_attempts": 0,
+               "trace_url": result.get("trace_url"), "timings": result["timings"]}
+    # Retain measured scouting evidence even if independent trace read-back fails.
+    output.write_text(json.dumps(summary, indent=2) + "\n")
     if verify_trace:
         from langsmith import Client
         require(bool(result.get("trace_url")), "No verified LangSmith trace was returned.")
         run_id = urlparse(result["trace_url"]).path.rstrip("/").split("/")[-1]
         with closing(Client(api_key=os.environ["LANGSMITH_API_KEY"], timeout_ms=8000)) as client:
-            run = client.read_run(run_id, load_child_runs=True)
+            run, attempts = read_trace(client, run_id)
             require(run.end_time is not None and run.parent_run_id is None, "Trace root is incomplete.")
             stack, all_spans = [run], []
             while stack:
@@ -97,14 +118,8 @@ def check(base: str, engine: str, scene: str, output: Path, verify_trace: bool) 
                 stack.extend(span.child_runs or [])
             require(all(not span.inputs and not span.outputs for span in all_spans), "Trace contains unredacted payloads.")
             require(client.get_run_url(run=run, project_name=os.getenv("LANGSMITH_PROJECT", "typecast")) == result["trace_url"], "Trace URL verification failed.")
-            trace_verified, spans = True, len(all_spans)
-    summary = {"engine": engine, "source_mode": "live", "picks": 3,
-               "elapsed_s": round(elapsed, 3), "model_parse": True,
-               "vision_scored": int(match[1]), "vision_cached": int(match[3]),
-               "vision_failures": int(match[4]), "frames_http_verified": frame_count,
-               "aerials_http_verified": aerial_count, "source_evidence_counts": source_counts,
-               "unknown_shot_fits": unknown_fit, "trace_verified": trace_verified,
-               "trace_spans": spans, "trace_url": result.get("trace_url"), "timings": result["timings"]}
+            summary.update(trace_verified=True, trace_spans=len(all_spans),
+                           trace_read_attempts=attempts)
     output.write_text(json.dumps(summary, indent=2) + "\n")
     return summary
 
