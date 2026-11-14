@@ -341,6 +341,11 @@ def get_director_project_js() -> FileResponse:
     return FileResponse(_STATIC_DIR / "director-project.js", media_type="application/javascript")
 
 
+@router.get("/director-ui.js")
+def get_director_ui_js() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "director-ui.js", media_type="application/javascript")
+
+
 @router.get("/director.css")
 def get_director_css() -> FileResponse:
     return FileResponse(_STATIC_DIR / "director.css", media_type="text/css")
