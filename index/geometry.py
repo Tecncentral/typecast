@@ -50,5 +50,6 @@ def check_fit(depth_m, ceiling_m, focal_mm=24.0, frame_width_m=6.0, measure_on_s
         parts.append("Geometry estimated: fit unverified; measure on site.")
     else:
         parts.append("Depth feasibility only; verify access, obstructions and rig clearance on site.")
-    return ShotFit(fits=fits, needed_depth_m=need, have_depth_m=depth_m,
+    status = "unknown" if measure_on_site or ceiling_m is None else ("fits" if fits else "tight")
+    return ShotFit(fits=fits, status=status, needed_depth_m=need, have_depth_m=depth_m,
                    ceiling_m=ceiling_m, note=" ".join(parts))

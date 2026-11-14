@@ -1,0 +1,2 @@
+# Optional local CLIP encoder. Owner 3 must consolidate/pin before shared deployment.
+sentence-transformers[image]>=5,<6

@@ -6,6 +6,7 @@ from index.geometry import check_fit, needed_depth_m
 def test_estimated_depth_is_never_verified_fit():
     result = check_fit(30, 3.5, measure_on_site=True)
     assert result.fits is False
+    assert result.status == 'unknown'
     assert "unverified" in result.note
 
 
