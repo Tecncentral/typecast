@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import json
-from threading import Event as ThreadEvent, get_ident
+from threading import Event as ThreadEvent, Lock, get_ident
+from time import perf_counter, sleep
 from typing import Any
 
 import pytest
@@ -13,6 +14,7 @@ from pydantic import PrivateAttr
 
 from agent import deep, pipeline, state
 from agent.interfaces import Requirements, RunContext
+from agent.deep_tools import SUMMARY_BYTES, ToolSession, make_tools
 from contracts.schemas import ScoutResponse
 
 
@@ -21,6 +23,8 @@ class DeterministicChat(BaseChatModel):
     bad_final: bool = False
     _steps: dict[str, int] = PrivateAttr(default_factory=dict)
     _history: list[str] = PrivateAttr(default_factory=list)
+    _director_turns: list[tuple[str, ...]] = PrivateAttr(default_factory=list)
+    _interior_turns: list[tuple[str, ...]] = PrivateAttr(default_factory=list)
 
     @property
     def _llm_type(self) -> str:
@@ -48,8 +52,8 @@ class DeterministicChat(BaseChatModel):
         if role == "market_scout":
             if step == 0:
                 answer = call("search_costar")
-            elif step == 1 and result("search_costar"):
-                answer = call("get_property", {"property_id": result("search_costar")[0]["property_id"]})
+            elif step == 1 and result("search_costar")["properties"]:
+                answer = call("get_property", {"property_id": result("search_costar")["properties"][0]["property_id"]})
             else:
                 answer = AIMessage(content=json.dumps({"properties": result("search_costar")}))
         elif role == "interior_scout":
@@ -57,16 +61,16 @@ class DeterministicChat(BaseChatModel):
                 answer = call("search_shots")
             elif step == 1:
                 answer = call("rerank_shots")
-            elif step == 2 and result("search_shots"):
-                answer = call("check_shot", {"shot_id": result("search_shots")[0]["shot_id"]})
+                if result("search_shots")["shots"]:
+                    answer.tool_calls.extend(call("check_shot", {
+                        "shot_id": result("search_shots")["shots"][0]["shot_id"]}).tool_calls)
+                self._interior_turns.append(tuple(c["name"] for c in answer.tool_calls))
             else:
                 answer = AIMessage(content=json.dumps({"property_ids": list(dict.fromkeys(
-                    s["property_id"] for s in result("search_shots")))}))
+                    s["property_id"] for s in result("search_shots")["shots"]))}))
         elif role == "logistics_scout":
-            ids = json.loads(deep._text(messages[-1].content)).get("property_ids", []) if step == 0 else []
-            if ids:
-                answer = AIMessage(content="", tool_calls=[{"name": "plan_logistics", "args": {"property_id": pid},
-                    "id": f"logistics-{pid}", "type": "tool_call"} for pid in ids])
+            if step == 0:
+                answer = call("plan_logistics")
             else:
                 answer = AIMessage(content="Checked the supplied candidate logistics.")
         elif role == "skeptic":
@@ -76,23 +80,21 @@ class DeterministicChat(BaseChatModel):
                 answer = AIMessage(content=json.dumps({"reviews": [{"property_id": p["property"]["property_id"],
                     "objection": p["skeptic_notes"][0]} for p in result("get_shortlist")["picks"]]}))
         else:
-            sequence = ["todo", "market_scout", "todo", "interior_scout", "todo", "logistics_scout",
-                        "todo", "build_shortlist", "todo", "skeptic", "todo", "final"]
-            action = sequence[step]
-            if action == "todo":
-                answer = call("write_todos", {"todos": [{"content": "Verify source evidence and shortlist", "status":
-                                                        "completed" if step == 10 else "in_progress"}]})
-            elif action == "build_shortlist":
-                answer = call(action)
-            elif action == "final":
+            if step == 4:
                 ids = [p["property"]["property_id"] for p in result("build_shortlist")["picks"]]
                 answer = AIMessage(content=json.dumps({"property_ids": ["invented"] if self.bad_final else ids}))
             else:
-                description = "Inspect source evidence and report results."
-                if action == "logistics_scout":
-                    description = next(deep._text(m.content) for m in reversed(messages)
-                                       if isinstance(m, ToolMessage) and m.name == "task")
-                answer = call("task", {"subagent_type": action, "description": description})
+                calls = [{"name": "write_todos", "args": {"todos": [{
+                    "content": "Verify source evidence", "status": "in_progress"}]},
+                    "id": f"director-{step}-todo", "type": "tool_call"}]
+                for action in {0: ["market_scout"], 1: ["interior_scout", "logistics_scout"],
+                               2: ["build_shortlist"], 3: ["skeptic"]}[step]:
+                    args = {} if action == "build_shortlist" else {
+                        "subagent_type": action, "description": "Inspect the complete market source pool."}
+                    calls.append({"name": action if action == "build_shortlist" else "task", "args": args,
+                                  "id": f"director-{step}-{action}", "type": "tool_call"})
+                self._director_turns.append(tuple(c["args"].get("subagent_type", c["name"]) for c in calls))
+                answer = AIMessage(content="", tool_calls=calls)
         return ChatResult(generations=[ChatGeneration(message=answer)])
 
 
@@ -115,7 +117,7 @@ def offline(monkeypatch, tmp_path):
 
 def fake_model(monkeypatch, **kwargs):
     model = DeterministicChat(**kwargs)
-    monkeypatch.setattr(deep, "_chat_model", lambda: model)
+    monkeypatch.setattr(deep, "_chat_model", lambda **kwargs: model)
     return model
 
 
@@ -134,6 +136,7 @@ def test_real_graph_delegates_streams_validates_and_matches_fixed(monkeypatch, t
     response = deep.run_deep(RunContext("deep-test", emit=emitted.append), req)
     assert ScoutResponse.model_validate(response.model_dump()).engine == "deep"
     assert response.picks and response.events == emitted
+    assert response.trace_url is None
     assert all(event.engine == "deep" for event in emitted)
     assert {"director", "market_scout", "interior_scout", "logistics_scout", "skeptic"} <= set(model._history)
     starts = [(i, e.agent) for i, e in enumerate(emitted) if e.type == "subagent_start"]
@@ -146,7 +149,14 @@ def test_real_graph_delegates_streams_validates_and_matches_fixed(monkeypatch, t
     assert [e.ts for e in emitted] == sorted(e.ts for e in emitted)
     assert set(save_threads) == {get_ident()}
     assert {p.name for p in (tmp_path / "threads/deep-test").iterdir()} == {
-        "requirements.json", "candidates.json", "shortlist.json", "skeptic.md"}
+        "requirements.json", "sources.json", "candidates.json", "shortlist.json", "skeptic.md"}
+    sources = json.loads((tmp_path / "threads/deep-test/sources.json").read_text())
+    assert set(sources["properties"]) == set(sources["logistics"])
+    assert sources["missing_logistics"] == []
+    for pick in response.picks:
+        pid = pick.property.property_id
+        assert sources["properties"][pid] == pick.property.model_dump(mode="json")
+        assert sources["logistics"][pid] == pick.logistics.model_dump(mode="json")
     assert not (tmp_path / "outbox").exists()
     fixed = pipeline.scout(RunContext("fixed-compare"), req)
     assert [p.model_dump() for p in response.picks] == [p.model_dump() for p in fixed.picks]
@@ -171,10 +181,13 @@ def test_tool_failure_emits_error_and_raises_without_memory(monkeypatch, tmp_pat
 
 def test_invented_final_records_fail_closed(monkeypatch, tmp_path):
     fake_model(monkeypatch, bad_final=True)
+    events = []
     with pytest.raises(ValueError, match="authoritative"):
-        deep.run_deep(RunContext("deep-invalid"), Requirements(scene="office"))
+        deep.run_deep(RunContext("deep-invalid", emit=events.append), Requirements(scene="office"))
     assert not (tmp_path / "threads/deep-invalid").exists()
     assert not deep._approvals
+    assert not any(all(todo["status"] == "completed" for todo in json.loads(e.text))
+                   for e in events if e.type == "todo")
 
 
 def test_actual_approval_interrupt_resumes_local_draft_once(monkeypatch, tmp_path):
@@ -272,3 +285,185 @@ def test_configured_model_is_not_hard_coded(monkeypatch):
     assert seen["model"] == "configured-model-id" and seen["model_provider"] == "openai"
     assert seen["reasoning"] == {"effort": "high"}
     assert seen["store"] is False and seen["max_retries"] == 0
+
+
+@pytest.mark.parametrize("director_effort,scout_effort,expected", [
+    (None, None, ["medium", "low", "low", "low", "low"]),
+    ("high", "minimal", ["high", "minimal", "minimal", "minimal", "minimal"]),
+])
+def test_subagent_model_override_gets_independent_effort(monkeypatch, director_effort, scout_effort, expected):
+    import deepagents
+    import langchain.chat_models
+    created, captured = [], {}
+
+    def init(model, **options):
+        instance = object()
+        created.append((instance, options["reasoning"]["effort"]))
+        return instance
+
+    def create(**options):
+        captured.update(options)
+        return object()
+
+    monkeypatch.setattr(langchain.chat_models, "init_chat_model", init)
+    monkeypatch.setattr(deepagents, "create_deep_agent", create)
+    monkeypatch.setenv("TYPECAST_LLM_MODEL", "offline-configured-model")
+    monkeypatch.setenv("TYPECAST_LLM_PROVIDER", "openai")
+    monkeypatch.setenv("LLM_API_KEY", "offline-test-key")
+    for name, value in [("TYPECAST_REASONING_EFFORT", director_effort),
+                        ("TYPECAST_SCOUT_REASONING_EFFORT", scout_effort)]:
+        monkeypatch.delenv(name, raising=False) if value is None else monkeypatch.setenv(name, value)
+    director = deep._chat_model()
+    deep._build_graph(director, ToolSession(RunContext("efforts"), Requirements(scene="office")))
+    assert [effort for _, effort in created] == expected
+    assert captured["model"] is director
+    assert [spec["model"] for spec in captured["subagents"]] == [model for model, _ in created[1:]]
+    assert len({id(model) for model, _ in created}) == 5
+
+
+def test_real_graph_parallel_scouts_overlap_sleeping_source_tools(monkeypatch):
+    model = fake_model(monkeypatch)
+    intervals = {"interior": [], "logistics": []}
+    lock = Lock()
+
+    def sleeping(role, function):
+        def invoke(*args, **kwargs):
+            span = [perf_counter(), None]
+            with lock:
+                intervals[role].append(span)
+            try:
+                sleep(0.18)
+                return function(*args, **kwargs)
+            finally:
+                span[1] = perf_counter()
+        return invoke
+
+    monkeypatch.setattr(pipeline, "search_shots", sleeping("interior", pipeline.search_shots))
+    monkeypatch.setattr(pipeline, "plan_logistics", sleeping("logistics", pipeline.plan_logistics))
+    emitted = []
+    response = deep.run_deep(RunContext("deep-parallel", emit=emitted.append), Requirements(scene="office"))
+    interior = intervals["interior"][0]
+    logistics = min(intervals["logistics"], key=lambda span: span[0])
+    assert max(interior[0], logistics[0]) < min(interior[1], logistics[1])
+    assert ("write_todos", "interior_scout", "logistics_scout") in model._director_turns
+    assert len(model._director_turns) == 4
+    assert model._interior_turns == [("rerank_shots", "check_shot")]
+    assert model._history.count("director") == 5
+    assert model._history.count("interior_scout") == 3
+    assert len(intervals["interior"]) == 1
+    assert len(intervals["logistics"]) == len(pipeline.search_costar(city="Los Angeles", available_only=False))
+    assert response.engine == "deep" and response.picks
+    assert any(e.type == "tool" and e.agent == "plan_logistics" for e in emitted)
+    start = min(interior[0], logistics[0])
+    print("parallel source timing (ms): interior "
+          f"{(interior[0] - start) * 1000:.2f}–{(interior[1] - start) * 1000:.2f}; logistics "
+          f"{(logistics[0] - start) * 1000:.2f}–{(logistics[1] - start) * 1000:.2f}")
+
+
+def test_logistics_uses_market_pool_and_shortlist_reuses_full_cache(monkeypatch):
+    session = ToolSession(RunContext("deep-tool-cache"), Requirements(scene="office", trucks=3, cars=30))
+    tools = make_tools(session)
+    calls = []
+    source = pipeline.plan_logistics
+
+    def load(pid, trucks, cars):
+        calls.append(pid)
+        return source(pid, trucks, cars)
+
+    monkeypatch.setattr(pipeline, "plan_logistics", load)
+    outputs = [tools["search_costar"].invoke({})]
+    assert not session.shots
+    outputs.append(tools["plan_logistics"].invoke({}))
+    assert set(session.logistics) == set(session.properties)
+    assert len(calls) == len(session.properties)
+    outputs.append(tools["get_property"].invoke({"property_id": next(iter(session.properties))}))
+    outputs.append(tools["search_shots"].invoke({}))
+    outputs.append(tools["rerank_shots"].invoke({}))
+    outputs.append(tools["check_shot"].invoke({"shot_id": session.shots[0].shot_id}))
+    outputs.append(tools["build_shortlist"].invoke({}))
+    outputs.append(tools["get_shortlist"].invoke({}))
+    assert len(calls) == len(session.properties)
+    assert session.picks and all(p.logistics is session.logistics[p.property.property_id] for p in session.picks)
+    assert all(isinstance(output, str) and len(output.encode()) <= SUMMARY_BYTES for output in outputs)
+    for output in outputs[-2:]:
+        summary = json.loads(output)
+        assert summary["omitted"] == 0
+        assert [p["property"]["property_id"] for p in summary["picks"]] == [p.property.property_id for p in session.picks]
+
+
+def test_compact_pool_summaries_keep_full_source_records(monkeypatch):
+    template = pipeline.search_costar(city="Los Angeles", available_only=False)[0]
+    shot = pipeline.search_shots(query_text="office", property_ids=[template.property_id])[0]
+    properties = [template.model_copy(update={"property_id": f"source-{i}", "contact": "private" * 1000})
+                  for i in range(50)]
+    shots = [shot.model_copy(update={"shot_id": f"view-{i}", "property_id": p.property_id,
+                                     "reason": "full source reason" * 1000}) for i, p in enumerate(properties)]
+    monkeypatch.setattr(pipeline, "search_costar", lambda **kwargs: properties)
+    monkeypatch.setattr(pipeline, "search_shots", lambda **kwargs: shots)
+    monkeypatch.setattr(pipeline, "_rerank", lambda ctx, req, views: list(views))
+    session = ToolSession(RunContext("deep-summary"), Requirements(scene="office"))
+    tools = make_tools(session)
+    for name in ["search_costar", "search_shots", "rerank_shots"]:
+        output = tools[name].invoke({})
+        summary = json.loads(output)
+        assert len(output.encode()) <= SUMMARY_BYTES
+        assert summary["count"] == 50 and summary["omitted"] > 0
+        assert "private" not in output and "full source reason" not in output
+    assert list(session.properties.values()) == properties
+    assert session.shots == shots and session.shots[-1].reason == shots[-1].reason
+
+
+def test_shortlist_requires_logistics_for_every_retrieved_property():
+    session = ToolSession(RunContext("deep-missing-logistics"), Requirements(scene="office"))
+    tools = make_tools(session)
+    tools["search_costar"].invoke({})
+    tools["get_property"].invoke({"property_id": next(iter(session.properties))})
+    tools["search_shots"].invoke({})
+    tools["rerank_shots"].invoke({})
+    tools["check_shot"].invoke({"shot_id": session.shots[0].shot_id})
+    first = session.shots[0].property_id
+    tools["plan_logistics"].invoke({"property_id": first})
+    assert set(session.logistics) == {first}
+    with pytest.raises(ValueError, match="Complete logistics_scout"):
+        tools["build_shortlist"].invoke({})
+
+
+def test_todos_complete_in_real_checkpoint_only_after_validation_and_approval_staging(monkeypatch):
+    model = fake_model(monkeypatch)
+    staged, captured, events = [], {}, []
+    original_stage = deep._stage_draft
+    original_complete = deep._complete_todos
+
+    def stage(*args):
+        result = original_stage(*args)
+        staged.append(result)
+        return result
+
+    def complete(graph, config, session, mapper):
+        before = graph.get_state(config)
+        assert before.next == ()
+        assert any(todo["status"] == "in_progress" for todo in before.values["todos"])
+        assert len(staged) == len(session.picks)
+        assert deep.Decision.model_validate_json(mapper.last_answer).property_ids == [
+            pick.property.property_id for pick in session.picks]
+        assert {review.property_id for review in mapper.reviews.reviews} == {
+            pick.property.property_id for pick in session.picks}
+        history = list(model._history)
+        original_complete(graph, config, session, mapper)
+        after = graph.get_state(config)
+        assert after.next == ()
+        assert [todo["content"] for todo in after.values["todos"]] == [
+            todo["content"] for todo in before.values["todos"]]
+        assert all(todo["status"] == "completed" for todo in after.values["todos"])
+        assert after.config != before.config
+        assert model._history == history
+        captured["todos"] = after.values["todos"]
+
+    monkeypatch.setattr(deep, "_stage_draft", stage)
+    monkeypatch.setattr(deep, "_complete_todos", complete)
+    response = deep.run_deep(RunContext("deep-checkpoint-todos", emit=events.append), Requirements(scene="office"))
+    todos = [event for event in events if event.type == "todo"]
+    assert response.picks and captured["todos"] == json.loads(todos[-1].text)
+    assert events.index(todos[-1]) > max(i for i, event in enumerate(events)
+                                       if event.type == "subagent_result")
+    assert len(model._director_turns) == 4 and model._history.count("director") == 5
