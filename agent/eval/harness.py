@@ -4,6 +4,7 @@ import importlib
 import os
 from pathlib import Path
 import socket
+import sys
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -28,8 +29,15 @@ OFFLINE_ENV = {
 def mock_app():
     """Never read .env credentials or connect a socket, even in a provisioned checkout."""
     attempts = []
+    original_connect = socket.socket.connect
 
     def no_network(*args, **kwargs):
+        # CPython's Windows socketpair implements the event loop's internal
+        # self-pipe over loopback. Permit only that exact stdlib call site;
+        # application/provider sockets, including loopback, remain blocked.
+        fallback = getattr(socket, '_fallback_socketpair', None)
+        if fallback is not None and sys._getframe(1).f_code is fallback.__code__:
+            return original_connect(*args, **kwargs)
         attempts.append("network")
         raise AssertionError("Network access is disabled for mock verification")
 
