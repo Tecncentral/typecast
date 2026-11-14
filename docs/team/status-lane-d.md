@@ -76,3 +76,12 @@ Private evidence (never committed): `cache/screens/viewer-report.json`, `viewer-
 Integrator: inspect the lane-d PR into dev and run the browser command with private prerequisites or mock mode as appropriate. No merge to main or deployment performed.
 
 Core UI is local; optional tour/SDK and street tiles require a network. Heading alignment is unverified. Missing dimensions, walk routing, parking permissions and filming access remain visible limitations. A ranked result is not a booking or permission. Individual live runtimes are not latency guarantees. No owner message was sent. No blocking viewer issue remains from the recorded acceptance checks.
+
+## Docs: Peri interview kit
+
+Updated: 2026-11-14 22:06 UTC. Docs only; no web/, bridge/ or backend files changed.
+
+- `docs/peri.md` now holds the interview kit: who to ask, a 30-second opener, nine questions (question 8 produces the required "one thing we changed"), and a checklist for quote, photo and naming consent. Every evidence field is still blank.
+- Outreach has gone out on Discord and LinkedIn; no interview has happened yet. Peri stays a conditional track until a human fills the evidence from a real conversation.
+- `docs/devpost.md` and `docs/pitch.md` on this branch are the teammate's v2 versions and are left unchanged.
+- Next: run the interview, make the one change it asks for, and record it in `docs/peri.md` with the commit.
