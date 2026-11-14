@@ -322,6 +322,9 @@ def dressed_set(shot_id: str):
                    "dressed_url": f"{base}/{f['dressed']}", "real_url": f"{base}/{f['real']}"}
                   for f in record.get("faces", [])],
         "splat_url": f"{base}/{splat['file']}" if splat else None,
+        # Walkable reconstruction of the dressed frames; `eye` is the scan point in the splat's world.
+        "splat": {"url": f"{base}/{splat['file']}", "mode": splat.get("mode") or "refined",
+                  "splat_count": splat.get("splat_count"), "eye": splat.get("eye") or [0, 0, 0]} if splat else None,
     }
 
 
