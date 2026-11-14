@@ -159,3 +159,65 @@ The advantage is small: one additional judged-positive return across 100 tune sl
 Private protocol, budget ledger, raw responses, top-ten memberships, score caches, selection arithmetic and input/code fingerprints remain in `cache/experiments/rerank-v2/`. Cancellation handling and SDK HTTP instrumentation were corrected during baseline execution; no cancellation, 429 or scoring failure was observed, and all image reservations/vision events were present. A duplicate-aggregation correction completed during screening; there were no duplicates and it did not change these scores. Original revision fingerprints and the boundary explanation are retained privately.
 
 The published v1 block above remains byte-for-byte unchanged. Its historical reproduction command records the original destination; any new run must use a separate `--output cache/evaluation/<new-report>.md` path. The changed default requires exactly one separately labeled v2 test pass, followed by demo warming; neither result may be used for further tuning in this job.
+
+## v2 (after changes informed by v1)
+
+After locking 20/5/5 on the five tune scenes, the fifteen frozen test scenes ran exactly once with the live fixed engine. The scene texts, single-reviewer judgments, global reviewed pools and immutable index were unchanged. This is a post-change repeat on the same test set; architectural changes were informed by v1, so it is not a new untouched holdout. No result from this pass was used for further tuning.
+
+| Metric | Frozen v1 | v2 after changes informed by v1 |
+| --- | ---: | ---: |
+| Precision@10 lower bound | 66.00% (99/150) | **73.33% (110/150)** |
+| Macro pooled recall@10 | 27.06% | **30.48%** |
+| Unjudged returns, counted as misses | 2 | 8 |
+| Successful fixed/live requests | 15/15 | 15/15 |
+| Median / p95 request seconds | 14.539 / 19.693 | 16.057 / 24.459 |
+| Fresh image scorings / vision calls | 150 / 150 | 300 / 60 |
+| Verified trace URLs returned | 13/15 | 15/15 |
+
+Exact v2 macro recall is **0.30482012486033894**. Of 150 returned slots, 142 were reviewed: 110 relevant and 32 not selected as relevant; eight were unjudged and count as misses. The increase is eleven recovered positive pairs, or 7.33 percentage points of precision and 3.42 percentage points of macro recall. The existing city-constrained and global top-ten recall ceilings remain 37.90% and 48.14%; the pipeline still searches Los Angeles for these city-free scenes. This does not measure final-card quality, exhaustive catalog relevance, reviewer agreement or statistically significant improvement.
+
+The pass used application commit `8ff496b`, `gpt-6.1-sol` parser/vision with medium reasoning, the frozen source caches, tracing enabled and a new initially empty private vision cache. All 300 requested scores were fresh: no cache hits, scoring failures, provider fallback or engine fallback. A single app process handled all fifteen requests with no warmup or retries; only its first request included lazy encoder initialization. The timing scope matches v1 more closely than the fresh-process tune runs, but ordinary provider variability remains.
+
+The retained responses contain fifteen successful parser-accounting events incorrectly typed as `fallback`, one per scene. Their payload is call-count metadata, and every parser succeeded using one provider call. A subsequent callback correction removes the duplicate fallback notes while preserving the original `model_request` events; it does not change parsing, retrieval, ranking, prompts, scores or this retained result. The original responses and code fingerprints remain unchanged, and the test was not rerun to remove this reporting defect.
+
+Every city-free response emitted and returned the required Los Angeles note. Private responses, per-scene candidates, score caches, input/code fingerprints and independent arithmetic are retained in `cache/evaluation/runs/v2-20261114T204301Z/`. The v2 image cost is separate from the 860-image tune budget.
+
+| Scene | Relevant returns / 10 | Unjudged | P@10 lower bound | Recall@10 | Seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| interior-01 | 10 | 0 | 1.0000 | 0.3030 | 24.459 |
+| interior-02 | 0 | 3 | 0.0000 | 0.0000 | 15.553 |
+| interior-03 | 8 | 0 | 0.8000 | 0.3333 | 16.973 |
+| interior-04 | 9 | 0 | 0.9000 | 0.2812 | 14.613 |
+| interior-05 | 8 | 0 | 0.8000 | 0.3478 | 13.521 |
+| interior-06 | 9 | 0 | 0.9000 | 0.3214 | 16.895 |
+| interior-07 | 7 | 0 | 0.7000 | 0.3684 | 16.057 |
+| interior-08 | 10 | 0 | 1.0000 | 0.3571 | 14.855 |
+| interior-09 | 4 | 0 | 0.4000 | 0.2857 | 17.138 |
+| interior-10 | 6 | 0 | 0.6000 | 0.4000 | 16.258 |
+| interior-11 | 10 | 0 | 1.0000 | 0.2703 | 16.047 |
+| interior-12 | 10 | 0 | 1.0000 | 0.3125 | 14.229 |
+| interior-13 | 8 | 0 | 0.8000 | 0.4211 | 18.178 |
+| interior-14 | 6 | 0 | 0.6000 | 0.3529 | 13.726 |
+| interior-15 | 5 | 5 | 0.5000 | 0.2174 | 18.399 |
+
+## Demo refresh after v2
+
+The selected 20/5/5 settings were rehearsed after the single v2 pass. Five fixed precompute searches and their five-truck follow-ups filled the changed batch caches. Then each of the same five authored demo scenes ran once with fixed and once with deep. Every original attempt is retained; no scouting request was repeated to replace a missing trace link. These are authored demo scenes, not relevance labels.
+
+| Scene | Warm fixed seconds | Warm deep seconds | Fixed / deep trace link |
+| --- | ---: | ---: | --- |
+| la-office-confrontation | 10.092 | 49.109 | verified / verified |
+| la-warehouse-handoff | 8.550 | 38.286 | verified / verified |
+| la-empty-shop | 9.738 | 38.043 | verified / verified |
+| houston-office-meeting | 12.396 | 44.160 | unavailable / unavailable |
+| houston-apartment-conversation | 10.526 | 46.578 | verified / unavailable |
+
+All ten warm searches succeeded with the requested engine, three source-backed available properties and twenty cached visual scores each. Median/max were **10.092/12.396 s fixed** and **44.160/49.109 s deep**; there were no engine or provider fallbacks. The first deep request includes lazy process initialization. The other process/cache conditions differ from fresh-process tuning and fresh-vision v2, so these are separate measurements.
+
+The strict trace diagnostic reported three failures: fixed Houston office, deep Houston office and deep Houston apartment returned null links. Their successful scout responses and original latencies remain included. Each missed follow-up was subsequently completed on its existing thread, without scouting again. Across all ten warm threads, five-truck refinement took **6.202–10.816 s**, preserved the candidate pool, made zero new property/interior searches, changed rank or allocation and saved original/refined unsent local drafts. Returned trace links were verified independently for 4/5 fixed and 3/5 deep searches.
+
+Both named Houston scenes returned Houston properties on both engines without the unnamed-city Los Angeles notice. The current deep warehouse top pick exposes a real rail-proximity objection and unknown physical shot fit; neither proximity nor parking estimates establish filming permission or measured conditions.
+
+The fresh cache-fill cost was **200 image scorings in 40 vision calls**, including the five initial searches and their five follow-ups. The subsequent ten warm searches and ten follow-ups reused all requested visual scores. Total Job 5 vision work was **1,360 image scorings / 644 vision calls**: 860 images for tune selection, 300 for the required single v2 test pass, and 200 for the required demo refresh. The 1,000-image tune budget was not exceeded.
+
+Chromium decoded **176 real interior/aerial image references across all 20 warm scout/refinement responses**, with zero image failures. This checks API imagery, not the separately owned viewer interface. Private evidence, retained failures and screenshots are under `cache/experiments/rerank-v2/`, with raw attempts in `cache/demo-checks/`. Full repository verification passed **350 tests** plus smoke, SSE/refinement/local-draft and mock-evaluation checks.
