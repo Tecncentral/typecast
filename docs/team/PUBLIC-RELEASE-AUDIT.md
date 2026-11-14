@@ -33,17 +33,17 @@ The main app now has semantic “Location scouting | Director's Room” navigati
 
 ## History snapshot
 
-Closing content pass: 1439 reachable objects, 685 unique blobs. Complete historical path pass: 185 commits, 279 distinct paths, no private/data-output path hits. No additional sensitive-value category appeared in the closing content pass. Credential assignments also cleared one synthetic sanitization-test sentinel listed above.
+Closing scan at 2026-11-14 22:52 UTC: **1497 reachable objects / 708 unique blobs**; complete path inventory **192 commits / 283 distinct paths**, no private/data-output path hits. The new Job 8 Director, judge checker, story, stage and masthead commits are included. The known-property matches remain limited to the two local World Labs status-document versions above. A separate scan of all 192 commit messages at its snapshot found no provider-credential patterns or known property identifiers; ordinary author identities were not treated as owner contacts. Exact current credential comparison over 1,449 then-reachable objects found zero matches. Private reports retain each scan's exact scope; later commits still require review.
 
 | Ref | Commit |
 | --- | --- |
 | `dev` | `5a449bc` |
 | `director-restyle` | `6ba671b` |
-| `dressed-set` | `e93ad59` |
-| `job8-judge-path` | `dbceec2` |
-| `job8-public-audit` | `43d380e` |
-| `job8-stage` | `dbceec2` |
-| `job8-submission-story` | `b89293b` |
+| `dressed-set` | `15400be` |
+| `job8-judge-path` | `c203169` |
+| `job8-public-audit` | `b8176a7` |
+| `job8-stage` | `ae510dd` |
+| `job8-submission-story` | `4f62f3b` |
 | `lane-b` | `9bcc444` |
 | `lane-c` | `e1fbcea` |
 | `lane-d` | `acfaefb` |
@@ -62,7 +62,10 @@ Closing content pass: 1439 reachable objects, 685 unique blobs. Complete histori
 | `origin/director-restyle` | `6ba671b` |
 | `origin/dressed-set` | `2a997c9` |
 | `origin/fix/windows-verification` | `bece229` |
-| `origin/job8-submission-story` | `b89293b` |
+| `origin/job8-judge-path` | `c203169` |
+| `origin/job8-public-audit` | `b8176a7` |
+| `origin/job8-stage` | `ae510dd` |
+| `origin/job8-submission-story` | `4f62f3b` |
 | `origin/lane-a` | `0bdc5e2` |
 | `origin/lane-b` | `d5c6581` |
 | `origin/lane-b-fixes` | `2215d57` |
