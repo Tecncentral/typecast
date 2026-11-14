@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Typecast Director · Location Animatic</title>
 <link rel="stylesheet" href="director.css">
+<link rel="stylesheet" href="/app/viewfinder.css">
 </head>
 <body>
 <header class="top">
@@ -48,6 +49,7 @@
       <button id="play" type="button" class="primary">Play</button><button id="pause" type="button">Pause</button><button id="reset" type="button">Reset</button>
       <progress id="prog" max="1" value="0" aria-label="Playback progress"></progress><span id="clock" class="mono">0.0s</span>
       <button id="reject" type="button" class="danger" disabled>Reject location</button>
+      <button id="lookAround" type="button" disabled>Look around the scan</button>
     </div>
     <ol id="timeline" class="timeline" aria-label="Shot timeline"></ol>
   </section>
@@ -85,10 +87,18 @@
     <h3>Evidence</h3>
     <div id="evidence"></div>
     <a id="planner" class="link" target="_blank" rel="noopener" hidden>Open existing camera planner (separate metric panel; heading 0° assumed, unverified)</a>
+    <h3>Project</h3>
+    <label for="impProject">Load saved project JSON (rebuilds evidence with current constraints)</label>
+    <input id="impProject" type="file" accept=".json,application/json">
+    <div id="projectReview" class="notice" hidden></div>
     <h3>Export</h3>
     <div class="row"><button id="expPng" type="button">Stage PNG</button><button id="expJson" type="button">Project JSON</button><button id="expPack" type="button" disabled>Shoot pack</button></div>
+    <div class="row"><button id="expReel" type="button" disabled>Record reel (WebM)</button><button id="cancelReel" type="button" hidden>Cancel reel</button></div>
+    <p id="reelNote" class="meta">Silent WebM of the current variant, recorded in real time from real indexed frames. Keep this tab visible while it records.</p>
   </section>
 </main>
+<script src="director-reel.js"></script>
+<script src="director-project.js"></script>
 <script src="director.js"></script>
 </body>
 </html>

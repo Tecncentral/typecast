@@ -1,3 +1,21 @@
+# Current Owner 1 integration status
+
+Updated 2026-11-14 21:10 UTC. Uncommitted integration work is under review; final gate recorded in PR. Earlier entries below are historical snapshots.
+
+Shared `agent.app` serves Director and the merged full viewer on port 8771. Commit `5da12ac` adds the actual `plan_production_shoot` Deep Agents tool; fake-model graph dispatch is tested. A live trace of this new tool is not yet verified. The deterministic planner and UI notices are not an agent trace.
+
+Browser verified: real plans/rejection, independent A/B staging, reviewed text proposals, playback and exports. Scan viewfinder lens/ratio/drag/frame grab/reopen were checked with four horizon cube faces. Orientation is scan-relative, not world-aligned; the 6 m depth illustration is an assumption. An actual silent 1280×720, 4.921 s WebM downloaded and played with a real frame and moving Mara. Project import has 29 pure tests, but browser import remains untested after extension file upload was blocked.
+
+Grok audit fixes now have passing regressions for rejected properties resurfacing in faulty backend responses, missing/invalid statuses revealing availability or parking claims, unsafe exported provenance IDs and negative-time actor extrapolation. Adapted the audit DOM fixture to current reel/import/viewfinder controls. Playback progress remains display-only. Final combined gate is recorded in PR.
+
+Private data limit: the older local 11-column join lacks richer availability fields and local Vexcel logistics. PRs #12/#21 provide no private bundle link; PR #21 says the data is on Owner 2's laptop. Exact property/model mapping remains separately checked. Obtain authorized private team delivery before claiming richer constraints work here. The judged demo may show user-authorized licensed imagery; no private bundle or licensed-image export goes into public Git or public uploads.
+
+Labeling is complete. Expanded v2 PR #27 reports 73.33% precision lower bound and 30.48% macro recall, with repeated review by the same reviewer rather than a new holdout. Root did not reproduce it. Keep this separate from original 608-view and earlier expanded results; these do not measure general accuracy, Director/solver quality or filmmaker validation. No further labeling is needed.
+
+Next: live new-tool trace if claimed, browser project-import verification when upload is available, demo rehearsal/fallback and human submission/sponsor opt-ins. See [Director's Room](../../index/DIRECTORS-ROOM.md) and [demo script](../../index/DEMO-SCRIPT.md).
+
+---
+
 # Owner 1 planning milestone
 
 Updated 2026-11-14 12:32 UTC. Branch lane-a / PR #6.

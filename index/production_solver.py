@@ -15,6 +15,8 @@ MAX_LOCATIONS = 4
 def _require_nonempty_str(value: Any, *, name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{name} must be a non-empty string")
+    if value != value.strip():
+        raise ValueError(f"{name} must not have surrounding whitespace")
     return value
 
 
@@ -80,7 +82,8 @@ def solve_plans(
         ):
             raise ValueError("forbidden_property_ids must be a sequence of strings or None")
         for raw_pid in forbidden_property_ids:
-            forbidden.add(_require_nonempty_str(raw_pid, name="forbidden_property_id"))
+            forbidden.add(_require_nonempty_str(raw_pid.strip() if isinstance(raw_pid, str) else raw_pid,
+                                               name="forbidden_property_id"))
 
     # Collapse repeated (scene_id, property_id) rows to best cosine score, tie-broken by shot_id ascending.
     best_pair_cand: dict[tuple[str, str], dict[str, Any]] = {}
@@ -95,12 +98,12 @@ def solve_plans(
         shot_id = _require_nonempty_str(item.get("shot_id"), name=f"candidates[{idx}].shot_id")
         score = _require_cosine_score(item.get("score"))
 
+        if pid in forbidden:
+            continue
+
         all_props.add(pid)
         if len(all_props) > MAX_PROPERTIES:
             raise ValueError(f"Candidate pool exceeds max {MAX_PROPERTIES} unique properties")
-
-        if pid in forbidden:
-            continue
 
         normalized = {
             "scene_id": sid,

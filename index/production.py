@@ -286,9 +286,14 @@ def _lookup_logistics(property_id: str, trucks: int, cars: int) -> tuple[dict[st
         logi = _as_dict(evidence)
         if logi is not None:
             # The shared Logistics contract has counts and a status, not a feasibility flag.
-            known = (logi.get("parking_status") != "unknown"
-                     and logi.get("truck_spaces") is not None
-                     and logi.get("car_spaces") is not None)
+            for field in ("truck_spaces", "car_spaces"):
+                if (not isinstance(logi.get(field), int) or isinstance(logi[field], bool)
+                        or logi[field] < 0):
+                    logi[field] = None
+            known = (logi.get("parking_status") in {"measured", "estimated"}
+                     and all(isinstance(logi.get(field), int)
+                             and not isinstance(logi[field], bool) and logi[field] >= 0
+                             for field in ("truck_spaces", "car_spaces")))
             logi["enough_parking"] = enough_parking(evidence, trucks, cars) if known else None
     except Exception:  # noqa: BLE001
         logi = None
@@ -305,6 +310,17 @@ def _lookup_logistics(property_id: str, trucks: int, cars: int) -> tuple[dict[st
     return logi, warnings
 
 
+def _valid_retrieval_hit(shot: Any) -> bool:
+    """Reject malformed source identities instead of changing join/rejection keys."""
+    for field, limit in (("property_id", 64), ("model_id", 120), ("shot_id", 120)):
+        value = getattr(shot, field, None)
+        if not isinstance(value, str) or not value or value != value.strip() or len(value) > limit:
+            return False
+    score = getattr(shot, "score", None)
+    return (isinstance(score, (int, float)) and not isinstance(score, bool)
+            and math.isfinite(score) and -1.0 <= score <= 1.0)
+
+
 @router.get("/director")
 def get_director_html() -> FileResponse:
     return FileResponse(_STATIC_DIR / "director.html", media_type="text/html")
@@ -313,6 +329,16 @@ def get_director_html() -> FileResponse:
 @router.get("/director.js")
 def get_director_js() -> FileResponse:
     return FileResponse(_STATIC_DIR / "director.js", media_type="application/javascript")
+
+
+@router.get("/director-reel.js")
+def get_director_reel_js() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "director-reel.js", media_type="application/javascript")
+
+
+@router.get("/director-project.js")
+def get_director_project_js() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "director-project.js", media_type="application/javascript")
 
 
 @router.get("/director.css")
@@ -343,10 +369,7 @@ def post_production_plan(req: PlanRequest) -> dict[str, Any]:
             hits = search_shots(query_text=scene.description, k=120)
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=503, detail="Shot search failed") from exc
-        valid_hits = [
-            s for s in hits
-            if s.score is not None and math.isfinite(float(s.score)) and -1.0 <= float(s.score) <= 1.0
-        ]
+        valid_hits = [shot for shot in hits if _valid_retrieval_hit(shot)]
         raw_by_scene[scene.id] = valid_hits
         seen_p: list[str] = []
         for s in valid_hits:
@@ -478,13 +501,10 @@ def post_production_brainstorm(req: BrainstormRequest) -> dict[str, Any]:
     }
     try:
         raw_out = provider.structured(instructions, json.dumps(user_payload), BrainstormProposal)
-        proposal = (
-            raw_out
-            if isinstance(raw_out, BrainstormProposal)
-            else BrainstormProposal.model_validate(
-                raw_out.model_dump() if hasattr(raw_out, "model_dump") else raw_out
-            )
-        )
+        # Provider objects can be mutated or model_construct'ed. Revalidate a
+        # plain nested payload even when the provider returns our own model type.
+        proposal = BrainstormProposal.model_validate(
+            raw_out.model_dump() if hasattr(raw_out, "model_dump") else raw_out)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail="Model provider returned invalid brainstorm proposal") from exc
 

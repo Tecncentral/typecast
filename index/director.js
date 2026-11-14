@@ -9,7 +9,7 @@ const DEMO = [
   'INT. OFFICE CORRIDOR - NIGHT | A security guard walks a long empty hallway, checking each locked door',
 ].join('\n');
 const S = { scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
-  frameChange: {}, frameOverrides: {}, actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
+  frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
 function el(tag, props = {}, ...kids) {
@@ -89,7 +89,9 @@ async function api(path, body, signal) {
 }
 function busy(on) {
   S.planBusy = on;
+  $('impProject').disabled = on;
   $('build').disabled = on; $('reject').disabled = on || !assignFor(S.sceneId);
+  $('lookAround').disabled = on || !assignFor(S.sceneId);
   $('planSel').disabled = on || !(S.resp?.plans.length);
   const frameSelect = $('framePicker').querySelector('select'); if (frameSelect) frameSelect.disabled = on;
   $('gen').disabled = on || !!S.gen.ctrl;
@@ -107,6 +109,19 @@ async function build(reuse) {
   try {
     const data = await api('/api/production/plan', body);
     if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
+    // Rejections remain authoritative even if a stale or faulty backend returns them.
+    const forbidden = new Set(S.forbidden);
+    data.scenes = data.scenes.map((scene) => ({ ...scene,
+      candidates: (scene.candidates || []).filter((c) => !forbidden.has(c.shot?.property_id)) }));
+    data.plans = data.plans.map((p) => {
+      const removed = (p.assignments || []).filter((a) => forbidden.has(a.property_id));
+      if (!removed.length) return p;
+      return { ...p, assignments: p.assignments.filter((a) => !forbidden.has(a.property_id)),
+        locations: (p.locations || []).filter((id) => !forbidden.has(id)),
+        uncovered_scene_ids: [...new Set([...(p.uncovered_scene_ids || []), ...removed.map((a) => a.scene_id)])],
+        company_moves: null, mean_similarity: null };
+    });
+    if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
     S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {};
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
@@ -133,7 +148,7 @@ function img(shotId) {
 }
 function provText(sid) {
   const i = S.scenes.findIndex((s) => s.id === sid), a = assignFor(sid), c = a && candFor(sid, a.shot_id);
-  return `Scene ${i + 1} · Variant ${S.variant} · Matterport · property ${a ? String(a.property_id).slice(0, 12) : 'none'}`;
+  return `Scene ${i + 1} · Variant ${S.variant} · Matterport · property ${a ? safeId(a.property_id).slice(0, 12) : 'none'}`;
 }
 function wrap(ctx, text, max) {
   const out = []; let line = '';
@@ -173,7 +188,7 @@ function drawStage(ctx, W, H, o) {
   }
   const sh = o.shot;
   if (sh) sh.actors.forEach((a, i) => {
-    const k = o.t == null ? 0 : Math.min(1, o.t / sh.duration_sec), moved = a.x1 !== a.x0 || a.y1 !== a.y0;
+    const k = o.t == null ? 0 : clamp(o.t / sh.duration_sec, 0, 1, 0), moved = a.x1 !== a.x0 || a.y1 !== a.y0;
     if (o.editing && (moved || i === o.sel)) {
       ctx.strokeStyle = 'rgba(198,244,50,.85)'; ctx.lineWidth = 3; ctx.setLineDash([10, 8]); ctx.beginPath();
       ctx.moveTo(a.x0 * W, a.y0 * H); ctx.lineTo(a.x1 * W, a.y1 * H); ctx.stroke(); ctx.setLineDash([]);
@@ -251,21 +266,29 @@ function kv(title, obj) {
 function pickFields(obj, keys) {
   return obj ? Object.fromEntries(keys.map((k) => [k, typeof obj[k] === 'number' || typeof obj[k] === 'boolean' ? obj[k] : null])) : null;
 }
-const sourceStatus = (v) => ['available', 'not_available', 'measured', 'estimated', 'unknown'].includes(v) ? v : 'unknown';
 function safeId(value) {
-  return typeof value === 'string' && /^[\w.:-]{1,120}$/.test(value) ? value : 'unknown';
+  return typeof value === 'string' && /^[\w.:-]{1,120}$/.test(value) && !value.includes('..') &&
+    !/^(?:sk-|api[_-]?key|bearer[.:-])/i.test(value) ? value : 'unknown';
 }
 function evidenceSummary(sid) {
   const a = assignFor(sid), c = a && candFor(sid, a.shot_id), sh = c?.shot;
   if (!a) return null;
+  const availability = ['available', 'not_available'].includes(c?.property?.availability_status)
+    ? c.property.availability_status : 'unknown';
+  const metricStatus = (v) => ['measured', 'estimated'].includes(v) ? v : 'unknown';
+  const parking = metricStatus(c?.logistics?.parking_status), walk = metricStatus(c?.logistics?.walk_status);
   return { frame: { shot_id: safeId(a.shot_id), model_id: safeId(sh?.model_id), sweep_id: safeId(sh?.sweep_id), property_id: safeId(a.property_id),
       ...pickFields(sh, ['heading_deg', 'score', 'measure_on_site']), plan_score: typeof a.score === 'number' ? a.score : null },
     room: pickFields(sh, ['room_area_m2', 'ceiling_m', 'depth_m']),
-    property: { ...pickFields(c?.property, ['available', 'year_built', 'size_sqft']), availability_status: sourceStatus(c?.property?.availability_status) },
-    logistics: { ...pickFields(c?.logistics, ['truck_spaces', 'car_spaces', 'walk_m', 'estimated', 'parking_area_m2', 'enough_parking']),
-      parking_status: sourceStatus(c?.logistics?.parking_status), walk_status: sourceStatus(c?.logistics?.walk_status), noise_status: sourceStatus(c?.logistics?.noise_status) },
+    property: { ...pickFields(c?.property, ['year_built', 'size_sqft']),
+      available: availability === 'unknown' ? null : availability === 'available', availability_status: availability },
+    logistics: { ...pickFields(c?.logistics, ['estimated']),
+      ...pickFields(parking === 'unknown' ? {} : c?.logistics, ['truck_spaces', 'car_spaces', 'parking_area_m2', 'enough_parking']),
+      ...pickFields(walk === 'unknown' ? {} : c?.logistics, ['walk_m']),
+      parking_status: parking, walk_status: walk, noise_status: metricStatus(c?.logistics?.noise_status) },
     warnings: (c?.warnings || []).map((w) => ({ source: safeId(w.source),
-      field: w.field === 'property_id/model_id' ? w.field : safeId(w.field), status: safeId(w.status) })) };
+      field: w.field === 'property_id/model_id' ? w.field : safeId(w.field),
+      status: ['matched', 'conflict', 'insufficient', 'estimated', 'measured', 'unknown', 'unavailable'].includes(w.status) ? w.status : 'unknown' })) };
 }
 function warningMeaning(w) {
   if (w.field === 'property_id/model_id') return w.status === 'matched'
@@ -363,10 +386,12 @@ function renderFrames() {
   if (a.manual_frame) box.append(el('p', { class: 'meta', text: 'Manual frame choice. Plan similarity describes the original solver selection; property budget is unchanged.' }));
 }
 function renderAll() {
+  renderProjectReview();
   renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames();
   $('evidence').replaceChildren(evidenceNodes(S.sceneId));
   const a = assignFor(S.sceneId), pl = $('planner');
-  $('reject').disabled = S.planBusy || !a; $('expPack').disabled = !plan(); pl.hidden = !a;
+  $('lookAround').disabled = S.planBusy || !a;
+  $('reject').disabled = S.planBusy || !a; $('expPack').disabled = !plan(); $('expReel').disabled = !plan() || !!reelCtrl; pl.hidden = !a;
   if (a) pl.href = `/api/plan/${encodeURIComponent(a.shot_id)}?heading=0&focal=35`;
   draw();
 }
@@ -473,6 +498,7 @@ function exportSnapshot() {
   return clone({ app: 'Typecast Director', exported_at: new Date().toISOString(), variant: S.variant, plan_index: S.planIdx,
     honesty: 'Candidate plans only. Uncalibrated screen-space rehearsal; geometric fit unknown. Plan score describes original solver frames; manual frame choices retain the assigned property.',
     source_mode: S.resp?.mode ?? 'unknown', locations: count(p?.locations), company_moves: p?.company_moves ?? null, mean_similarity: p?.mean_similarity ?? null,
+    review_needed: S.importReview,
     scenes: S.scenes.map((s) => ({ ...s, evidence: evidenceSummary(s.id),
       manual_frame: !!assignFor(s.id)?.manual_frame, staging: assignFor(s.id) ? sanitizeShot(shotData(s.id)) : null,
       variants: assignFor(s.id) ? { A: sanitizeShot(shotData(s.id, 'A')), B: sanitizeShot(shotData(s.id, 'B')) } : null,
@@ -517,6 +543,72 @@ async function exportPack() {
   } catch (e) { status(`Shoot pack export failed: ${e.message}`, true); } finally { $('expPack').disabled = !plan(); }
 }
 
+// ---------- movie preview reel (logic lives in director-reel.js; this is only the hook) ----------
+let reelCtrl = null;
+function reelInput() {
+  return { variant: S.variant, scenes: S.scenes.filter((s) => assignFor(s.id)).map((s) => ({ id: s.id, heading: s.heading,
+    shot_id: assignFor(s.id).shot_id, prov: provText(s.id), shot: sanitizeShot(shotData(s.id)) })) };
+}
+async function exportReel() {
+  if (reelCtrl) return;
+  if (!window.TypecastReel) return status('Reel module failed to load; no reel was produced.', true);
+  let snap;
+  try { snap = TypecastReel.buildSnapshot(reelInput()); } catch (e) { return status(`Reel not recorded: ${e.message}`, true); }
+  stopPlay(); reelCtrl = new AbortController(); $('expReel').disabled = true; $('cancelReel').hidden = false;
+  let last = '';
+  const say = (msg) => { if (msg !== last) { last = msg; status(msg); } };
+  try {
+    const out = await TypecastReel.recordReel(snap, { render: drawStage, signal: reelCtrl.signal,
+      loadImage: async (id) => loadImg(await dataUrl(`/image/${encodeURIComponent(id)}`)),
+      onProgress: (p) => say(p.phase === 'loading' ? `Reel: loading indexed frames (${p.done}/${p.total})…`
+        : p.phase === 'recording' ? `Reel: recording scene ${p.scene} of ${snap.scenes.length} in real time (${snap.total_sec}s). Keep this tab visible.`
+        : 'Reel: finalizing…') });
+    download(out.blob, `typecast-reel-variant-${snap.variant}.webm`);
+    status(`Reel downloaded: ${out.scenes} scene(s), ${out.duration_sec}s, ${(out.bytes / 1e6).toFixed(1)} MB silent ${out.mimeType}. Uncalibrated 2D rehearsal; geometric fit unknown.`);
+  } catch (e) {
+    status(e.code === 'cancelled' ? 'Reel cancelled; nothing was saved.' : `Reel not recorded: ${e.message}`, e.code !== 'cancelled');
+  } finally { reelCtrl = null; $('cancelReel').hidden = true; $('expReel').disabled = !plan(); }
+}
+
+// ---------- saved projects ----------
+function renderProjectReview() {
+  const box = $('projectReview'); box.replaceChildren(); box.hidden = !S.importReview.length;
+  if (!S.importReview.length) return;
+  box.append(el('p', { text: 'Saved staging needs review. It was not applied to replacement frames. Project JSON exports retain these drafts.' }));
+  for (const draft of S.importReview) box.append(el('p', { class: 'meta', text:
+    `${draft.scene_id}: saved frame ${draft.frame.shot_id}, property ${draft.frame.property_id}. Both variants retained.` }));
+}
+async function importProject(file) {
+  if (!file || S.planBusy) return;
+  let project;
+  try {
+    if (file.size > TypecastProject.MAX_BYTES) throw new Error('Project file exceeds 1 MB.');
+    project = TypecastProject.normalizeProject(await file.text());
+  } catch (e) { return status(`Project not loaded: ${e.message}`, true); }
+  stopPlay(); cancelGen(); clearPending(); busy(true);
+  status('Rebuilding project evidence using the current visible location and vehicle constraints…');
+  try {
+    const scenes = project.scenes.map(({ id, heading, description }) => ({ id, heading, description }));
+    const data = await api('/api/production/plan', { scenes,
+      max_locations: Math.floor(clamp($('maxLoc').value, 1, 4, 3)), forbidden_property_ids: [],
+      require_available: $('reqAvail').checked, trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)),
+      cars: Math.floor(clamp($('cars').value, 0, 50, 0)) });
+    const restored = TypecastProject.restoreEdits(project, data);
+    // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
+    Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
+      edits: restored.edits, frameOverrides: restored.frameOverrides, importReview: restored.reviewNeeded,
+      frameChange: {}, forbidden: [], undo: null, variant: project.variant });
+    $('undo').disabled = true;
+    $('script').value = scenes.map((scene) => `${scene.heading} | ${scene.description}`.replace(/[\r\n]+/g, ' ')).join('\n');
+    $('varA').setAttribute('aria-pressed', String(S.variant === 'A'));
+    $('varB').setAttribute('aria-pressed', String(S.variant === 'B'));
+    renderAll();
+    status(`Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, !!restored.reviewNeeded.length);
+  } catch (e) { status(`Project not loaded; existing work kept: ${e.message}`, true); }
+  finally { busy(false); $('impProject').value = ''; }
+}
+$('impProject').addEventListener('change', (event) => importProject(event.target.files[0]));
+
 // ---------- events ----------
 $('build').addEventListener('click', () => build(false));
 $('demo').addEventListener('click', () => { $('script').value = DEMO; status('Demo script loaded. Press Build plan to fetch real results.'); });
@@ -526,12 +618,35 @@ $('planSel').addEventListener('change', (e) => {
 });
 $('clearRej').addEventListener('click', () => { S.forbidden = []; renderPlan(); status('Rejections cleared. Build plan again to apply.'); });
 $('reject').addEventListener('click', reject);
+let scanViewfinder;
+$('lookAround').addEventListener('click', async () => {
+  const assignment = assignFor(S.sceneId);
+  if (!assignment || S.planBusy) return;
+  try {
+    const { Viewfinder } = await import('/app/viewfinder.js');
+    if (!scanViewfinder) {
+      scanViewfinder = new Viewfinder();
+      scanViewfinder.dialog.addEventListener('close', () => $('lookAround').focus());
+    }
+    const source = new Image();
+    source.src = `/image/${encodeURIComponent(assignment.shot_id)}`;
+    source.alt = S.scenes.find(s => s.id === S.sceneId)?.heading || 'Indexed room';
+    await source.decode();
+    await scanViewfinder.open(assignment.shot_id, source);
+  } catch (error) { status('Scan view unavailable. The indexed rehearsal frame is still available.', true); }
+});
 $('varA').addEventListener('click', () => setVariant('A'));
 $('varB').addEventListener('click', () => setVariant('B'));
 $('play').addEventListener('click', play);
 $('pause').addEventListener('click', pause);
 $('reset').addEventListener('click', () => { stopPlay(); draw(); status('Reset.'); });
 $('dur').addEventListener('change', (e) => { const sh = shotData(S.sceneId); if (!sh) return; sh.duration_sec = clamp(e.target.value, 1, 30, 5); e.target.value = sh.duration_sec; edited(); });
+$('dur').addEventListener('input', (e) => {
+  const sh = shotData(S.sceneId), value = Number(e.target.value);
+  if (sh && e.target.value !== '' && Number.isFinite(value) && value >= 1 && value <= 30) {
+    sh.duration_sec = value; edited();
+  }
+});
 $('dlg').addEventListener('input', (e) => { const sh = shotData(S.sceneId); if (!sh) return; sh.dialogue = e.target.value.slice(0, 800); edited(); });
 $('actorSel').addEventListener('change', (e) => { stopPlay(); S.actorIdx = Number(e.target.value) || 0; syncActor(curActor()); draw(); });
 $('addActor').addEventListener('click', () => {
@@ -597,7 +712,9 @@ $('expJson').addEventListener('click', () => {
   status('Project JSON downloaded.');
 });
 $('expPack').addEventListener('click', exportPack);
-window.addEventListener('pagehide', () => { if (rec) rec.stop(); stopPlay(); });
+$('expReel').addEventListener('click', exportReel);
+$('cancelReel').addEventListener('click', () => reelCtrl && reelCtrl.abort());
+window.addEventListener('pagehide', () => { if (rec) rec.stop(); if (reelCtrl) reelCtrl.abort(); stopPlay(); });
 
 $('script').value = DEMO;
 renderAll();
