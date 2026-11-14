@@ -9,3 +9,5 @@
 Update 4: docs-only index/GEMINI-DEMO-HANDOFF.md (Gemini draft + Claude cross-check; no code changed).
 
 Update 5: viewfinder provenance fix (AI-dressed grabs stamped + filename marker); close race and Director label leads not reproduced. See review doc.
+
+Update 6: Worker5 fixes (status-authoritative availability/fit, mock labelling, Look-around explanation, in-page camera metrics). See review doc.

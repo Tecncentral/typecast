@@ -22,17 +22,15 @@ export function availability(property = {}) {
     return { status: "not_available", text: "Not available" };
   if (state === "unknown")
     return { status: "unknown", text: "Availability unknown" };
-  if (property.available === true)
-    return { status: "available", text: "Available" };
-  if (property.available === false)
-    return { status: "not_available", text: "Not available" };
+  // The legacy boolean is not evidence; missing or null status is unknown (matches agent/pipeline.py).
   return { status: "unknown", text: "Availability unknown" };
 }
 export function fitStatus(pick = {}) {
   const fit = pick.shot_fit ?? {};
   if (![fit.have_depth_m, fit.ceiling_m, fit.needed_depth_m].every(numberKnown))
     return "unknown";
-  if (pick.shots?.[0]?.measure_on_site === true) return "unknown";
+  // Only explicitly measured geometry may support fits/tight; estimated or unsupplied stays unknown.
+  if (pick.shots?.[0]?.measure_on_site !== false) return "unknown";
   if (["fits", "tight", "unknown"].includes(fit.status)) return fit.status;
   return fit.fits === true ? "fits" : fit.fits === false ? "tight" : "unknown";
 }

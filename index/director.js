@@ -117,6 +117,8 @@ function applyForbidden(data) {
   if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
   return data;
 }
+const MOCK_NOTE = 'MOCK FIXTURE RESULTS: placeholder frames, fixture rankings and fixture statuses, not real rooms, sources or capacity. ';
+const modeNote = (data) => (data?.mode === 'mock' ? MOCK_NOTE : '');
 async function build(reuse) {
   if (S.planBusy) return;
   stopPlay(); cancelGen(); clearPending();
@@ -134,7 +136,7 @@ async function build(reuse) {
     S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {};
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
-    if (data.plans.length) status(`${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`);
+    if (data.plans.length) status(`${modeNote(data)}${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`, data.mode === 'mock');
     else status('Backend returned no plan for these constraints. Your staging is kept.', true);
   } catch (e) {
     if (reuse && S.resp && S.forbidden.length) {
@@ -335,7 +337,7 @@ function renderPlan() {
     sel.append(el('option', { value: String(i), text: `Plan ${i + 1}: ${cov}/${S.scenes.length} covered · ${p.company_moves ?? '?'} moves · mean sim ${fmt(p.mean_similarity)}` }));
   });
   sel.value = String(S.planIdx); sel.disabled = S.planBusy || !plans.length;
-  $('planMeta').textContent = S.resp ? `Mode ${S.resp.mode ?? 'unknown'} · ${count(S.resp.evaluated_subsets)} subsets evaluated · pool ${count(S.resp.pool_properties)} properties. Mean sim is raw similarity, not shootability.` : 'No plan yet.';
+  $('planMeta').textContent = S.resp ? `${S.resp.mode === 'mock' ? 'MOCK FIXTURES · ' : ''}Mode ${S.resp.mode ?? 'unknown'} · ${count(S.resp.evaluated_subsets)} subsets evaluated · pool ${count(S.resp.pool_properties)} properties. Mean sim is raw similarity, not shootability.` : 'No plan yet.';
   $('forbidden').textContent = S.forbidden.length ? `Rejected: ${S.forbidden.join(', ')}` : 'No rejected locations.';
   $('clearRej').disabled = !S.forbidden.length;
 }
@@ -410,6 +412,7 @@ function renderAll() {
   $('lookAround').disabled = S.planBusy || !a;
   $('reject').disabled = S.planBusy || !a; $('expPack').disabled = !plan(); $('expReel').disabled = !plan() || !!reelCtrl; pl.hidden = !a;
   if (a) pl.href = `/api/plan/${encodeURIComponent(a.shot_id)}?heading=0&focal=35`;
+  if ($('plannerOut')) { $('plannerOut').hidden = true; $('plannerOut').replaceChildren(); }
   draw();
 }
 function invalidateProposal() {
@@ -628,7 +631,7 @@ async function importProject(file) {
     $('varA').setAttribute('aria-pressed', String(S.variant === 'A'));
     $('varB').setAttribute('aria-pressed', String(S.variant === 'B'));
     renderAll();
-    status(`Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, !!restored.reviewNeeded.length);
+    status(`${modeNote(data)}Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, !!restored.reviewNeeded.length);
   } catch (e) { status(`Project not loaded; existing work kept: ${e.message}`, true); }
   finally { busy(false); }
 }
@@ -637,17 +640,36 @@ $('impProject').addEventListener('change', (event) => importProject(event.target
 // ---------- events ----------
 $('build').addEventListener('click', () => build(false));
 $('script').addEventListener('input', () => { S.rev++; });
-$('demo').addEventListener('click', () => { S.rev++; $('script').value = DEMO; status('Demo script loaded. Press Build plan to fetch real results.'); });
+$('demo').addEventListener('click', () => { S.rev++; $('script').value = DEMO; status('Demo script loaded. Press Build plan; the plan summary states whether results are live or mock fixtures.'); });
 $('planSel').addEventListener('change', (e) => {
   const prev = assignMap(); stopPlay(); cancelGen(); clearPending();
   S.planIdx = clamp(e.target.value, 0, (S.resp?.plans.length || 1) - 1, 0); noteFrameChanges(prev); renderAll();
 });
 $('clearRej').addEventListener('click', () => { S.forbidden = []; renderPlan(); status('Rejections cleared. Build plan again to apply.'); });
 $('reject').addEventListener('click', reject);
+$('planner').addEventListener('click', async (event) => {
+  const out = $('plannerOut'), a = assignFor(S.sceneId);
+  if (!out || !a) return;
+  event.preventDefault();
+  out.hidden = false; out.replaceChildren(el('p', { class: 'meta', text: 'Loading camera metrics…' }));
+  const sid = S.sceneId, shotId = a.shot_id;
+  try {
+    const r = await fetch(`/api/plan/${encodeURIComponent(shotId)}?heading=0&focal=35`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const m = await r.json();
+    if (sid !== S.sceneId || assignFor(sid)?.shot_id !== shotId) return;
+    const rows = {}; for (const [k, v] of Object.entries(m)) if (v == null || ['string', 'number', 'boolean'].includes(typeof v)) rows[k] = v;
+    out.replaceChildren(kv('Camera metrics · heading 0° assumed, scan-relative, unverified', rows),
+      el('p', { class: 'meta', text: 'Source: /api/plan. Unknown means the source did not supply it; this is not a clearance approval.' }));
+  } catch (e) { out.replaceChildren(el('p', { class: 'warn', text: `Camera metrics unavailable: ${e.message}` })); }
+});
 let scanViewfinder;
 $('lookAround').addEventListener('click', async () => {
   const assignment = assignFor(S.sceneId);
   if (!assignment || S.planBusy) return;
+  if (S.resp?.mode === 'mock') {
+    return status('Look around and AI dressing need a real indexed scan point with verified 360° geometry. Mock fixture frames have neither, so nothing is opened.', true);
+  }
   try {
     const { Viewfinder } = await import('/app/viewfinder.js');
     if (!scanViewfinder) {
@@ -659,7 +681,7 @@ $('lookAround').addEventListener('click', async () => {
     source.alt = S.scenes.find(s => s.id === S.sceneId)?.heading || 'Indexed room';
     await source.decode();
     await scanViewfinder.open(assignment.shot_id, source);
-  } catch (error) { status('Scan view unavailable. The indexed rehearsal frame is still available.', true); }
+  } catch (error) { status('Scan view unavailable (the frame may lack verified 360° geometry). The indexed rehearsal frame is still available.', true); }
 });
 $('varA').addEventListener('click', () => setVariant('A'));
 $('varB').addEventListener('click', () => setVariant('B'));
@@ -744,4 +766,4 @@ window.addEventListener('pagehide', () => { if (rec) rec.stop(); if (reelCtrl) r
 
 $('script').value = DEMO;
 renderAll();
-status('Edit the script, then Build plan. Nothing appears on the stage until the backend returns real results.');
+status('Edit the script, then Build plan. Nothing appears on the stage until the backend returns a plan; check its mode label.');

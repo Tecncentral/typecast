@@ -346,7 +346,7 @@ function createEnv({ speech = 'none' } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);
@@ -1018,6 +1018,48 @@ test('constraints changed while import evidence loads reject the import; unchang
   }
 });
 
+test('mock results are labelled as fixtures in status and plan summary; live results are not', async () => {
+  const mock = boot();
+  await buildScript(mock, 'INT. KITCHEN | first', ONE);
+  assert.match(mock.$('status').textContent, /MOCK FIXTURE RESULTS/);
+  assert.doesNotMatch(mock.$('status').textContent, /real results/i);
+  assert.match(mock.$('planMeta').textContent, /^MOCK FIXTURES/);
+  const live = boot();
+  await buildScript(live, 'INT. KITCHEN | first', ONE, { mode: 'live' });
+  assert.doesNotMatch(live.$('status').textContent, /MOCK/);
+  assert.doesNotMatch(live.$('planMeta').textContent, /MOCK/);
+  assert.doesNotMatch(boot().$('status').textContent, /real results/i);
+});
+
+test('Look around in mock mode explains that fixtures have no scan geometry instead of opening a dialog', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first', ONE);
+  env.$('lookAround').click();
+  await drain();
+  assert.match(env.$('status').textContent, /Mock fixture frames/);
+  assert.match(env.$('status').textContent, /AI dressing/);
+});
+
+test('camera metrics render in-page from /api/plan with unknowns kept, and stale responses are dropped', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first\nINT. OFFICE | second', TWO);
+  env.$('planner').dispatchEvent({ type: 'click' });
+  const job = env.take('/api/plan/shot_a');
+  env.api.selectScene('s2');
+  job.resolve(jsonResponse({ status: 'unknown', note: 'Missing validated room boundary', position: null, shot_id: 'shot_a' }));
+  await drain();
+  assert.equal(env.$('plannerOut').textContent.includes('Missing validated'), false); // scene changed: dropped
+  env.api.selectScene('s1');
+  env.$('planner').dispatchEvent({ type: 'click' });
+  env.take('/api/plan/shot_a').resolve(jsonResponse({ status: 'unknown', note: 'Missing validated room boundary', position: null }));
+  await drain();
+  const text = env.$('plannerOut').textContent;
+  assert.match(text, /Missing validated room boundary/);
+  assert.match(text, /position/);
+  assert.match(text, /unknown/);
+  assert.match(text, /unverified/);
+});
+
 test('explicit unknown parking and availability render as unknown', async () => {
   const env = boot();
   await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
@@ -1178,7 +1220,7 @@ test('animatic layer is labelled uncalibrated and silhouettes do not claim metre
   assert.match(DIRECTOR_HTML, /Uncalibrated screen-space rehearsal/);
   assert.match(DIRECTOR_HTML, /Geometric fit: unknown/);
   assert.match(DIRECTOR_HTML, /screen space 0–1/);
-  assert.match(DIRECTOR_HTML, /separate metric panel/);
+  assert.match(DIRECTOR_HTML, /metric panel/);
   assert.match(DIRECTOR_HTML, /unverified/);
   const env = boot();
   await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
@@ -1197,7 +1239,7 @@ test('animatic layer is labelled uncalibrated and silhouettes do not claim metre
     assert.doesNotMatch(String(entry.args[0]), /metres|meters|\bFOV\b|focal length|clearance verified|fits the room/i);
   }
   assert.match(env.$('planner').href, /focal=35/);
-  assert.match(DIRECTOR_HTML, /id="planner"[\s\S]*separate metric panel/);
+  assert.match(DIRECTOR_HTML, /id="planner"[\s\S]*metric panel/);
 });
 
 test('playback sums shot durations, clamps entry values, and pause resumes', async () => {
