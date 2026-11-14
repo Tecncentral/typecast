@@ -110,6 +110,7 @@ class ScoutResponse(BaseModel):
     thread_id: str
     picks: list[Pick]
     gave_up: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
     events: list[Event] = Field(default_factory=list)
     engine: Literal["fixed", "deep"] = "fixed"
     source_mode: Literal["mock", "live"] = "mock"
