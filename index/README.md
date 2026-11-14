@@ -23,6 +23,50 @@ the cached CSV. There is no silent fixture fallback. The complete command was
 verified locally against 19 available models and 608 views; one catalog model was
 unavailable. Reproduction needs event-valid credentials and optional model weights.
 
+For full available commercial coverage across Los Angeles and Houston, use the
+current private exact-ID join and cached official catalog:
+
+```sh
+python -m index.bulk --workers 8 --max-sweeps 8 --multifamily 20
+```
+
+This selects one catalog model per available Office, Industrial, Flex and
+GeneralRetail property, plus 20 available Multifamily properties balanced across
+cities. Availability means marketed lease space under `data/SCHEMA.md`; it does
+not establish filming permission. Missing model mappings and inaccessible models
+are reported as uncovered. Properties with fewer than 8 source scans retain their
+available scans. Existing shots, room evidence, provenance and embeddings remain
+in the published index. Metadata guides apartment diversity; inspect actual
+interiors before claiming visual distinctiveness.
+
+The worker count (at most 8) also bounds simultaneous provider requests. Shared
+models are downloaded and encoded once, then associated with the explicitly
+supplied property pairs. Catalog disagreements remain recorded in private
+provenance. Each model has its own resumable checkpoint under
+`cache/matterport/bulk/`; repeating the command validates and resumes it. Encoding
+reuses unchanged source views, and one complete immutable generation is published
+atomically. Aggregate progress is printed; private selection and coverage reports
+remain under ignored `cache/matterport/`. `--plan-only` skips provider requests and
+index publication; it saves the private selection for inspection. Failed or
+degraded model captures remain retryable, and a partial run publishes its usable
+views with a nonzero exit status. A subsequent run repairs source/index gaps and
+adds missing faces without replacing the original indexed views.
+Recorded provider or transport failures cause alternate models to be preferred by
+default. `--retry-failed` allows those candidates again without deleting their
+private diagnostics. A successful no-change resume keeps the current generation.
+
+The November 14 private expansion completed in 14.15 minutes: 10,568 views from
+343 properties and 329 models. All 307 mapped available commercial properties and
+20 available Multifamily properties are covered. Another 16 available commercial
+properties have no supplied scan mapping. Seven inaccessible apartment models
+were replaced with available selections; all completed captures have zero failed
+faces and room requests. Exactly 302 selected properties have 8 scans; the other
+25 have 1–7 catalogued scans. The original 608 Shot records and embedding floats,
+source records and provenance were verified unchanged. Twenty representative
+apartment interiors were visually inspected by AI; this is not human relevance
+evaluation. Private evidence and contact sheets are in
+`cache/matterport/bulk-review/`.
+
 From the repository root, install the baseline lock first. CLIP is optional and
 heavy; install `python -m pip install -r index/requirements.txt` for indexing and
 real text search. The core tests use controlled vectors and do not download models.

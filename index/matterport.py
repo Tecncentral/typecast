@@ -727,12 +727,15 @@ def ingest_matterport(
                 # partial refresh. Otherwise correcting a model/property pair
                 # leaves one model indexed under both old and current properties.
                 current_property = property_by_model.get(record.get('model_id'))
-                if current_property is not None:
+                explicit_pair = (record.get('provenance') or {}).get('join_method') == 'sponsor_csv_property_id_and_model_id'
+                if current_property is not None and not explicit_pair:
                     record = {**record, 'property_id': current_property}
-                merged_records[shot_id] = record
+                identity = (record.get('property_id'), record.get('model_id'), record.get('sweep_id'),
+                            record.get('heading_deg'))
+                merged_records[identity] = record
         except (KeyError, TypeError, MatterportIngestionError):
             pass
-    merged_records.update({r['shot_id']: r for r in records})
+    merged_records.update({(r['property_id'], r['model_id'], r['sweep_id'], r['heading_deg']): r for r in records})
     manifest_payload: dict[str, Any] = {
         "schema_version": "1.0",
         "generated_at": clock().isoformat(),
