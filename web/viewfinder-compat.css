@@ -1,0 +1,32 @@
+/* The desktop monitor is centred with translate; the narrow layout uses insets. */
+@media (max-width: 900px) {
+  dialog.vf .vf-bottom,
+  dialog.vf.has-shots .vf-bottom {
+    left: 12px;
+    right: 12px;
+    max-width: none;
+    margin: 0;
+    translate: 0 0;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    gap: 12px;
+  }
+
+  dialog.vf .vf-lenses {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  dialog.vf .vf-grab {
+    min-height: 44px;
+    padding: 0 12px;
+    gap: 8px;
+    font-size: 14px;
+  }
+
+  dialog.vf .vf-grab kbd {
+    display: none;
+  }
+}
