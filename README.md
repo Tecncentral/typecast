@@ -60,7 +60,7 @@ The toolkit's visible Matterport API key goes in `MATTERPORT_API_KEY`; its hidde
 
 ```bash
 python scripts/check_access.py
-python scripts/check_access.py --network  # read-only OpenAI/Matterport checks
+python scripts/check_access.py --network  # read-only OpenAI/Matterport/Vexcel checks
 ```
 
 The verification gate forcibly disables model calls and tracing, even when private keys exist in `.env`. A working key does not mean the real-data adapters or private join are ready. See [lane C status](docs/team/status-lane-c.md) for current evidence and blockers.

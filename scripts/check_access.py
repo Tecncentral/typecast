@@ -1,6 +1,6 @@
 """Safe credential presence and optional read-only provider diagnostics.
 
---network checks model availability and Matterport authentication without
+--network checks model availability and Matterport/Vexcel authentication without
 generation calls or printing credentials, imagery, prompts or property rows.
 """
 from __future__ import annotations
@@ -61,6 +61,24 @@ def inspect_access(network: bool = False) -> dict:
             result["matterport"] = {"status": "error", "kind": type(error).__name__}
     else:
         result["matterport"] = {"status": "missing_key_or_secret"}
+    if os.getenv("VEXCEL_API_KEY"):
+        import httpx
+        import xml.etree.ElementTree as ET
+        try:
+            response = httpx.get(
+                "https://api.vexcelgroup.com/v2/ortho/wmts",
+                params={"api_key": os.environ["VEXCEL_API_KEY"], "SERVICE": "WMTS",
+                        "REQUEST": "GetCapabilities", "VERSION": "1.0.0"}, timeout=20,
+            )
+            capabilities = False
+            if response.is_success:
+                capabilities = ET.fromstring(response.content).tag.split("}")[-1] == "Capabilities"
+            result["vexcel"] = {"http_status": response.status_code,
+                                "status": "ok" if capabilities else "error"}
+        except Exception as error:
+            result["vexcel"] = {"status": "error", "kind": type(error).__name__}
+    else:
+        result["vexcel"] = {"status": "missing_key"}
     return result
 
 

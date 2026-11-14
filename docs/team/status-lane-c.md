@@ -33,3 +33,6 @@ Baseline commit: 5a449bcc9952d038ce7b0de12a1d401099c62574
 - SA1, SA2 and SA3 running; SA4/SA5 queued for available slots.
 
 Updated UTC: 2026-11-14T09:36:50.849577+00:00
+
+- Vexcel key validated using documented WMTS GetCapabilities: HTTP 200, XML root Capabilities. Control request without credentials returned HTTP 401. Authentication-only endpoint returned 404 and is not used by the diagnostic.
+- Browser SDK key remains unverified until a real model is embedded by lane D.
