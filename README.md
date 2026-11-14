@@ -17,6 +17,8 @@ The November 14 private index contains **10,568 views across 343 properties and 
 
 All 343 indexed properties have cached aerials and OSM noise screening. Parking is estimated for 224; 119 remain unknown. Proximity screening flags 128 properties and does not establish measured sound levels or quiet at unflagged sites. One mapped walking route is estimated; 342 remain unknown. Five Vexcel parcel-detail requests returned 404, while imagery succeeded. Shot depth remains unmeasured. Held-out accuracy for this expanded index awaits the 15 human test reviews; older-index scores do not apply.
 
+Five real demo scenes now pass with both engines, including model parsing, vision scoring, three-source evidence, browser imagery, same-pool five-truck refinement and unsent draft approval. On the same scenes, fixed median scouting fell from **22.825 to 9.651 seconds** and deep from **52.875 to 39.988 seconds**. Final deep runs took 39.490–45.017 seconds, each with ten cached visual scores and independently fetched traces. All 32 scouting attempts across baseline, cache fill and optimization stayed below 90 seconds with no engine fallback. Four earlier trace-diagnostic failures remain documented; final deep passed all five on its first attempt. See [the full measured comparison](docs/team/status-lane-c.md) and [human evaluation status](docs/team/eval.md).
+
 ## Team agents: start here
 
 Read [AGENTS.md](AGENTS.md), then [your owner handoff](docs/team/START-HERE.md). Python 3.13 is the pinned baseline. Install `requirements.lock.txt` for reproducible setup; run `python scripts/verify.py` before each PR. [Private access and remaining live blockers](docs/team/ACCESS.md) are tracked separately. CI checks mocks; passing CI does not establish sponsor access.
@@ -79,6 +81,8 @@ The verification gate forcibly disables model calls and tracing, even when priva
 `GET /scout/stream` sends `event: agent` while tools execute, then `event: result`; failures end with `event: error`. `POST /scout` uses the same runtime. `/refine` preserves the thread and reranks saved candidates without new property or shot searches. A known geometric failure is rejected; unknown or estimated fits stay unverified. Blocking alternatives are explicitly labelled.
 
 The deep engine uses actual Deep Agents director/scout/skeptic graphs over the same source tools and ranking logic. After market retrieval, interior and logistics scouts run concurrently; the shortlist combines their full source records from session state. Model-facing tool responses are compact summaries. A failed run or 90-second deadline triggers a visible fixed-engine fallback. Deep approval resumes a human-approval checkpoint; both engines save drafts locally and always report `sent=false`.
+
+The director writes its initial plan once; subsequent progress comes from actual tool/scout events. The application completes the persisted plan only after validating the returned ids, skeptic reviews and staged approval checkpoints. Visual scoring uses the exact authored scene, including follow-ups, and scores ten candidates while retaining the full retrieval pool. Cache checks include provider/model, prompt and image identity; changing inferred parser wording alone does not cause a miss.
 
 Configure `LANGSMITH_API_KEY` and `LANGSMITH_PROJECT` (default `typecast`) for traces of fixed and deep runs. `LANGSMITH_TRACING=false` disables tracing. A response includes a trace URL only after the client retrieves the completed run and returns its URL; absent credentials or tracing failures leave `trace_url=null`.
 
