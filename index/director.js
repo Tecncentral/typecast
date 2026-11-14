@@ -96,6 +96,22 @@ function busy(on) {
   const frameSelect = $('framePicker').querySelector('select'); if (frameSelect) frameSelect.disabled = on;
   $('gen').disabled = on || !!S.gen.ctrl;
 }
+// Rejections remain authoritative even if a stale or faulty backend returns them (or no backend answers).
+function applyForbidden(data) {
+  const forbidden = new Set(S.forbidden);
+  data.scenes = data.scenes.map((scene) => ({ ...scene,
+    candidates: (scene.candidates || []).filter((c) => !forbidden.has(c.shot?.property_id)) }));
+  data.plans = data.plans.map((p) => {
+    const removed = (p.assignments || []).filter((a) => forbidden.has(a.property_id));
+    if (!removed.length) return p;
+    return { ...p, assignments: p.assignments.filter((a) => !forbidden.has(a.property_id)),
+      locations: (p.locations || []).filter((id) => !forbidden.has(id)),
+      uncovered_scene_ids: [...new Set([...(p.uncovered_scene_ids || []), ...removed.map((a) => a.scene_id)])],
+      company_moves: null, mean_similarity: null };
+  });
+  if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
+  return data;
+}
 async function build(reuse) {
   if (S.planBusy) return;
   stopPlay(); cancelGen(); clearPending();
@@ -109,25 +125,19 @@ async function build(reuse) {
   try {
     const data = await api('/api/production/plan', body);
     if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
-    // Rejections remain authoritative even if a stale or faulty backend returns them.
-    const forbidden = new Set(S.forbidden);
-    data.scenes = data.scenes.map((scene) => ({ ...scene,
-      candidates: (scene.candidates || []).filter((c) => !forbidden.has(c.shot?.property_id)) }));
-    data.plans = data.plans.map((p) => {
-      const removed = (p.assignments || []).filter((a) => forbidden.has(a.property_id));
-      if (!removed.length) return p;
-      return { ...p, assignments: p.assignments.filter((a) => !forbidden.has(a.property_id)),
-        locations: (p.locations || []).filter((id) => !forbidden.has(id)),
-        uncovered_scene_ids: [...new Set([...(p.uncovered_scene_ids || []), ...removed.map((a) => a.scene_id)])],
-        company_moves: null, mean_similarity: null };
-    });
-    if (Array.isArray(data.pool_properties)) data.pool_properties = data.pool_properties.filter((id) => !forbidden.has(id));
+    applyForbidden(data);
     S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {};
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
     if (data.plans.length) status(`${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`);
     else status('Backend returned no plan for these constraints. Your staging is kept.', true);
-  } catch (e) { status(`Plan request failed: ${e.message}`, true); } finally { busy(false); }
+  } catch (e) {
+    if (reuse && S.resp && S.forbidden.length) {
+      // A rejection is the user's decision: never keep showing the rejected location because the replan failed.
+      applyForbidden(S.resp); renderAll();
+      status(`Replan failed: ${e.message}. The rejected location was removed locally; affected scenes are uncovered until a replan succeeds.`, true);
+    } else status(`Plan request failed: ${e.message}`, true);
+  } finally { busy(false); }
 }
 function reject() {
   const a = assignFor(S.sceneId);
@@ -579,6 +589,7 @@ function renderProjectReview() {
     `${draft.scene_id}: saved frame ${draft.frame.shot_id}, property ${draft.frame.property_id}. Both variants retained.` }));
 }
 async function importProject(file) {
+  $('impProject').value = '';
   if (!file || S.planBusy) return;
   let project;
   try {

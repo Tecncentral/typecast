@@ -846,6 +846,21 @@ test('a replanned response that still assigns the rejected property is not shown
   assert.equal(env.api.S.resp.plans[0].assignments.some((row) => row.property_id === 'prop_a'), false);
 });
 
+test('a failed replan after Reject still removes the rejected location from view and exports', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first\nINT. OFFICE | second', [
+    assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b'),
+  ]);
+  env.$('reject').click();
+  env.take('/api/production/plan').resolve(jsonResponse({ detail: 'backend down' }, 503));
+  await drain();
+  assert.match(env.$('forbidden').textContent, /prop_a/);
+  assert.equal(env.$('rail').textContent.includes('prop_a'), false);
+  assert.equal(env.api.S.resp.plans[0].assignments.some((row) => row.property_id === 'prop_a'), false);
+  assert.equal(JSON.stringify(env.api.exportSnapshot()).includes('shot_a'), false);
+  assert.match(env.$('status').textContent, /replan failed/i);
+});
+
 test('explicit unknown parking and availability render as unknown', async () => {
   const env = boot();
   await buildScript(env, 'INT. KITCHEN | first', [assignment('s1', 'prop_a', 'shot_a')]);
