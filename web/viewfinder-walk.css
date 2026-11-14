@@ -102,6 +102,29 @@ dialog.vf.is-walking .vf-walk-keys {
   color: var(--accent, #edbd69);
 }
 
+/* Floor plan of a whole-room set. */
+.vf-walk-map {
+  position: absolute;
+  z-index: 4;
+  left: 24px;
+  top: 128px;
+  width: 180px;
+  height: 180px;
+  display: none;
+  border: 1px solid rgb(236 238 236 / 0.18);
+  border-radius: 8px;
+  background: rgb(14 16 17 / 0.78);
+}
+dialog.vf.is-walking-room .vf-walk-map {
+  display: block;
+}
+/* The key cluster moves below the plan. */
+dialog.vf.is-walking-room .vf-walk-keys {
+  top: 328px;
+  translate: 0 0;
+  left: 76px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .vf-walk-canvas {
     transition-duration: 1ms;
@@ -109,7 +132,8 @@ dialog.vf.is-walking .vf-walk-keys {
 }
 @media (max-width: 900px) {
   .vf-walk kbd,
-  .vf-walk-keys {
+  .vf-walk-keys,
+  .vf-walk-map {
     display: none !important;
   }
 }

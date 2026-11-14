@@ -310,6 +310,7 @@ def dressed_set(shot_id: str):
         raise HTTPException(404, "No dressed set for this scan point")
     base = record["dir"]
     splat = record.get("splat") or None
+    room = record.get("room") or {}
     return {
         "shot_id": shot.shot_id,
         "scene_id": record.get("scene_id"),
@@ -324,7 +325,13 @@ def dressed_set(shot_id: str):
         "splat_url": f"{base}/{splat['file']}" if splat else None,
         # Walkable reconstruction of the dressed frames; `eye` is the scan point in the splat's world.
         "splat": {"url": f"{base}/{splat['file']}", "mode": splat.get("mode") or "refined",
-                  "splat_count": splat.get("splat_count"), "eye": splat.get("eye") or [0, 0, 0]} if splat else None,
+                  "splat_count": splat.get("splat_count"), "eye": splat.get("eye") or [0, 0, 0],
+                  # A whole-room set: built at Matterport's measured cameras, so its scale is known
+                  # and its floor is the scan's floor. One-point sets leave these empty.
+                  **({"units_per_m": room["units_per_m"], "floor_y": 0.0,
+                      "scan_points": room.get("scan_point_positions") or []} if room.get("units_per_m") else {})}
+        if splat else None,
+        "room": {"scan_points": room.get("scan_points"), "views": room.get("views")} if room else None,
     }
 
 

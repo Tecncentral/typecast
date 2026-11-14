@@ -14,6 +14,11 @@ const SPEED_M_S = 1.1;
 // Four views from one scan point carry no metric scale, so Atlas's world units are arbitrary.
 // The scan camera's height above the floor sets the scale; Matterport tripods sit near 1.5 m.
 const CAPTURE_HEIGHT_M = 1.5;
+// Whole-room sets (several scan points, cameras from the scan itself) arrive with a known scale.
+const ROOM_CELL_M = 0.1;
+const ROOM_REACH_M = { draft: 2.2, refined: 3.0 }; // how far from the nearest scan point the set holds up
+const BODY_M = 0.25;
+const SOLID_SPLATS = 5; // splats at body height in one 10 cm cell that count as something solid
 const ICON_WALK = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 const MOVE_KEYS = { w: "forward", arrowup: "forward", s: "back", arrowdown: "back", a: "left", d: "right" };
 
@@ -42,6 +47,13 @@ function stateFor(vf) {
   w.hint.innerHTML = `<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>move</span>`;
   vf.dialog.querySelector(".vf-stage").after(w.hint);
 
+  w.map = document.createElement("canvas");
+  w.map.className = "vf-walk-map";
+  w.map.width = w.map.height = 360;
+  w.map.setAttribute("role", "img");
+  w.map.setAttribute("aria-label", "Floor plan of the set: where you can walk, the scan points, and where you are");
+  w.hint.after(w.map);
+
   // Capture phase: while walking, the movement keys must not reach the viewfinder's own
   // shortcuts (A cycles the aspect ratio and D toggles the dressing there).
   vf.dialog.addEventListener(
@@ -55,6 +67,7 @@ function stateFor(vf) {
         if (!e.repeat) toggle(vf);
         return;
       }
+      w.run = e.shiftKey;
       if (!w.active || !MOVE_KEYS[key]) return;
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -62,7 +75,14 @@ function stateFor(vf) {
     },
     true,
   );
-  vf.dialog.addEventListener("keyup", (e) => w.keys.delete(MOVE_KEYS[e.key.toLowerCase()]), true);
+  vf.dialog.addEventListener(
+    "keyup",
+    (e) => {
+      w.run = e.shiftKey;
+      w.keys.delete(MOVE_KEYS[e.key.toLowerCase()]);
+    },
+    true,
+  );
   addEventListener("blur", () => w.keys.clear());
   return w;
 }
@@ -73,7 +93,11 @@ const isCurrent = (vf, generation) =>
 function setEdge(vf, w, atEdge) {
   w.atEdge = atEdge;
   w.hint.classList.toggle("at-edge", atEdge);
-  if (atEdge) vf.$(".vf-status").textContent = "That's as far as this set goes: a wall, or the edge of what the scan point saw.";
+  if (atEdge) {
+    vf.$(".vf-status").textContent = w.grid
+      ? "Something solid is in the way, or the scan didn't reach any further."
+      : "That's as far as this set goes: a wall, or the edge of what the scan point saw.";
+  }
   else vf.updateReadout();
 }
 
@@ -148,6 +172,141 @@ function openHeading(w) {
   return ((best + 0.5) * 360) / BINS;
 }
 
+// A whole room is not star-shaped around one point, so its limits are a floor grid: a cell is
+// walkable when nothing solid stands in it at body height, it lies within reach of a scan point,
+// and it can be reached from where the walk starts.
+function measureRoom(mesh, splat, eye) {
+  const scale = splat.units_per_m;
+  const points = splat.scan_points.map((p) => p.map(Number));
+  const cell = ROOM_CELL_M * scale;
+  const pad = (ROOM_REACH_M.refined + 1) * scale;
+  const minX = Math.min(...points.map((p) => p[0])) - pad;
+  const minZ = Math.min(...points.map((p) => p[2])) - pad;
+  const nx = Math.min(800, Math.ceil((Math.max(...points.map((p) => p[0])) + pad - minX) / cell));
+  const nz = Math.min(800, Math.ceil((Math.max(...points.map((p) => p[2])) + pad - minZ) / cell));
+  const counts = new Uint16Array(nx * nz);
+  const low = (splat.floor_y ?? 0) + 0.35 * scale;
+  const high = (splat.floor_y ?? 0) + 1.5 * scale;
+  mesh.forEachSplat((index, center, scales, quaternion, opacity) => {
+    if (opacity < 0.3 || center.y < low || center.y > high) return;
+    const ix = Math.floor((center.x - minX) / cell);
+    const iz = Math.floor((center.z - minZ) / cell);
+    if (ix >= 0 && iz >= 0 && ix < nx && iz < nz && counts[iz * nx + ix] < 65535) counts[iz * nx + ix] += 1;
+  });
+  // Solid cells, grown by a body's half-width.
+  const grow = Math.round(BODY_M / ROOM_CELL_M);
+  const solid = new Uint8Array(nx * nz);
+  for (let iz = 0; iz < nz; iz += 1) {
+    for (let ix = 0; ix < nx; ix += 1) {
+      if (counts[iz * nx + ix] < SOLID_SPLATS) continue;
+      for (let dz = -grow; dz <= grow; dz += 1) {
+        for (let dx = -grow; dx <= grow; dx += 1) {
+          const jx = ix + dx;
+          const jz = iz + dz;
+          if (dx * dx + dz * dz <= grow * grow && jx >= 0 && jz >= 0 && jx < nx && jz < nz) solid[jz * nx + jx] = 1;
+        }
+      }
+    }
+  }
+  const reachCells = ROOM_REACH_M[splat.mode === "draft" ? "draft" : "refined"] / ROOM_CELL_M;
+  const open = new Uint8Array(nx * nz);
+  for (const p of points) {
+    const cx = (p[0] - minX) / cell;
+    const cz = (p[2] - minZ) / cell;
+    for (let iz = Math.max(0, Math.floor(cz - reachCells)); iz < Math.min(nz, cz + reachCells); iz += 1) {
+      for (let ix = Math.max(0, Math.floor(cx - reachCells)); ix < Math.min(nx, cx + reachCells); ix += 1) {
+        const d = Math.hypot(ix + 0.5 - cx, iz + 0.5 - cz);
+        // A tripod stood at every scan point, so the floor right there is free whatever the splat says.
+        if (d <= reachCells && (!solid[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M)) open[iz * nx + ix] = 1;
+      }
+    }
+  }
+  // Keep what can be reached from the start.
+  const walk = new Uint8Array(nx * nz);
+  const queue = new Int32Array(nx * nz);
+  let head = 0;
+  let tail = 0;
+  const startCell = Math.floor((eye[2] - minZ) / cell) * nx + Math.floor((eye[0] - minX) / cell);
+  if (open[startCell]) {
+    walk[startCell] = 1;
+    queue[tail++] = startCell;
+  }
+  while (head < tail) {
+    const at = queue[head++];
+    const ix = at % nx;
+    for (const next of [ix > 0 ? at - 1 : -1, ix < nx - 1 ? at + 1 : -1, at - nx, at + nx]) {
+      if (next >= 0 && next < walk.length && open[next] && !walk[next]) {
+        walk[next] = 1;
+        queue[tail++] = next;
+      }
+    }
+  }
+  return { scale, free: null, grid: { minX, minZ, cell, nx, nz, walk, cells: tail, points } };
+}
+
+function walkable(grid, x, z) {
+  const ix = Math.floor((x - grid.minX) / grid.cell);
+  const iz = Math.floor((z - grid.minZ) / grid.cell);
+  return ix >= 0 && iz >= 0 && ix < grid.nx && iz < grid.nz && grid.walk[iz * grid.nx + ix] === 1;
+}
+
+// The floor plan of the set: where you can walk, where the scan stood, where you are.
+function drawMap(w) {
+  const { grid, map } = w;
+  if (!grid || !map) return;
+  const ctx = map.getContext("2d");
+  if (!w.plan) {
+    let x0 = grid.nx, x1 = 0, z0 = grid.nz, z1 = 0;
+    for (let iz = 0; iz < grid.nz; iz += 1) {
+      for (let ix = 0; ix < grid.nx; ix += 1) {
+        if (!grid.walk[iz * grid.nx + ix]) continue;
+        x0 = Math.min(x0, ix); x1 = Math.max(x1, ix); z0 = Math.min(z0, iz); z1 = Math.max(z1, iz);
+      }
+    }
+    if (x1 < x0) return;
+    const margin = 4;
+    x0 -= margin; z0 -= margin; x1 += margin; z1 += margin;
+    const plan = document.createElement("canvas");
+    plan.width = x1 - x0 + 1;
+    plan.height = z1 - z0 + 1;
+    const image = plan.getContext("2d").createImageData(plan.width, plan.height);
+    for (let iz = z0; iz <= z1; iz += 1) {
+      for (let ix = x0; ix <= x1; ix += 1) {
+        if (ix < 0 || iz < 0 || ix >= grid.nx || iz >= grid.nz || !grid.walk[iz * grid.nx + ix]) continue;
+        image.data.set([237, 189, 105, 96], ((iz - z0) * plan.width + (ix - x0)) * 4);
+      }
+    }
+    plan.getContext("2d").putImageData(image, 0, 0);
+    const fit = Math.min(map.width / plan.width, map.height / plan.height);
+    w.plan = { canvas: plan, x0, z0, fit, left: (map.width - plan.width * fit) / 2, top: (map.height - plan.height * fit) / 2 };
+  }
+  const { canvas, x0, z0, fit, left, top } = w.plan;
+  const toMap = (x, z) => [left + ((x - grid.minX) / grid.cell - x0) * fit, top + ((z - grid.minZ) / grid.cell - z0) * fit];
+  ctx.clearRect(0, 0, map.width, map.height);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(canvas, left, top, canvas.width * fit, canvas.height * fit);
+  ctx.strokeStyle = "rgba(236, 238, 236, 0.7)";
+  ctx.lineWidth = 2;
+  for (const p of grid.points) {
+    const [mx, mz] = toMap(p[0], p[2]);
+    ctx.beginPath();
+    ctx.arc(mx, mz, 5, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  const [px, pz] = toMap(w.position[0], w.position[2]);
+  const yaw = rad(w.mapYaw || 0);
+  ctx.fillStyle = "rgba(237, 189, 105, 0.35)";
+  ctx.beginPath();
+  ctx.moveTo(px, pz);
+  ctx.arc(px, pz, 34, yaw - Math.PI / 2 - 0.6, yaw - Math.PI / 2 + 0.6);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = "#edbd69";
+  ctx.beginPath();
+  ctx.arc(px, pz, 7, 0, Math.PI * 2);
+  ctx.fill();
+}
+
 function sweepWipe(vf, to, duration) {
   cancelAnimationFrame(vf.wipeTween);
   const from = Math.max(vf.wipe, -0.999);
@@ -179,8 +338,11 @@ async function build(vf, w, splat) {
   vf.canvas.after(canvas);
   await mesh.initialized;
   const radiusM = WALK_RADIUS_M[splat.mode === "draft" ? "draft" : "refined"];
+  const eye = (splat.eye || [0, 0, 0]).map(Number);
+  w.grid = w.plan = null;
   try {
-    Object.assign(w, measure(mesh, (splat.eye || [0, 0, 0]).map(Number), radiusM));
+    const room = splat.units_per_m > 0 && splat.scan_points?.length > 1;
+    Object.assign(w, room ? measureRoom(mesh, splat, eye) : measure(mesh, eye, radiusM));
   } catch {
     Object.assign(w, { free: new Float32Array(BINS).fill(0.3), scale: 1 }); // unreadable: stay put
   }
@@ -208,12 +370,35 @@ function step(vf, w, dt) {
   const ahead = (w.keys.has("forward") ? 1 : 0) - (w.keys.has("back") ? 1 : 0);
   const side = (w.keys.has("right") ? 1 : 0) - (w.keys.has("left") ? 1 : 0);
   const length = Math.hypot(ahead, side) || 1;
-  const speed = SPEED_M_S * w.scale;
+  const speed = SPEED_M_S * w.scale * (w.run ? 2 : 1);
   const targetX = ((Math.sin(yaw) * ahead + Math.cos(yaw) * side) / length) * speed;
   const targetZ = ((-Math.cos(yaw) * ahead + Math.sin(yaw) * side) / length) * speed;
   const ease = reducedMotion() ? 1 : 1 - Math.exp(-dt * 10);
   w.velocity[0] += (targetX - w.velocity[0]) * ease;
   w.velocity[1] += (targetZ - w.velocity[1]) * ease;
+  if (w.grid) {
+    const nextX = w.position[0] + w.velocity[0] * dt;
+    const nextZ = w.position[2] + w.velocity[1] * dt;
+    const moving = Math.hypot(w.velocity[0], w.velocity[1]) > 0.02 * w.scale;
+    let stopped = false;
+    if (walkable(w.grid, nextX, nextZ)) {
+      w.position[0] = nextX;
+      w.position[2] = nextZ;
+    } else if (walkable(w.grid, nextX, w.position[2])) {
+      w.position[0] = nextX; // slide along the obstacle
+      w.velocity[1] = 0;
+    } else if (walkable(w.grid, w.position[0], nextZ)) {
+      w.position[2] = nextZ;
+      w.velocity[0] = 0;
+    } else {
+      stopped = moving;
+      w.velocity = [0, 0];
+    }
+    if (stopped !== w.atEdge) setEdge(vf, w, stopped);
+    w.mapYaw = vf.view.yaw;
+    drawMap(w);
+    return;
+  }
   let dx = w.position[0] + w.velocity[0] * dt - w.eye[0];
   let dz = w.position[2] + w.velocity[1] * dt - w.eye[2];
   const distance = Math.hypot(dx, dz);
@@ -237,12 +422,18 @@ function start(vf, w) {
   w.hint.classList.remove("at-edge");
   render(vf, w);
   vf.dialog.classList.add("is-walking");
+  vf.dialog.classList.toggle("is-walking-room", Boolean(w.grid));
+  w.mapYaw = vf.view.yaw;
+  drawMap(w);
   w.button.classList.add("is-active");
   w.button.setAttribute("aria-pressed", "true");
   const badge = vf.$(".vf-ai-badge");
   w.badgeText = badge.textContent;
-  badge.textContent = `${vf.dressed?.label || "AI-imagined set dressing, not the real room"} · ${w.mode === "draft" ? "draft " : ""}3D reconstruction`;
-  vf.$(".vf-status").textContent = "Walking the AI-dressed set. W A S D to move, drag to look, E to leave.";
+  const built = w.grid ? `, built on ${w.grid.points.length} real scan points` : "";
+  badge.textContent = `${vf.dressed?.label || "AI-imagined set dressing, not the real room"} · ${w.mode === "draft" ? "draft " : ""}3D reconstruction${built}`;
+  vf.$(".vf-status").textContent = w.grid
+    ? "Walking the whole set. W A S D to move, Shift to go faster, drag to look, E to leave."
+    : "Walking the AI-dressed set. W A S D to move, drag to look, E to leave.";
   let last = performance.now();
   const tick = (now) => {
     if (!w.active) return;
@@ -259,7 +450,7 @@ function stop(vf, w) {
   w.active = false;
   cancelAnimationFrame(w.raf);
   w.keys.clear();
-  vf.dialog.classList.remove("is-walking");
+  vf.dialog.classList.remove("is-walking", "is-walking-room");
   w.button.classList.remove("is-active");
   w.button.setAttribute("aria-pressed", "false");
   if (w.badgeText != null) vf.$(".vf-ai-badge").textContent = w.badgeText;
@@ -317,7 +508,7 @@ function dispose(w) {
     /* a half-built scene has nothing more to release */
   }
   w.canvas?.remove();
-  w.canvas = w.renderer = w.scene = w.spark = w.camera = w.mesh = w.url = w.free = null;
+  w.canvas = w.renderer = w.scene = w.spark = w.camera = w.mesh = w.url = w.free = w.grid = w.plan = null;
   w.scale = 1;
 }
 
@@ -333,9 +524,12 @@ Viewfinder.prototype.loadDressed = async function (shotId, generation, renderer)
   if (w.autoWalk) {
     w.autoWalk = false;
     await toggle(this);
-    if (w.active) {
-      this.state.yaw = w.linkYaw ?? openHeading(w);
-      this.animateTo({ yaw: this.state.yaw }, reducedMotion() ? 1 : 900);
+    // A one-point set opens on its most open side. A whole room keeps the frame's own heading:
+    // there is no single best view of a room, and a demo link can name one.
+    const yaw = w.linkYaw ?? (w.grid ? null : openHeading(w));
+    if (w.active && yaw != null) {
+      this.state.yaw = yaw;
+      this.animateTo({ yaw }, reducedMotion() ? 1 : 900);
     }
   }
 };
@@ -345,7 +539,7 @@ Viewfinder.prototype.close = function () {
   const w = walks.get(this);
   if (w && this.dialog.open) {
     if (w.active && w.badgeText != null) this.$(".vf-ai-badge").textContent = w.badgeText;
-    this.dialog.classList.remove("is-walking", "is-walk-loading");
+    this.dialog.classList.remove("is-walking", "is-walking-room", "is-walk-loading");
     w.button.classList.remove("is-active");
     w.button.setAttribute("aria-pressed", "false");
     w.button.hidden = true;
@@ -372,7 +566,7 @@ Viewfinder.prototype.grab = function () {
 /* ---------------- Direct link ---------------- */
 
 // /app/#walk=<shot id> opens that scan point and steps straight into its set, for demos.
-// It faces the most open direction, or the scan-relative heading in an optional &yaw=<degrees>.
+// &yaw=<degrees> sets the scan-relative heading to face on entry.
 const linked = location.hash.match(/^#walk=([A-Za-z0-9._-]{1,440})(?:&yaw=(\d{1,3}))?$/);
 if (linked) {
   const vf = new Viewfinder();

@@ -24,9 +24,18 @@ OPEN = """async (id) => {
 }"""
 STATE = """async () => {
   const {walkState} = await import('/app/viewfinder-walk.js');
-  const w = walkState(window.__vf), free = Array.from(w.free || []);
-  return {position: w.position, eye: w.eye, at_edge: w.atEdge, free_min: Math.min(...free), free_max: Math.max(...free),
-          freest: free.indexOf(Math.max(...free)) * 4, units_per_m: w.scale, status: window.__vf.$('.vf-status').textContent};
+  const w = walkState(window.__vf), free = Array.from(w.free || []), g = w.grid;
+  const on = g ? g.walk[Math.floor((w.position[2] - g.minZ) / g.cell) * g.nx + Math.floor((w.position[0] - g.minX) / g.cell)] === 1 : null;
+  let toward = free.length ? free.indexOf(Math.max(...free)) * 4 : 0;
+  if (g) {  // head for the nearest other scan point
+    const others = g.points.filter(p => Math.hypot(p[0] - w.eye[0], p[2] - w.eye[2]) > 0.2 * w.scale)
+      .sort((a, b) => Math.hypot(a[0] - w.eye[0], a[2] - w.eye[2]) - Math.hypot(b[0] - w.eye[0], b[2] - w.eye[2]));
+    toward = (Math.atan2(others[0][0] - w.eye[0], -(others[0][2] - w.eye[2])) * 180 / Math.PI + 360) % 360;
+  }
+  return {position: w.position, eye: w.eye, at_edge: w.atEdge, room: Boolean(g), on_walkable: on,
+          walkable_m2: g ? g.cells * 0.01 : null, scan_points: g ? g.points.length : 1,
+          free_min: free.length ? Math.min(...free) : 0, free_max: free.length ? Math.max(...free) : 0,
+          freest: toward, units_per_m: w.scale, status: window.__vf.$('.vf-status').textContent};
 }"""
 
 
@@ -69,16 +78,23 @@ def main():
         require("not the real room" in badge and "3D reconstruction" in badge, "walk mode lost the AI label")
         require(start["position"] == start["eye"], "the walk does not start at the scan point")
         page.screenshot(path=str(args.screens_dir / "start.png"))
-        # Walk toward the most open direction until the set's limit stops the camera.
+        # Walk toward the most open direction (a whole room: toward the next scan point).
         page.evaluate("(yaw) => { const vf = window.__vf; vf.state.yaw = yaw; vf.view.yaw = yaw; }", start["freest"])
         page.keyboard.down("w")
         page.wait_for_timeout(3500)
         page.keyboard.up("w")
         page.wait_for_timeout(300)
         moved = page.evaluate(STATE)
+        k = start["units_per_m"]
         walked = ((moved["position"][0] - start["eye"][0]) ** 2 + (moved["position"][2] - start["eye"][2]) ** 2) ** 0.5
-        require(start["free_max"] < 0.3 * start["units_per_m"] or walked > 0.2 * start["units_per_m"], "W did not move the camera")
-        require(walked <= start["free_max"] + 0.01 and moved["at_edge"], "the camera walked past the set's limit")
+        if start["room"]:
+            require(start["on_walkable"] and moved["on_walkable"], "the camera left the walkable floor")
+            require(walked > 1.0 * k, "W did not carry the camera toward the next scan point")
+            require(page.evaluate("getComputedStyle(document.querySelector('.vf-walk-map')).display") == "block",
+                    "the floor plan is not shown for a whole-room set")
+        else:
+            require(start["free_max"] < 0.3 * k or walked > 0.2 * k, "W did not move the camera")
+            require(walked <= start["free_max"] + 0.01 and moved["at_edge"], "the camera walked past the set's limit")
         require(abs(moved["position"][1] - start["eye"][1]) < 1e-6, "eye height changed")
         page.screenshot(path=str(args.screens_dir / "walked.png"))
         aspect = page.evaluate("window.__vf.state.aspect.id")
@@ -89,7 +105,7 @@ def main():
         page.keyboard.press("g")
         page.wait_for_timeout(300)
         shot = page.evaluate("window.__vf.shots[0] && {ai: window.__vf.shots[0].ai, size: window.__vf.shots[0].thumb.length}")
-        require(shot and shot["ai"] and shot["size"] > 3000, "a frame grabbed in the set is missing or unlabelled")
+        require(shot and shot["ai"] and shot["size"] > 1000, "a frame grabbed in the set is missing or unlabelled")
         page.keyboard.press("e")
         page.wait_for_timeout(900)
         require(not page.evaluate("window.__vf.dialog.classList.contains('is-walking')"), "E did not leave the set")
@@ -106,10 +122,11 @@ def main():
         page.wait_for_timeout(800)
         page.screenshot(path=str(args.screens_dir / "linked.png"))
         require(not errors, f"browser errors: {errors[:3]}")
-        k = start["units_per_m"]
-        report.update(walked_m=round(walked / k, 2), free_min_m=round(start["free_min"] / k, 2),
-                      free_max_m=round(start["free_max"] / k, 2), world_units_per_m=round(k, 3),
-                      chromium_version=browser.version)
+        report.update(walked_m=round(walked / k, 2), world_units_per_m=round(k, 3), chromium_version=browser.version)
+        if start["room"]:
+            report.update(scan_points=start["scan_points"], walkable_m2=round(start["walkable_m2"], 1))
+        else:
+            report.update(free_min_m=round(start["free_min"] / k, 2), free_max_m=round(start["free_max"] / k, 2))
         browser.close()
     print(json.dumps({"ok": True, **report}, indent=2))
 

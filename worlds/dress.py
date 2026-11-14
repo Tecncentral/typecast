@@ -151,6 +151,20 @@ def dress_scan_point(*, sweep: dict, scene: str, scene_id: str, client: AtlasCli
     return record
 
 
+def archive_look(out: pathlib.Path, record: dict) -> pathlib.Path:
+    """Move a look's record, dressed frames and splats to dressed/looks/<n>/ before a new look replaces it."""
+    keep = out / "looks" / str(len(list((out / "looks").glob("*/dressed.json"))) + 1)
+    keep.mkdir(parents=True)
+    kept = {k: v for k, v in record.items() if k != "dir"}
+    (keep / "dressed.json").write_text(json.dumps(kept, indent=2), encoding="utf-8")
+    names = [face["dressed"] for face in record.get("faces", [])]
+    names += [entry["file"] for entry in (record.get("splats") or {}).values() if entry.get("file")]
+    for name in names:
+        if (out / name).is_file():
+            (out / name).replace(keep / name)
+    return keep
+
+
 def redress_scan_point(*, record: dict, scene: str, client: AtlasClient,
                        log: Callable[[str], None] = print) -> dict:
     """Give an already-posed scan point a new look: same cameras and depth, a new scene.
@@ -178,15 +192,7 @@ def redress_scan_point(*, record: dict, scene: str, client: AtlasClient,
         ext = "png" if ".png" in str(new["imageAsset"].get("url", "")).split("?")[0] else "jpg"
         files.append(f"dressed_{i}-{tag}.{ext}")  # a new name, so no browser shows the old look
         client.download(new["imageAsset"]["url"], out / files[-1])
-    keep = out / "looks" / str(len(list((out / "looks").glob("*/dressed.json"))) + 1 if (out / "looks").is_dir() else 1)
-    keep.mkdir(parents=True)
-    (keep / "dressed.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
-    for face in record["faces"]:
-        if (out / face["dressed"]).is_file():
-            (out / face["dressed"]).replace(keep / face["dressed"])
-    for entry in (record.get("splats") or {}).values():
-        if (out / entry["file"]).is_file():
-            (out / entry["file"]).replace(keep / entry["file"])
+    archive_look(out, record)
     faces = [{**face, "dressed": name, "image_asset_id": new["imageAsset"].get("assetId")}
              for face, name, new in zip(record["faces"], files, dressed)]
     record = {**record, "scene": scene, "prompt": prompt, "prompt_used": done["response"].get("promptUsed"),
@@ -233,8 +239,10 @@ def splat_scan_point(*, sweep: dict, client: AtlasClient, draft: bool = False,
     body = {"posedFrames": frames, "prompt": record["prompt"][:400]}
     if draft:
         body["refine"] = False
+    # The key names these exact frames, so a new look of the same scan point is a new run.
+    look = hashlib.sha1("".join(str(f["image_asset_id"]) for f in record["faces"]).encode()).hexdigest()[:10]
     op = client.submit("posedImages2Splats", body,
-                       idempotency_key=f"tc-splat-{mode}-{_safe(sweep['sweep_id'])}"[:96])
+                       idempotency_key=f"tc-splat-{mode}-{_safe(sweep['sweep_id'])}"[:80] + f"-{look}")
     ledger({"task": "posedImages2Splats", "operation": op.get("id"), "scene_id": record["scene_id"],
             "mode": mode, "credits": SPLAT_CREDITS[mode]})
     log(f"{mode} splat started (operation {op.get('id')})"
