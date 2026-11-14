@@ -51,3 +51,23 @@ from the supplied ListingType enum. Multiple categories can coexist. Empty means
 no recognized active category, not proof that the property is off market.
 Sale/auction never imply lease-space availability; availability rules are unchanged.
 Older private joins without this additive column return an empty list until rebuilt.
+
+## Default-city notice — 2026-11-14, Job 5
+
+Owner: C integration captain; producers C, consumers D and bridge. Additive
+`ScoutResponse.notes: list[str] = []` carries factual search-scope notices.
+The TypeScript field is optional for existing clients. An event with type
+`notice` and agent `runtime` also streams the same text when a scene has no
+explicit city and the existing parser selected Los Angeles:
+"No city named; searched Los Angeles. Name Houston to search there."
+This does not change filtering, city defaults, source data or reranking. Refine
+responses retain the original search-scope note. Named-city and example-image
+queries do not receive this default-city notice. Viewer consumers may render
+notes above the result cards; ignoring the optional field remains compatible.
+
+Vision accounting remains in the existing `rerank` event shape. `rate_limit`
+reports a real provider HTTP 429 and stops additional model calls in the worker
+process; a deep failure caused by that limit must not retry through fixed.
+No credentials or raw provider responses are exposed in these events.
+`model_request` reports only provider-call and image-count accounting; it never
+contains the scene, image payload, property identifiers or credentials.

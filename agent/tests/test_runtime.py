@@ -71,3 +71,37 @@ def test_live_env_rejects_imported_mocks(monkeypatch):
     monkeypatch.setenv("TYPECAST_USE_MOCKS", "0")
     with pytest.raises(runtime.SourceModeError):
         runtime.run_scout(runtime.create_context("mismatch-test"), "open room")
+
+
+def test_deep_rate_limit_stops_without_fixed_fallback(monkeypatch):
+    monkeypatch.setenv("TYPECAST_ENGINE", "deep")
+    runtime.models.reset_rate_limit()
+
+    def fail(ctx, req):
+        runtime.models.mark_rate_limit()
+        # LangGraph can wrap a failed tool; the latch still prevents retrying.
+        raise RuntimeError("wrapped tool error")
+
+    monkeypatch.setattr(runtime.deep, "run_deep", fail)
+    monkeypatch.setattr(runtime.pipeline, "scout", lambda *args: pytest.fail("Rate limit retried fixed engine"))
+    try:
+        with pytest.raises(runtime.models.ModelRateLimitError):
+            runtime.run_scout(runtime.create_context("rate-limit-test"), "open room")
+    finally:
+        runtime.models.reset_rate_limit()
+
+
+def test_parser_rate_limit_does_not_continue_with_regex_fallback(monkeypatch):
+    runtime.models.reset_rate_limit()
+
+    def stopped(scene, **kwargs):
+        runtime.models.mark_rate_limit()
+        return Requirements(scene=scene)
+
+    monkeypatch.setattr(runtime.parse, "parse_scene", stopped)
+    monkeypatch.setattr(runtime.pipeline, "scout", lambda *args: pytest.fail("Rate limit continued scouting"))
+    try:
+        with pytest.raises(runtime.models.ModelRateLimitError):
+            runtime.run_scout(runtime.create_context("parser-rate-test"), "open room")
+    finally:
+        runtime.models.reset_rate_limit()

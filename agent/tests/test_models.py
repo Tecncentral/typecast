@@ -20,13 +20,17 @@ PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4
 def isolated_models(monkeypatch):
     for key in ("LLM_API_KEY", "VISION_API_KEY", "FALLBACK_API_KEY", "OPENAI_API_KEY",
                 "TYPECAST_LLM_MODEL", "TYPECAST_VISION_MODEL", "TYPECAST_FALLBACK_MODEL",
-                "TYPECAST_FALLBACK_PROVIDER", "TYPECAST_REASONING_EFFORT"):
+                "TYPECAST_FALLBACK_PROVIDER", "TYPECAST_REASONING_EFFORT", "TYPECAST_RERANK_POOL",
+                "TYPECAST_VISION_CONCURRENCY", "TYPECAST_VISION_BATCH_SIZE", "TYPECAST_RERANK_CACHE_DIR"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("TYPECAST_LLM_PROVIDER", "openai")
     monkeypatch.setenv("TYPECAST_ENABLE_MODEL_PARSE", "1")
     monkeypatch.setenv("TYPECAST_ENABLE_VISION_RERANK", "1")
     monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "0")
     monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    models.reset_rate_limit()
+    yield
+    models.reset_rate_limit()
 
 
 class FakeProvider:
