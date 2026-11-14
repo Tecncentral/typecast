@@ -24,6 +24,43 @@ first OSM failure also suppresses OSM requests for the rest of that batch.
 Requests are bounded and sequential. Missing sources cause a nonzero exit while
 complete partial records are saved with explicit unknowns.
 
+OSM uses `https://ovp.dresel.systems/api-na/interpreter` by default, the North
+America regional extract listed in the official OSM public-instance table.
+`TYPECAST_OVERPASS_URL` can explicitly select that endpoint,
+`https://overpass.private.coffee/api/interpreter`, or
+`https://overpass-api.de/api/interpreter`; all other destinations are rejected.
+There is no automatic server rotation. The query has a 30-second execution
+budget and 64 MiB server memory limit; transport has a 10-second connect and
+55-second read timeout plus a 20 MiB response limit. The identifying User-Agent
+links the public project. Redirects remain disabled and OSM receives no Vexcel
+credentials. These public endpoints are used only for this small, sequential
+private precompute, never during a scout request.
+
+The German endpoint previously returned HTTP 406 and Private.coffee timed out.
+On 2026-11-14, the same query succeeded on the documented North America
+endpoint (HTTP 200, 187 elements, no partial-result remark, 2.263 seconds for
+the first indexed property). This verifies query execution on that instance;
+the earlier failures do not establish a query-syntax error. Query results with
+a `remark` are rejected as partial. A source refresh is unnecessary to repair
+missing OSM: rerun the command above without `--refresh` to reuse successful
+Vexcel sources and request only missing OSM.
+
+The completed repair cached 19/19 OSM sources (3,688 elements), with zero
+provider failures or partial-result remarks. All 19 noise screens are now
+estimated: six properties have proximity flags (three freeway, one rail, two
+airport/runway). Parking capacity estimates increased from nine to 14 through
+five actual mapped OSM parking-polygon fallbacks. All 19 walking distances
+remain unknown: the sources do not establish the required connected route and
+building-associated entrance. All 19 annotated aerials validate. SHA-256
+comparison confirmed that all 95 successful Vexcel source files were reused
+unchanged. Aggregate repair diagnostics are private in
+`cache/vexcel/osm-repair-report.json`; raw OSM remains under each private
+property cache.
+
+Vexcel HTTP 403 is saved as `outside Vexcel coverage`. The property still gets
+a complete partial record with unknown fields; an unavailable source never
+becomes a zero capacity or a fabricated geometry.
+
 `plan_logistics` preserves fixture behavior and reads normalized cache only in
 live mode. It never waits for a provider. Missing cache raises
 `VexcelUnavailable` (`FileNotFoundError`), allowing the pipeline to skip that

@@ -18,9 +18,14 @@ from PIL import Image
 import requests
 
 VEXCEL_BASE = "https://api.vexcelgroup.com/v2/"
-# Listed public instance in the OSM API docs. The German public instance
-# returned 406 during verification; do not hammer or silently rotate servers.
-OVERPASS_URL = "https://overpass.private.coffee/api/interpreter"
+# Explicit public instances listed in the OSM wiki. The default is the regional
+# North America extract; never silently rotate servers after a failure.
+OVERPASS_URL = "https://ovp.dresel.systems/api-na/interpreter"
+OVERPASS_ENDPOINTS = frozenset({
+    OVERPASS_URL,
+    "https://overpass.private.coffee/api/interpreter",
+    "https://overpass-api.de/api/interpreter",
+})
 MAX_BYTES = 20 * 1024 * 1024
 
 
@@ -54,7 +59,7 @@ def mercator_extent(lat: float, lon: float, width_m: float = 400):
 def overpass_query(lat: float, lon: float) -> str:
     if not (-85 <= lat <= 85 and -180 <= lon <= 180):
         raise ValueError("Invalid property coordinates")
-    return f'''[out:json][timeout:30];(
+    return f'''[out:json][timeout:30][maxsize:67108864];(
       nwr(around:200,{lat},{lon})[amenity=parking];
       way(around:200,{lat},{lon})[building];
       node(around:200,{lat},{lon})[entrance];
@@ -66,10 +71,13 @@ def overpass_query(lat: float, lon: float) -> str:
 
 
 class VexcelClient:
-    def __init__(self, api_key: str | None = None, session=None):
+    def __init__(self, api_key: str | None = None, session=None, *, overpass_url: str | None = None):
         self.api_key = api_key or os.getenv("VEXCEL_API_KEY")
         if not self.api_key:
             raise ProviderError("Vexcel key missing; set VEXCEL_API_KEY privately")
+        self.overpass_url = overpass_url or os.getenv("TYPECAST_OVERPASS_URL") or OVERPASS_URL
+        if self.overpass_url not in OVERPASS_ENDPOINTS:
+            raise ProviderError("OSM endpoint is not in the documented public-instance allowlist")
         self.session = session or requests.Session()
 
     def _get(self, endpoint: str, parameters: dict) -> bytes:
@@ -84,9 +92,11 @@ class VexcelClient:
         try:
             response = self.session.request(method, url, timeout=(10, 55),
                                             allow_redirects=False, stream=True,
-                                            headers={"User-Agent": "Typecast-HackPrinceton/1.0"}, **kwargs)
+                                            headers={"User-Agent": "Typecast-HackPrinceton/1.0 (+https://github.com/Tecncentral/typecast)"}, **kwargs)
             with response:
                 if response.status_code != 200:
+                    if url.startswith(VEXCEL_BASE) and response.status_code == 403:
+                        raise ProviderError("Vexcel HTTP 403: outside Vexcel coverage")
                     raise ProviderError(f"{'Vexcel' if url.startswith(VEXCEL_BASE) else 'OSM'} HTTP {response.status_code}")
                 content = bytearray()
                 for chunk in response.iter_content(64 * 1024):
@@ -97,7 +107,8 @@ class VexcelClient:
         except requests.RequestException as error:
             # Never propagate requests' exception text: it includes credential
             # bearing query URLs on network failures.
-            raise ProviderError(f"Provider network failure ({type(error).__name__})") from None
+            provider = "Vexcel" if url.startswith(VEXCEL_BASE) else "OSM"
+            raise ProviderError(f"{provider} network failure ({type(error).__name__})") from None
 
     def property(self, lat: float, lon: float):
         data = self._get("property/extract", {"wkt": f"POINT({lon} {lat})", "srid": "4326",
@@ -145,7 +156,7 @@ class VexcelClient:
 
     def osm(self, lat: float, lon: float):
         # No authentication header or Vexcel key is passed to OSM.
-        data = decode_json(self._request("POST", OVERPASS_URL, data={"data": overpass_query(lat, lon)}), "elements")
+        data = decode_json(self._request("POST", self.overpass_url, data={"data": overpass_query(lat, lon)}), "elements")
         if data.get("remark"):
             raise ProviderError("OSM query returned partial results")
         return data

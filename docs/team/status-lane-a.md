@@ -102,3 +102,7 @@ The refreshed team ZIP passes integrity validation: 619 files, 608 images,
 
 
 Current integration and human-action handoff: [index/HANDOFF.md](../../index/HANDOFF.md). User will label later; no labels or accuracy claim were added.
+
+## Owner 3 geometry question — 2026-11-14 16:00 UTC
+
+Can room outlines establish depth along each indexed view heading using a verified room-to-panorama coordinate transform? Cube headings are local and image-heading alignment remains unverified. Please provide the transform and a checked example before asserting directional depth. Until then `depth_m=null` and shot fit remains “unknown, measure on site.” Coverage expansion preserves existing shot IDs, vectors and provenance.
