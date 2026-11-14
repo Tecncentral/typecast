@@ -6,3 +6,6 @@ pillow
 pytest
 httpx
 python-dotenv
+openai==3.51.0
+deepagents==0.7.38
+langchain-openai==1.8.0

@@ -17,8 +17,8 @@ Read [AGENTS.md](AGENTS.md), then [your owner handoff](docs/team/START-HERE.md).
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.lock.txt
-cp .env.example .env
-pytest -q
+test -f .env || cp .env.example .env
+python scripts/verify.py
 uvicorn agent.app:app --reload
 ```
 
@@ -49,5 +49,18 @@ curl -s localhost:8000/scout -H 'content-type: application/json' \
 ## Rules
 
 - Never commit keys or CoStar data. `.env` and `cache/` are git-ignored.
-- No message goes to a real property owner. Drafts go to the team inbox after an explicit yes.
+- Approval saves a local draft under ignored `cache/outbox/`; it never sends a message.
 - The repo must be public before the Devpost submission (8:00 am Sunday, Nov 15).
+
+## Model configuration and access checks
+
+Use the project `.env` for `LLM_API_KEY` and `VISION_API_KEY`, with provider model IDs in `TYPECAST_LLM_MODEL` and `TYPECAST_VISION_MODEL`. `TYPECAST_REASONING_EFFORT=high` selects the requested reasoning effort. `TYPECAST_ENGINE=fixed|deep` selects execution; responses report the engine that actually finished. Model parse and vision rerank can be disabled with `TYPECAST_ENABLE_MODEL_PARSE=0` and `TYPECAST_ENABLE_VISION_RERANK=0`. Vision upload additionally requires `TYPECAST_ALLOW_VISION_UPLOAD=1`.
+
+The toolkit's visible Matterport API key goes in `MATTERPORT_API_KEY`; its hidden API token goes in `MATTERPORT_API_SECRET`. The SDK key is separate. Check credential presence without exposing values:
+
+```bash
+python scripts/check_access.py
+python scripts/check_access.py --network  # read-only OpenAI/Matterport checks
+```
+
+The verification gate forcibly disables model calls and tracing, even when private keys exist in `.env`. A working key does not mean the real-data adapters or private join are ready. See [lane C status](docs/team/status-lane-c.md) for current evidence and blockers.
