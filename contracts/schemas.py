@@ -1,7 +1,7 @@
 """Shared shapes. Change only by telling all four owners."""
 from __future__ import annotations
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Optional, Literal
+from pydantic import BaseModel, Field, model_validator
 
 
 class Shot(BaseModel):
@@ -44,12 +44,29 @@ class Logistics(BaseModel):
     estimated: bool = True
 
 
+class Evidence(BaseModel):
+    source: Literal["costar", "matterport", "vexcel"]
+    claim: str
+    status: Literal["measured", "estimated", "unknown"]
+
+
 class ShotFit(BaseModel):
     fits: bool
     needed_depth_m: float
     have_depth_m: Optional[float]
     ceiling_m: Optional[float]
     note: str
+    status: Literal["fits", "tight", "unknown"] = "unknown"
+
+    @model_validator(mode="after")
+    def normalize_status(self):
+        if self.have_depth_m is None or self.ceiling_m is None:
+            self.status, self.fits = "unknown", False
+        elif "status" not in self.model_fields_set:
+            self.status = "fits" if self.fits else "tight"
+        elif self.status != "fits":
+            self.fits = False
+        return self
 
 
 class Pick(BaseModel):
@@ -60,6 +77,7 @@ class Pick(BaseModel):
     logistics: Logistics
     reason: str                  # one sentence citing CoStar, Matterport and Vexcel
     skeptic_notes: list[str] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
 
 
 class ScoutRequest(BaseModel):
@@ -72,6 +90,9 @@ class Event(BaseModel):
     type: str   # plan | todo | subagent_start | subagent_result | skeptic | relaxed | final
     agent: Optional[str] = None
     text: str = ""
+    ts: float = 0.0
+    ms: Optional[float] = None
+    engine: Optional[Literal["fixed", "deep"]] = None
 
 
 class ScoutResponse(BaseModel):
@@ -79,3 +100,7 @@ class ScoutResponse(BaseModel):
     picks: list[Pick]
     gave_up: list[str] = Field(default_factory=list)
     events: list[Event] = Field(default_factory=list)
+    engine: Literal["fixed", "deep"] = "fixed"
+    source_mode: Literal["mock", "live"] = "mock"
+    trace_url: Optional[str] = None
+    timings: dict[str, float] = Field(default_factory=dict)
