@@ -1,6 +1,6 @@
 import {
   SOURCES, availabilityInfo, evidenceBySource, fitInfo, imageUrl, moveLabel, noiseInfo, objections,
-  parkingInfo, sourceStatus, tourLink,
+  parkingInfo, rankDiff, sourceStatus, tourLink,
 } from "./lib.js";
 import { laneStates, latestTodos, stepStates, secs, toolMs } from "./lib.js";
 
@@ -24,6 +24,9 @@ const state = {
   running: false,
   startedAt: 0,
   response: null,      // latest ScoutResponse
+  previous: null,      // the response before the latest follow-up, for the diff
+  followUp: null,      // the follow-up message that produced `response`
+  refining: false,
   stream: null,
 };
 
@@ -78,7 +81,10 @@ function startRun(scene) {
   clearError();
   state.events = [];
   state.response = null;
+  state.previous = null;
+  state.followUp = null;
   state.running = true;
+  $("refine-form").hidden = true;
   state.startedAt = performance.now();
   $("empty").hidden = true;
   $("run").hidden = false;
@@ -113,6 +119,7 @@ function finish(res) {
   // The response carries the full event list; prefer it so nothing streamed is missing.
   if (Array.isArray(res.events) && res.events.length >= state.events.length) state.events = res.events;
   $("scout-btn").disabled = false;
+  $("refine-form").hidden = !res.thread_id;
   renderBadges();
   renderPlan();
   renderResults();
@@ -131,7 +138,7 @@ function elapsed() {
 }
 
 function tick() {
-  if (!state.running) return;
+  if (!state.running && !state.refining) return;
   $("clock").textContent = secs(elapsed());
   renderResultsHead();
   setTimeout(tick, 200);
@@ -150,7 +157,7 @@ function renderPlan() {
     $("clock").textContent = total != null ? secs(total / 1000) : state.startedAt ? secs(elapsed()) : "";
   }
   $("run-meta").textContent = res
-    ? `${res.engine || "?"} engine · ${res.source_mode || "?"} data · thread ${res.thread_id}`
+    ? `${state.followUp ? "Follow-up re-rank · " : ""}${res.engine || "?"} engine · ${res.source_mode || "?"} data · thread ${res.thread_id}`
     : state.running ? "Streaming the agent's real progress events" : "";
 
   // To-do: the deep engine publishes its own; otherwise derive from events.
@@ -219,22 +226,106 @@ function renderTrace() {
 
 function renderResultsHead() {
   const head = $("results-head");
-  if (state.running) {
+  if (state.running || state.refining) {
     const t = elapsed();
-    head.replaceChildren(h("p", { class: "loading" }, `Scouting… ${secs(t)}`,
+    head.replaceChildren(h("p", { class: "loading" },
+      state.refining ? `Re-ranking for “${state.pendingFollowUp}”… ${secs(t)}` : `Scouting… ${secs(t)}`,
       t > 20 ? h("span", { class: "slow" }, "  Still working. Real runs can take up to two minutes.") : null));
     return;
   }
   const res = state.response;
   if (!res) { head.replaceChildren(); return; }
-  head.replaceChildren(h("h2", {}, res.picks.length ? `${res.picks.length} pick${res.picks.length === 1 ? "" : "s"}` : "No building fits"));
+  const n = res.picks.length;
+  if (state.followUp && state.previous) {
+    const { moves, dropped } = rankDiff(state.previous, res);
+    const changed = moves.filter((m) => m.move !== "same").length + dropped.length;
+    const notes = moves.reduce((a, m) => a + m.newNotes.length, 0);
+    head.replaceChildren(
+      h("h2", {}, `Re-ranked for “${state.followUp}”`),
+      h("span", { class: "sub" }, [
+        "Same saved candidates, no new search",
+        changed ? `${changed} rank change${changed === 1 ? "" : "s"}` : "ranking unchanged",
+        notes ? `${notes} new objection${notes === 1 ? "" : "s"}` : null,
+      ].filter(Boolean).join(" · ")));
+    return;
+  }
+  head.replaceChildren(
+    h("h2", {}, n ? `${n} pick${n === 1 ? "" : "s"}` : "No building fits this scene"),
+    n && n < 3 ? h("span", { class: "sub" }, `Only ${n} survived. Nothing was padded to make three.`) : null);
 }
 
 function renderResults() {
   renderResultsHead();
   const cards = $("cards");
   cards.replaceChildren();
-  for (const p of state.response?.picks || []) cards.append(card(p));
+  const res = state.response;
+  if (!res) return;
+  if (!res.picks.length) {
+    cards.append(h("div", { class: "nomatch" },
+      h("p", {}, "No scanned building passed the checks for this scene."),
+      res.gave_up?.length ? h("p", {}, `Already relaxed: ${res.gave_up.join(", ")}. The plan panel shows why each candidate failed.`)
+        : h("p", {}, "Try loosening the era, size or parking in the scene.")));
+  }
+  const diff = state.followUp && state.previous ? rankDiff(state.previous, res) : null;
+  for (const p of res.picks) {
+    cards.append(card(p, diff?.moves.find((m) => m.property_id === p.property.property_id) || null));
+  }
+  renderEarlier(diff);
+}
+
+/** The picks from before the follow-up stay visible, with what happened to each. */
+function renderEarlier(diff) {
+  const box = $("earlier");
+  if (!diff) { box.hidden = true; box.replaceChildren(); return; }
+  const now = new Map(state.response.picks.map((p) => [p.property.property_id, p.rank]));
+  box.hidden = false;
+  box.replaceChildren(
+    h("span", { class: "eyebrow" }, "Before the follow-up"),
+    h("div", { class: "strip" }, state.previous.picks.map((p) => {
+      const rank = now.get(p.property.property_id);
+      return h("div", { class: `mini${rank == null ? " dropped" : ""}` },
+        frame(p, { mini: true }),
+        h("p", {}, h("strong", {}, p.property.address), h("br"),
+          rank == null ? h("span", { class: "dropped-label" }, "Dropped from the top three")
+            : h("span", { class: "muted" }, rank === p.rank ? `Still #${rank}` : `Now #${rank}`)));
+    })));
+}
+
+/* ---------------- follow-up (refine) ---------------- */
+
+async function runRefine(message) {
+  const res0 = state.response;
+  if (!res0?.thread_id || state.refining) return;
+  clearError();
+  state.refining = true;
+  state.pendingFollowUp = message;
+  state.startedAt = performance.now();
+  $("refine-btn").disabled = true;
+  $("scout-btn").disabled = true;
+  tick();
+  try {
+    const r = await fetch("/refine", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ thread_id: res0.thread_id, message }) });
+    if (!r.ok) {
+      let detail = `The follow-up failed (HTTP ${r.status}).`;
+      try { const j = await r.json(); if (typeof j.detail === "string") detail = j.detail; } catch { /* keep */ }
+      throw new Error(detail);
+    }
+    const res = await r.json();
+    state.previous = res0;
+    state.response = res;
+    state.followUp = message;
+    if (Array.isArray(res.events)) state.events = res.events;
+  } catch (err) {
+    showError(`${err.message || "The follow-up failed."} The earlier picks are unchanged.`);
+  } finally {
+    state.refining = false;
+    $("refine-btn").disabled = false;
+    $("scout-btn").disabled = false;
+    renderBadges();
+    renderPlan();
+    renderResults();
+  }
 }
 
 /** A frame that degrades to a labelled placeholder if the image is missing or fails. */
@@ -470,6 +561,11 @@ $("scene-form").addEventListener("submit", (e) => {
   e.preventDefault();
   const scene = $("scene").value.trim();
   if (scene) startRun(scene);
+});
+$("refine-form").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const message = $("refine").value.trim();
+  if (message) runRefine(message);
 });
 $("scrim").addEventListener("click", closeDrawer);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("drawer").hidden) closeDrawer(); });

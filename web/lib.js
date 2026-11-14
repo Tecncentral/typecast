@@ -12,7 +12,7 @@ export const LANES = [
 // Tools report under their own name; show them in the lane that calls them.
 const LANE_OF = {
   director: "director", runtime: "director", parse: "director", parse_scene: "director",
-  market_scout: "market_scout", search_costar: "market_scout",
+  market_scout: "market_scout", search_costar: "market_scout", get_property: "market_scout",
   interior_scout: "interior_scout", search_shots: "interior_scout", rerank_shots: "interior_scout", check_shot: "interior_scout",
   logistics_scout: "logistics_scout", plan_logistics: "logistics_scout",
   skeptic: "skeptic",
@@ -216,7 +216,7 @@ export function rankDiff(before, after) {
     return {
       property_id: id, rank: p.rank, was,
       move: was == null ? "new" : was > p.rank ? "up" : was < p.rank ? "down" : "same",
-      newNotes: objections(p).filter((n) => !prevNotes.has(n)),
+      newNotes: prev ? objections(p).filter((n) => !prevNotes.has(n)) : [],
     };
   });
   const dropped = (before?.picks || []).filter((p) => !now.has(p.property.property_id));

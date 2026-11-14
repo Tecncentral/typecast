@@ -185,6 +185,9 @@ button.link { background: none; border: none; padding: 0; color: var(--accent); 
 .mini .rank { font-size: 18px; padding: 7px 10px; }
 .mini p { margin: 8px 10px 10px; font-size: 14px; }
 .mini.dropped { border-color: var(--objection); }
+.dropped-label { color: var(--objection); font-weight: 600; }
+.nomatch { border: 1px dashed var(--line); border-radius: var(--radius); padding: 22px; font-size: 18px; color: var(--muted); }
+.nomatch p { margin: 0 0 6px; }
 
 /* ---------- map ---------- */
 .map-wrap { margin-top: 26px; }
