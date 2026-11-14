@@ -3,11 +3,14 @@
 Pipeline per scan point (four real horizon faces, scan-relative headings 0/90/180/270):
   1. images2PosedRGBD  -> 1280x720 posed frames with cameras and linear depth
   2. atlasChisel       -> depth-only targets + a set-dressing prompt: new appearance, same geometry
-  3. (optional) posedImages2Splats -> a walkable SPZ from the dressed frames (5,000 credits)
+  3. (optional) posedImages2Splats -> a walkable SPZ from the dressed frames
+     (draft 500 credits, refined 5,000 credits)
 
   python -m worlds.dress --demo [--only <scene_id>] [--api http://localhost:8004]
   python -m worlds.dress --shot <shot_id> --scene "INT. ..." [--scene-id custom]
-  python -m worlds.dress --splat --shot <shot_id>      # only with --allow-spend-credits 5000
+  python -m worlds.dress --redress --scene-id <id> --scene "INT. ..."   # new look, same posed depth
+  python -m worlds.dress --splat --draft --scene-id <id> --allow-spend-credits 500
+  python -m worlds.dress --splat --shot <shot_id> --allow-spend-credits 5000   # refined
 
 Everything generated is AI-imagined and is labelled that way wherever it is shown.
 Output is aggregate only: no keys, images or source rows are printed.
@@ -21,6 +24,7 @@ import math
 import os
 import pathlib
 import re
+import shutil
 import sys
 from datetime import datetime, timezone
 from typing import Callable, Optional
@@ -32,7 +36,7 @@ from worlds.atlas import AtlasClient, AtlasError
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 LABEL = "AI-imagined set dressing, not the real room"
-SPLAT_CREDITS = 5000
+SPLAT_CREDITS = {"draft": 500, "refined": 5000}
 
 
 def worlds_dir() -> pathlib.Path:
@@ -149,26 +153,122 @@ def dress_scan_point(*, sweep: dict, scene: str, scene_id: str, client: AtlasCli
     return record
 
 
-def splat_scan_point(*, sweep: dict, client: AtlasClient, log: Callable[[str], None] = print) -> dict:
+def archive_look(out: pathlib.Path, record: dict) -> pathlib.Path:
+    """Copy a look's record, dressed frames and splats to dressed/looks/<n>/ before a new look replaces it.
+
+    The files are copied, not moved: a viewer that already holds the old record keeps working
+    until it reloads, instead of asking for frames that have just gone.
+    """
+    keep = out / "looks" / str(len(list((out / "looks").glob("*/dressed.json"))) + 1)
+    keep.mkdir(parents=True)
+    kept = {k: v for k, v in record.items() if k != "dir"}
+    (keep / "dressed.json").write_text(json.dumps(kept, indent=2), encoding="utf-8")
+    names = [face["dressed"] for face in record.get("faces", [])]
+    names += [entry["file"] for entry in (record.get("splats") or {}).values() if entry.get("file")]
+    for name in names:
+        if (out / name).is_file():
+            shutil.copy2(out / name, keep / name)
+    return keep
+
+
+def redress_scan_point(*, record: dict, scene: str, client: AtlasClient,
+                       log: Callable[[str], None] = print) -> dict:
+    """Give an already-posed scan point a new look: same cameras and depth, a new scene.
+
+    The previous look's record and frames are copied to dressed/looks/<n>/, so nothing is lost.
+    A splat belongs to the look it was built from, so the new record starts without one.
+    """
+    out = scan_point_dir(record["model_id"], record["sweep_id"]) / "dressed"
+    prompt = dressing_prompt(scene)
+    tag = hashlib.sha1(prompt.encode()).hexdigest()[:10]
+    op = client.submit("atlasChisel", {
+        "targetFrames": [{"camera": f["camera"], "depth": {"depthAsset": {"assetId": f["depth_asset_id"]}}}
+                         for f in record["faces"]],
+        "prompt": prompt,
+        "enhancePrompt": True,
+    }, idempotency_key=f"tc-{_safe(record['model_id'])}-{_safe(record['sweep_id'])}"[:80] + f"-chisel-{tag}")
+    ledger({"task": "atlasChisel", "operation": op.get("id"), "scene_id": record["scene_id"], "redress": True})
+    done = client.wait(op)
+    dressed = done["response"]["frames"]
+    if len(dressed) != len(record["faces"]):
+        raise AtlasError("Atlas returned a different number of frames than were asked for")
+    log(f"dressed frames ready: {len(dressed)}")
+    files = []
+    for i, new in enumerate(dressed):
+        ext = "png" if ".png" in str(new["imageAsset"].get("url", "")).split("?")[0] else "jpg"
+        files.append(f"dressed_{i}-{tag}.{ext}")  # a new name, so no browser shows the old look
+        client.download(new["imageAsset"]["url"], out / files[-1])
+    archive_look(out, record)
+    faces = [{**face, "dressed": name, "image_asset_id": new["imageAsset"].get("assetId")}
+             for face, name, new in zip(record["faces"], files, dressed)]
+    record = {**record, "scene": scene, "prompt": prompt, "prompt_used": done["response"].get("promptUsed"),
+              "created_at": datetime.now(timezone.utc).isoformat(), "faces": faces, "splat": None}
+    record.pop("splats", None)
+    record.pop("dir", None)
+    (out / "dressed.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    return record
+
+
+def find_dressed(*, shot_id: Optional[str] = None, scene_id: Optional[str] = None) -> Optional[dict]:
+    """A dressed scan point already in the local cache, so a splat needs no running API."""
+    for path in sorted(worlds_dir().glob("*/*/dressed/dressed.json")):
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (shot_id and record.get("shot_id") == shot_id) or (scene_id and record.get("scene_id") == scene_id):
+            return record
+    return None
+
+
+def splat_assets(response: dict) -> dict:
+    """{splat count or "draft": asset} from a finished posedImages2Splats response.
+
+    A refined run answers `refinedSplats` keyed by splat count; a draft answers one `draftSplat`.
+    """
+    refined = {k: v for k, v in ((response or {}).get("refinedSplats") or {}).items()
+               if isinstance(v, dict) and v.get("url")}
+    if refined:
+        return refined
+    draft = (response or {}).get("draftSplat")
+    return {"draft": draft} if isinstance(draft, dict) and draft.get("url") else {}
+
+
+def splat_scan_point(*, sweep: dict, client: AtlasClient, draft: bool = False,
+                     log: Callable[[str], None] = print) -> dict:
+    """Reconstruct the dressed frames as Gaussian splats. A draft skips refinement (500 credits)."""
+    mode = "draft" if draft else "refined"
     out = scan_point_dir(sweep["model_id"], sweep["sweep_id"]) / "dressed"
     record = json.loads((out / "dressed.json").read_text(encoding="utf-8"))
     frames = [{"imageAsset": {"assetId": f["image_asset_id"]}, "camera": f["camera"],
                "depth": {"depthAsset": {"assetId": f["depth_asset_id"]}}} for f in record["faces"]]
-    op = client.submit("posedImages2Splats", {"posedFrames": frames, "prompt": record["prompt"][:400]},
-                       idempotency_key=f"tc-splat-{_safe(sweep['sweep_id'])}"[:96])
+    body = {"posedFrames": frames, "prompt": record["prompt"][:400]}
+    if draft:
+        body["refine"] = False
+    # The key names these exact frames, so a new look of the same scan point is a new run.
+    look = hashlib.sha1("".join(str(f["image_asset_id"]) for f in record["faces"]).encode()).hexdigest()[:10]
+    op = client.submit("posedImages2Splats", body,
+                       idempotency_key=f"tc-splat-{mode}-{_safe(sweep['sweep_id'])}"[:80] + f"-{look}")
     ledger({"task": "posedImages2Splats", "operation": op.get("id"), "scene_id": record["scene_id"],
-            "credits": SPLAT_CREDITS})
-    log("splat started; refined runs take 15 to 25 minutes")
+            "mode": mode, "credits": SPLAT_CREDITS[mode]})
+    log(f"{mode} splat started (operation {op.get('id')})"
+        + ("" if draft else "; refined runs take 15 to 25 minutes"))
     done = client.wait(op)
-    splats = done["response"].get("refinedSplats") or {}
+    splats = splat_assets(done.get("response") or {})
     if not splats:
-        raise AtlasError("Splat finished without refinedSplats")
-    key = sorted(splats, key=lambda k: int(k) if str(k).isdigit() else 0)[0]
-    client.download(splats[key]["url"], out / "dressed.spz")
-    record["splat"] = {"file": "dressed.spz", "splat_count": key, "operation": op.get("id"),
-                       "coordinate_system": "atlas camera frames (rub, first frame at origin)"}
+        raise AtlasError("Splat finished without a splat asset")
+    key = max(splats, key=lambda k: int(k) if str(k).isdigit() else 0)
+    name = "dressed-draft.spz" if draft else "dressed.spz"
+    client.download(splats[key]["url"], out / name)
+    entry = {"file": name, "mode": mode, "splat_count": int(key) if str(key).isdigit() else None,
+             "operation": op.get("id"), "asset_id": splats[key].get("assetId"),
+             "eye": record["faces"][0]["camera"]["extrinsics"]["position"],
+             "coordinate_system": "atlas camera frames (rub, first frame canonical)"}
+    record.setdefault("splats", {})[mode] = entry
+    # The viewer gets the best reconstruction available: refined when it exists, else the draft.
+    record["splat"] = record["splats"].get("refined") or record["splats"]["draft"]
     (out / "dressed.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
-    log(f"splat saved ({key} splats)")
+    log(f"{mode} splat saved ({(out / name).stat().st_size / 1e6:.1f} MB)")
     return record
 
 
@@ -196,6 +296,35 @@ def _cache_file(directory: pathlib.Path, name, pattern) -> Optional[str]:
     except OSError:
         return None
     return name
+
+
+def _triple(value) -> Optional[list]:
+    if not isinstance(value, list) or len(value) != 3:
+        return None
+    numbers = [_number(v, -1e4, 1e4) for v in value]
+    return None if None in numbers else numbers
+
+
+def _splat_details(splat: dict, file: str) -> dict:
+    """What the viewer needs to walk a splat: which reconstruction it is and where the scan point stands in it."""
+    count = splat.get("splat_count")
+    return {"file": file, "mode": "draft" if splat.get("mode") == "draft" else "refined",
+            "splat_count": count if type(count) is int and 0 < count <= 50_000_000 else None,
+            "eye": _triple(splat.get("eye")) or [0.0, 0.0, 0.0]}
+
+
+def _room_details(room) -> Optional[dict]:
+    """Scale and scan-point layout of a whole-room set; None for a one-point set or a damaged entry."""
+    if not isinstance(room, dict):
+        return None
+    units = _number(room.get("units_per_m"), 0.01, 100)
+    points = room.get("scan_point_positions")
+    points = [_triple(p) for p in points[:64]] if isinstance(points, list) else []
+    if units is None or len(points) < 2 or None in points:
+        return None
+    views = room.get("views")
+    return {"units_per_m": units, "scan_point_positions": points, "scan_points": len(points),
+            "views": views if type(views) is int and 0 < views <= 512 else None}
 
 
 def load_dressed(model_id: str, sweep_id: str) -> Optional[dict]:
@@ -248,7 +377,8 @@ def load_dressed(model_id: str, sweep_id: str) -> Optional[dict]:
     return {
         "scene": scene, "scene_id": scene_id if isinstance(scene_id, str) and _TEXT_ID.fullmatch(scene_id) else None,
         "created_at": created[:40] if isinstance(created, str) else None,
-        "label": LABEL, "faces": faces, "splat": {"file": splat_file} if splat_file else None,
+        "label": LABEL, "faces": faces, "splat": _splat_details(splat, splat_file) if splat_file else None,
+        "room": _room_details(record.get("room")),
         "dir": f"/cache/worlds/{model_id}/{sweep_id}/dressed",
     }
 
@@ -274,17 +404,39 @@ def main(argv=None) -> int:
     parser.add_argument("--shot")
     parser.add_argument("--scene")
     parser.add_argument("--scene-id", default="custom")
+    parser.add_argument("--redress", action="store_true", help="new look for a dressed scan point; needs --scene")
     parser.add_argument("--splat", action="store_true")
+    parser.add_argument("--draft", action="store_true", help="unrefined splat: 500 credits instead of 5,000")
     parser.add_argument("--allow-spend-credits", type=int, default=0)
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     client = AtlasClient()
+    if args.redress:
+        record = find_dressed(shot_id=args.shot) if args.shot else find_dressed(scene_id=args.scene_id)
+        if not record or not args.scene:
+            parser.error("--redress needs --scene and a dressed scan point (--shot or --scene-id)")
+        try:
+            redress_scan_point(record=record, scene=args.scene, client=client)
+        except AtlasError as error:
+            print(f"FAILED: {str(error)[:300]}")
+            return 1
+        return 0
     if args.splat:
-        if not args.shot:
-            parser.error("--splat needs --shot")
-        if args.allow_spend_credits < SPLAT_CREDITS:
-            parser.error(f"a refined splat costs {SPLAT_CREDITS} credits; pass --allow-spend-credits {SPLAT_CREDITS}")
-        splat_scan_point(sweep=scan_point(args.api, args.shot), client=client)
+        if not args.shot and args.scene_id == "custom":
+            parser.error("--splat needs --shot or --scene-id")
+        cost = SPLAT_CREDITS["draft" if args.draft else "refined"]
+        if args.allow_spend_credits < cost:
+            parser.error(f"a {'draft' if args.draft else 'refined'} splat costs {cost} credits; "
+                         f"pass --allow-spend-credits {cost}")
+        sweep = (find_dressed(shot_id=args.shot) if args.shot else find_dressed(scene_id=args.scene_id)) \
+            or (scan_point(args.api, args.shot) if args.shot else None)
+        if not sweep:
+            parser.error("no dressed scan point in the local cache for that id")
+        try:
+            splat_scan_point(sweep=sweep, client=client, draft=args.draft)
+        except AtlasError as error:
+            print(f"FAILED: {str(error)[:300]}")
+            return 1
         return 0
     jobs = []
     if args.demo:

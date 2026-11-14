@@ -313,6 +313,7 @@ def dressed_set(shot_id: str):
         raise HTTPException(404, "No dressed set for this scan point")
     base = record["dir"]
     splat = record["splat"]
+    room = record["room"]
     # Everything below was validated by load_dressed. The cached label and generation
     # prompt are deliberately not forwarded: the label is always the canonical one.
     return {
@@ -327,6 +328,14 @@ def dressed_set(shot_id: str):
                    "real_url": f"{base}/{f['real']}" if f["real"] else None}
                   for f in record["faces"]],
         "splat_url": f"{base}/{splat['file']}" if splat else None,
+        # Walkable reconstruction of the dressed frames; `eye` is the scan point in the splat's world.
+        # A whole-room set was built at Matterport's measured cameras, so its scale is known and
+        # its floor is the scan's floor. One-point sets leave those fields out.
+        "splat": {"url": f"{base}/{splat['file']}", "mode": splat["mode"], "splat_count": splat["splat_count"],
+                  "eye": splat["eye"],
+                  **({"units_per_m": room["units_per_m"], "floor_y": 0.0,
+                      "scan_points": room["scan_point_positions"]} if room else {})} if splat else None,
+        "room": {"scan_points": room["scan_points"], "views": room["views"]} if room else None,
     }
 
 
