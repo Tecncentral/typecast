@@ -512,6 +512,7 @@ async function drain() {
 }
 function boot(options) {
   const env = createEnv(options);
+  vm.runInContext(CHECKS_JS, env.context, { filename: 'director-checks.js' });
   vm.runInContext(`${DIRECTOR_JS}\n${FOOTER}`, env.context, { filename: 'director.js' });
   env.api = env.context.__director;
   return env;
@@ -1729,4 +1730,242 @@ test('origin: compare strip captions name the sample-derived take in readable HT
   assert.match(env.$('compareStrip').textContent, /Take B · 5s · AUTHORED SAMPLE · not AI/);
   assert.doesNotMatch(env.$('compareStrip').textContent, /Take A \(active\) · \d+s · AUTHORED/);
   assert.ok(painted(env).includes('authored sample'));
+});
+
+// ---------- production decisions: fit check, location swap, notes/continuity, decision sheet ----------
+const ROWS = () => [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_a', 'shot_a2')];
+const POOL = () => [...ROWS(), assignment('s1', 'prop_b', 'shot_b'), assignment('s2', 'prop_b', 'shot_b2')];
+const SCRIPT2 = 'INT. KITCHEN - DAY | a bright kitchen at least 100 m2, windows, quiet\nINT. OFFICE - NIGHT | an office';
+async function swapEnv(extra = {}) {
+  const env = boot();
+  await buildScript(env, SCRIPT2, ROWS(), { candidates: POOL(), evidence: { shot: { room_area_m2: 60 } }, ...extra });
+  env.api.selectScene('s1');
+  env.$('addActor').click(); env.$('dlg').value = 'MARA: hello'; env.$('dlg').dispatchEvent({ type: 'input' });
+  env.$('dur').value = '7'; env.$('dur').dispatchEvent({ type: 'input' });
+  env.api.setVariant('B'); env.$('loadSample').click(); env.$('applyB').click(); env.api.setVariant('A');
+  return env;
+}
+const cur = (env, sid = 's1') => env.api.S && env.api.shotData(sid);
+const checksText = (env) => env.$('checksSummary').textContent + '\n' + env.$('checksBody').textContent;
+
+test('decisions: the fit check shows evidence-linked rows, never a score, and keeps unknowns unknown', async () => {
+  const env = await swapEnv();
+  assert.equal(env.$('sceneChecks').hidden, false);
+  assert.match(env.$('checksSummary').textContent, /^Fit check · 1 conflict · 3 unknown/);
+  const body = env.$('checksBody').textContent;
+  assert.match(body, /Visual similarity: Looks like your description\. Image similarity 0\.42\. .*not a fit score/);
+  assert.match(body, /Conflict: Floor area\. .*at least 100 m2.*index estimate is 60\.0 m²/);
+  assert.match(body, /Unknown: Listing availability/); assert.match(body, /Unknown: Details in your script\. .*window/);
+  assert.match(body, /Unknown: Quiet\. .*no sound measurement/);
+  assert.equal(/\d\s?%/.test(checksText(env)), false);
+  env.api.selectScene('s2');                                        // a scene with no stated needs stays quiet
+  assert.match(env.$('checksSummary').textContent, /0 conflicts/);
+});
+
+test('decisions: swap keeps both takes, durations, dialogue and origin, and marks them unreviewed on the new exact frame', async () => {
+  const env = await swapEnv();
+  const aBefore = JSON.stringify(env.api.shotData('s1', 'A')), bBefore = JSON.stringify(env.api.shotData('s1', 'B'));
+  assert.deepEqual(copied(env.api.altChoices('s1').map((c) => c.shot.shot_id)), ['shot_b']);
+  env.api.swapLocation('s1', 'shot_b');
+  const a = env.api.S.resp.plans[0].assignments[0];
+  assert.equal(a.shot_id, 'shot_a');                                    // the solver's plan itself is untouched
+  assert.equal(env.api.shotData('s1', 'A').dialogue, 'MARA: hello');
+  assert.equal(JSON.stringify(env.api.shotData('s1', 'A')), aBefore); assert.equal(JSON.stringify(env.api.shotData('s1', 'B')), bBefore);
+  assert.equal(env.api.shotData('s1', 'B').origin, 'authored-sample'); assert.equal(env.api.shotData('s1', 'A').duration_sec, 7);
+  assert.ok(env.api.S.edits['s1::shot_a'], 'old frame staging still exists');
+  assert.deepEqual(JSON.parse(JSON.stringify(env.api.S.transfer['s1::shot_b'])), { from_shot_id: 'shot_a', from_property_id: 'prop_a', reviewed: false });
+  assert.equal(env.$('swapNotice').hidden, false);
+  assert.match(env.$('swapNotice').textContent, /prop_a → prop_b.*carried over as a draft.*NOT verified against this frame.*previous scan identity does not apply/);
+  assert.match(env.$('planSel').childNodes[0]?.textContent || env.$('stagePlanSummary').textContent, /manual swap, not recalculated/);
+  env.drawLog.length = 0; env.api.setVariant('A');
+  assert.ok(painted(env).includes('STAGING CARRIED OVER · UNREVIEWED ON THIS FRAME'));
+  assert.equal(env.api.viewShot('s1').carried, true);
+  const snap = env.api.exportSnapshot();
+  assert.deepEqual(snap.scenes[0].location_choice, { shot_id: 'shot_b', property_id: 'prop_b', from_shot_id: 'shot_a', from_property_id: 'prop_a', staging_reviewed: false });
+  assert.equal(snap.scenes[0].evidence.frame.shot_id, 'shot_b'); assert.equal(snap.company_moves, null);
+  assert.match(snap.plan_note, /not recalculated/);
+  assert.equal('carried' in snap.scenes[0].variants.A, false);          // transient flag never leaks into the file
+  assert.equal(snap.scenes[0].variants.B.origin, 'authored-sample');
+});
+
+test('decisions: confirming review clears the carried label; undo and back-to-planned never delete staging', async () => {
+  const env = await swapEnv();
+  env.api.swapLocation('s1', 'shot_b');
+  const confirm = env.$('swapNotice').querySelectorAll('button').find((b) => /looks right/.test(b.textContent));
+  confirm.click();
+  assert.equal(env.api.S.transfer['s1::shot_b'].reviewed, true);
+  env.drawLog.length = 0; env.api.setVariant('A'); assert.equal(painted(env).includes('CARRIED OVER'), false);
+  assert.equal(env.api.exportSnapshot().scenes[0].location_choice.staging_reviewed, true);
+  // edit on the swapped frame, go back, edits stay with their frame
+  env.$('dlg').value = 'edited on new frame'; env.$('dlg').dispatchEvent({ type: 'input' });
+  env.$('swapNotice').querySelectorAll('button').find((b) => /Back to planned/.test(b.textContent)).click();
+  assert.equal(env.api.shotData('s1', 'A').dialogue, 'MARA: hello');
+  assert.equal(env.api.S.edits['s1::shot_b'].A.dialogue, 'edited on new frame');
+  env.api.swapLocation('s1', 'shot_b');                                 // swapping again finds that work and does not overwrite it
+  assert.equal(env.api.shotData('s1', 'A').dialogue, 'edited on new frame');
+  env.$('swapNotice').querySelectorAll('button').find((b) => /Undo swap/.test(b.textContent)).click();
+  assert.equal(env.api.validSwap('s1'), null); assert.equal(env.api.S.edits['s1::shot_b'].A.dialogue, 'edited on new frame');
+});
+
+test('decisions: empty pool shows a disabled-state explanation and no swap; busy plans refuse swaps', async () => {
+  const env = boot();
+  await buildScript(env, SCRIPT2, ROWS());                              // one property only
+  env.api.selectScene('s1');
+  assert.deepEqual(copied(env.api.altChoices('s1')), []);
+  assert.match(env.$('framePicker').textContent, /Try another location \(0\)/); assert.match(env.$('framePicker').textContent, /No other eligible location/);
+  env.api.swapLocation('s1', 'shot_a2');
+  assert.equal(env.api.validSwap('s1'), null);
+  const e2 = await swapEnv(); e2.$('build').click();                    // a replan is in flight
+  e2.api.swapLocation('s1', 'shot_b'); assert.equal(e2.api.validSwap('s1'), null); assert.match(e2.$('status').textContent, /Wait for the new plan/);
+});
+
+test('decisions: a rejected location never returns through swap, and replans clear swaps', async () => {
+  const env = await swapEnv();
+  env.api.swapLocation('s1', 'shot_b');
+  env.$('reject').click();                                              // rejects the swapped property, prop_b
+  assert.deepEqual(copied(env.api.S.forbidden), ['prop_b']);
+  // replan fails: the swap is no longer honoured and the rejected property is not offered
+  env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();
+  assert.equal(env.api.validSwap('s1'), null);
+  assert.equal(JSON.stringify(env.api.altChoices('s1')).includes('prop_b'), false);
+  // a stale backend that still returns it is cleaned and cannot be swapped to
+  env.$('reject').click();
+  const job = env.take('/api/production/plan');
+  job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), ROWS(), { candidates: POOL() }))); await drain();
+  assert.equal(env.api.altChoices('s1').some((c) => c.shot.property_id === 'prop_b'), false);
+  env.api.swapLocation('s1', 'shot_b'); assert.equal(env.api.validSwap('s1'), null);
+  assert.deepEqual({ ...env.api.S.swaps }, {});                         // a new plan always clears hand swaps
+});
+
+test('decisions: the frame picker inside a swapped property keeps the swap instead of reverting it', async () => {
+  const env = await swapEnv({ candidates: [...POOL(), assignment('s1', 'prop_b', 'shot_b3')] });
+  env.api.swapLocation('s1', 'shot_b');
+  const select = env.$('framePicker').querySelector('select'); select.value = 'shot_b3'; select.dispatchEvent({ type: 'change' });
+  assert.equal(env.api.validSwap('s1').shot_id, 'shot_b3'); assert.equal(env.api.validSwap('s1').property_id, 'prop_b');
+});
+
+test('decisions: notes are bounded and sanitized; continuity stays silent until explicitly linked', async () => {
+  const env = await swapEnv();
+  assert.doesNotMatch(env.$('rail').textContent, /continuity note/); assert.doesNotMatch(env.$('checksBody').textContent, /Continuity/);
+  env.$('noteDressing').value = `${'x'.repeat(700)}\u0000`; env.$('noteDressing').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.S.notes.s1.dressing.length, 600); assert.equal(env.api.S.notes.s1.dressing.includes('\u0000'), false);
+  env.$('noteGroup').value = 'a b!c'; env.$('noteGroup').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.S.notes.s1.group, 'abc');
+  assert.equal(env.jobs.length, 0, 'notes never trigger a request');
+  // linking scenes in different properties is a verified mismatch; a link of one scene does nothing
+  assert.doesNotMatch(env.$('rail').textContent, /continuity note/);
+  env.api.selectScene('s2'); env.api.swapLocation('s2', 'shot_b2');
+  env.$('noteGroup').value = 'abc'; env.$('noteGroup').dispatchEvent({ type: 'input' });
+  assert.match(env.$('rail').textContent, /continuity note/);
+  assert.match(env.$('checksBody').textContent, /Mismatch: Scenes 1 and 2 \(link "abc"\) use different properties \(prop_a and prop_b\)/);
+  assert.match(env.$('checksBody').textContent, /Next: Try another location/);
+  env.$('noteGroup').value = ''; env.$('noteGroup').dispatchEvent({ type: 'input' });
+  assert.doesNotMatch(env.$('rail').textContent, /continuity note/);
+});
+
+test('decisions: same-frame position continuity needs the same exact frame, and exports reflect it', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. A - DAY | one\nINT. A - DAY | two', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_a', 'shot_a')]);
+  for (const sid of ['s1', 's2']) {
+    env.api.selectScene(sid); env.$('addActor').click(); env.$('aName').value = 'Mara'; env.$('aName').dispatchEvent({ type: 'input' });
+    env.$('noteGroup').value = 'k'; env.$('noteGroup').dispatchEvent({ type: 'input' });
+  }
+  const a = env.api.shotData('s1').actors[0], b = env.api.shotData('s2').actors[0];
+  Object.assign(a, { x0: .2, y0: .8, x1: .85, y1: .8 }); Object.assign(b, { x0: .2, y0: .8, x1: .2, y1: .8 });
+  env.api.selectScene('s2');
+  assert.match(env.$('checksBody').textContent, /Possible mismatch: .*Mara ends scene 1 at \(0\.85, 0\.80\) and starts scene 2 at \(0\.20, 0\.80\)/);
+  const d = env.api.decisionFor('s2');
+  assert.ok(d.checklist.some((x) => /^Continuity \(potential\)/.test(x)));
+});
+
+test('decisions: the shoot pack carries the decision sheet, escapes notes, lists both takes and leaks no contact or address', async () => {
+  const env = await swapEnv();
+  env.api.swapLocation('s1', 'shot_b');
+  env.$('noteDressing').value = `${XSS} <script>alert(1)</script> add a calendar`; env.$('noteDressing').dispatchEvent({ type: 'input' });
+  env.$('expPack').click(); await drain();
+  const html = await blobText(env.downloads.find((d) => d.name.endsWith('.html')).blob);
+  assert.ok(html.includes('Production decision sheet · scene 1'));
+  assert.ok(html.includes('contains no prices, permissions, owner contact or confirmation that a set is feasible'));
+  assert.ok(html.includes('Property prop_b, frame shot_b. Chosen by hand from the candidate pool instead of prop_a'));
+  assert.ok(html.includes('Staging was carried over from another frame and has NOT been reviewed'));
+  assert.ok(html.includes('Take A: 7s, 1 stand-in, line: MARA: hello.')); assert.ok(html.includes('AUTHORED SAMPLE (pre-written, not AI-generated)'));
+  assert.ok(html.includes('Conflict: Floor area.')); assert.ok(html.includes('On-site checklist'));
+  assert.ok(html.includes('Re-stage the carried-over blocking'));
+  assert.ok(html.includes('add a calendar')); assert.equal(html.includes(XSS), false); assert.equal(html.includes('<script>alert(1)'), false);
+  assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  for (const leak of ['FAKE', 'sk-live', 'licensed.jpg', '/Users/demo', 'listing contact']) assert.equal(html.includes(leak), false, leak);
+  assert.ok(html.includes('@media print')); assert.ok(html.includes('page-break-inside'));
+  assert.ok(env.drawLog.some((e) => e.m === 'fillText' && String(e.args[0]).includes('STAGING CARRIED OVER')), 'pack staged image carries the stamp');
+});
+
+test('decisions: project JSON round trip restores the swap, unreviewed state and notes; a pool without that frame retains them for review', async () => {
+  const env = await swapEnv();
+  env.api.swapLocation('s1', 'shot_b');
+  env.$('noteDressing').value = 'keep the plant'; env.$('noteDressing').dispatchEvent({ type: 'input' });
+  env.$('expJson').click(); const text = await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob);
+  const saved = JSON.parse(text);
+  assert.equal(saved.scenes[0].notes.dressing, 'keep the plant'); assert.equal(saved.scenes[0].location_choice.staging_reviewed, false);
+  const fresh = boot();
+  await buildScript(fresh, SCRIPT2, ROWS(), { candidates: POOL() });
+  const { job, body } = await startImport(fresh, text);
+  job.resolve(jsonResponse(planFor(body, ROWS(), { candidates: POOL() }))); await drain();
+  assert.equal(fresh.api.validSwap('s1').shot_id, 'shot_b');
+  assert.equal(fresh.api.S.transfer['s1::shot_b'].reviewed, false);
+  assert.equal(fresh.api.S.notes.s1.dressing, 'keep the plant');
+  assert.equal(fresh.api.shotData('s1', 'A').dialogue, 'MARA: hello'); assert.equal(fresh.api.shotData('s1', 'B').origin, 'authored-sample');
+  assert.equal(fresh.api.S.forbidden.length, 0);
+  // the new pool no longer offers shot_b: nothing is swapped, work is kept for review, notes still restored
+  const gone = boot();
+  await buildScript(gone, SCRIPT2, ROWS(), { candidates: ROWS() });
+  const second = await startImport(gone, text);
+  second.job.resolve(jsonResponse(planFor(second.body, ROWS(), { candidates: ROWS() }))); await drain();
+  assert.equal(gone.api.validSwap('s1'), null); assert.equal(gone.api.S.importReview.length, 1);
+  assert.equal(gone.api.S.notes.s1.dressing, 'keep the plant');
+  // an ineligible candidate is not accepted either
+  const bad = boot();
+  await buildScript(bad, SCRIPT2, ROWS(), { candidates: POOL() });
+  const third = await startImport(bad, text);
+  const resp = planFor(third.body, ROWS(), { candidates: POOL() });
+  resp.scenes[0].candidates.find((c) => c.shot.shot_id === 'shot_b').eligible = false;
+  third.job.resolve(jsonResponse(resp)); await drain();
+  assert.equal(bad.api.validSwap('s1'), null);
+});
+
+test('decisions: swaps are refused while an import loads, so a late import never meets a half-applied swap', async () => {
+  const env = await swapEnv();
+  const file = JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{ id: 's1', heading: 'INT. KITCHEN - DAY', description: 'x', evidence: { frame: { shot_id: 'shot_a', property_id: 'prop_a' } },
+    variants: { A: { duration_sec: 5, dialogue: 'IMPORTED', actors: [] }, B: { duration_sec: 5, dialogue: '', actors: [] } } }] });
+  const { job, body } = await startImport(env, file);
+  env.api.swapLocation('s1', 'shot_b');                                  // the user clicks while the evidence loads
+  assert.equal(env.api.validSwap('s1'), null); assert.match(env.$('status').textContent, /Wait for the new plan/);
+  job.resolve(jsonResponse(planFor(body, ROWS(), { candidates: POOL() }))); await drain();
+  assert.equal(env.api.shotData('s1', 'A').dialogue, 'IMPORTED'); assert.equal(env.api.validSwap('s1'), null);
+  // the swap stayed out of the way: now (idle) it works on the imported state
+  env.api.swapLocation('s1', 'shot_b'); assert.equal(env.api.validSwap('s1').shot_id, 'shot_b');
+});
+
+test('decisions: malformed production fields are refused or neutralized on import', async () => {
+  const P = (await import('../director-project.js')).default;
+  const base = (scene) => JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{ id: 's1', heading: 'h', description: 'd', evidence: { frame: { shot_id: 'a', property_id: 'p' } },
+    variants: { A: { duration_sec: 5, dialogue: '', actors: [] }, B: { duration_sec: 5, dialogue: '', actors: [] } }, ...scene }] });
+  const ok = { shot_id: 'b', property_id: 'q', from_shot_id: 'a', from_property_id: 'p', staging_reviewed: false };
+  assert.equal(P.normalizeProject(base({ location_choice: ok })).scenes[0].location_choice.staging_reviewed, false);
+  for (const bad of [{ ...ok, staging_reviewed: 'no' }, { ...ok, shot_id: '../x' }, { ...ok, property_id: 'a b' }, { ...ok, from_shot_id: 3 }, 'str', [], { ...ok, staging_reviewed: undefined }])
+    assert.throws(() => P.normalizeProject(base({ location_choice: bad })), /Invalid project/);
+  assert.throws(() => P.normalizeProject(JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{ id: 's1', heading: 'h', description: 'd', location_choice: ok }] })), /saved frame identity/);
+  for (const bad of [{ dressing: 'x'.repeat(601) }, { group: 'a b' }, { group: 'x'.repeat(13) }, { dressing: 5 }, 'text'])
+    assert.throws(() => P.normalizeProject(base({ notes: bad })), /Invalid project/);
+  const clean = P.normalizeProject(base({ notes: { dressing: 'a\u0000b\u001fc', group: 'k_1' } })).scenes[0].notes;
+  assert.deepEqual(JSON.parse(JSON.stringify(clean)), { dressing: 'abc', group: 'k_1' });
+  assert.equal('notes' in P.normalizeProject(base({})).scenes[0], false);   // absent stays absent (old files migrate unchanged)
+});
+
+test('decisions: reel input for a carried-over take is flagged so the WebM frames carry the stamp', async () => {
+  const env = await swapEnv();
+  env.api.swapLocation('s1', 'shot_b');
+  const R = (await import('../director-reel.js')).default;
+  const snap = R.buildSnapshot({ variant: 'A', scenes: [{ id: 's1', heading: 'h', shot_id: 'shot_b', prov: 'p', shot: env.api.sanitizeShot(env.api.viewShot('s1'), true) }] });
+  assert.equal(snap.scenes[0].shot.carried, true);
+  const plain = R.buildSnapshot({ variant: 'A', scenes: [{ id: 's1', heading: 'h', shot_id: 'shot_b', prov: 'p', shot: { duration_sec: 5, dialogue: '', actors: [], carried: 'yes' } }] });
+  assert.equal(plain.scenes[0].shot.carried, undefined);
 });

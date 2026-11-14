@@ -643,7 +643,7 @@ function altLocations(a) {
 function swapLocation(sid, shotId) {
   if (S.planBusy) return status('Wait for the new plan before swapping a location.', true);
   const cur = assignFor(sid), c = candFor(sid, shotId);
-  if (!cur || !c || c.eligible === false || S.forbidden.includes(c.shot.property_id) || c.shot.shot_id === cur.shot_id) return status('That location is not an eligible alternative for this scene.', true);
+  if (!cur || !c || c.eligible === false || S.forbidden.includes(c.shot.property_id) || c.shot.property_id === cur.property_id) return status('Pick a different location here; frames in the current location use the frame picker.', true);
   const k = `${S.planIdx}::${sid}`, oldKey = keyOf(sid), newKey = `${sid}::${shotId}`;
   S.swapUndo = { sid, k, prevSwap: S.swaps[k] ? { ...S.swaps[k] } : null, prevOverride: S.frameOverrides[k] ?? null };
   S.rev++; stopPlay(); cancelGen(); clearPending(); delete S.frameChange[sid];
