@@ -55,7 +55,7 @@ flowchart TD
     Index --> Production
     Join --> Production
     Cache --> Production
-    Production --> Group["Exact-property grouping within retrieved pool"]
+    Production --> Group["Indexed-property grouping + association status"]
     Group --> Plans["Coverage, location count, company moves and similarity"]
     Plans --> Reel["Director's Room plan comparison + Play"]
 
@@ -90,9 +90,9 @@ Atlas `images2PosedRGBD` derives cameras and depth from the real scan images. `a
 
 ## Whole-script grouping
 
-The Director's Room uses exact property identity to assign scenes to buildings and show alternative plans. It currently retrieves **120** views per scene, considers the first **three** retrieved properties per scene up to **24** total, and accepts up to **eight** scenes and **four** locations. These are implementation limits, not benchmark results. Source: [production request validation and pool builder](../index/production.py).
+The Director's Room uses indexed property identity to assign scenes to buildings and show alternative plans. It currently retrieves **120** views per scene, considers the first **three** retrieved properties per scene up to **24** total, and accepts up to **eight** scenes and **four** locations. These are implementation limits, not benchmark results. Source: [production request validation and pool builder](../index/production.py).
 
-The plan exposes coverage, location count, company moves and mean similarity. Its optimality applies only to that bounded candidate pool, and moves assume one visit per selected property. It does not model road travel, shooting order, access permissions or actual crew downtime. Unknown evidence stays visible; a successful creative grouping is not a verified booking. Sources: [production planner](../index/production.py), [solver](../index/production_solver.py).
+The planner separately reports whether the supplied property/model pair is matched, conflicting or unknown; a missing optional mapping cannot become a confirmed association. Grouping can still use indexed property identity with that caveat visible. The plan exposes coverage, location count, company moves and mean similarity. Its optimality applies only to that bounded candidate pool, and moves assume one visit per selected property. It does not model road travel, shooting order, access permissions or actual crew downtime. Unknown evidence stays visible; a successful creative grouping is not a verified booking. Sources: [production planner](../index/production.py), [solver](../index/production_solver.py).
 
 ## Execution and human control
 
