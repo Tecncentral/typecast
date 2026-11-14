@@ -1,6 +1,6 @@
 # Current Owner 1 integration status
 
-Updated 2026-11-14 21:10 UTC. Uncommitted integration work is under review; final gate recorded in PR. Earlier entries below are historical snapshots.
+Updated 2026-11-14 21:10 UTC. Published feature head a982125 in PR #22: full gate 539 passed / one skipped, smoke, fixture SSE/refinement/unsent-draft checks and exact-head CI success. Final documentation closeout follows. Earlier entries below are historical snapshots.
 
 Shared `agent.app` serves Director and the merged full viewer on port 8771. Commit `5da12ac` adds the actual `plan_production_shoot` Deep Agents tool; fake-model graph dispatch is tested. A live trace of this new tool is not yet verified. The deterministic planner and UI notices are not an agent trace.
 
@@ -8,7 +8,7 @@ Browser verified: real plans/rejection, independent A/B staging, reviewed text p
 
 Grok audit fixes now have passing regressions for rejected properties resurfacing in faulty backend responses, missing/invalid statuses revealing availability or parking claims, unsafe exported provenance IDs and negative-time actor extrapolation. Adapted the audit DOM fixture to current reel/import/viewfinder controls. Playback progress remains display-only. Final combined gate is recorded in PR.
 
-Private data limit: the older local 11-column join lacks richer availability fields and local Vexcel logistics. PRs #12/#21 provide no private bundle link; PR #21 says the data is on Owner 2's laptop. Exact property/model mapping remains separately checked. Obtain authorized private team delivery before claiming richer constraints work here. The judged demo may show user-authorized licensed imagery; no private bundle or licensed-image export goes into public Git or public uploads.
+Private data limit: the older local 11-column join lacks richer availability fields and local Vexcel logistics. PRs #12/#21 provide no private bundle link; PR #21 says the data is on Owner 2's laptop. Exact property/model mapping remains separately checked. Discord checked: the integration captain's 14 November 15:01 Eastern reply about PR #21 says the expanded private index/Vexcel caches and final demo are on that teammate's laptop. The reported inventory is 343 properties, 10,568 views, 327 available indexed properties, Vexcel caches for 344 properties and nine available demo properties. These are teammate-reported counts, not a local reproduction. A second copy is unnecessary for the planned demo; pull this lane on the demo laptop and verify its current data there. This local checkout retains the older 11-column join and no Vexcel cache. The judged demo may show user-authorized licensed imagery; no private bundle or licensed-image export goes into public Git or public uploads.
 
 Labeling is complete. Expanded v2 PR #27 reports 73.33% precision lower bound and 30.48% macro recall, with repeated review by the same reviewer rather than a new holdout. Root did not reproduce it. Keep this separate from original 608-view and earlier expanded results; these do not measure general accuracy, Director/solver quality or filmmaker validation. No further labeling is needed.
 
