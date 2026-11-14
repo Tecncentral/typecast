@@ -1,0 +1,1 @@
+three.js 0.180.0 (MIT), from the npm package `three`: build/three.module.min.js, build/three.core.min.js and examples/jsm/postprocessing/Pass.js (as addons/postprocessing/Pass.js). Unmodified. Loaded only when the walkable AI set opens; index.html maps the bare `three` specifier here.
