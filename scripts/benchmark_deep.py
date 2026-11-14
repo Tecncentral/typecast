@@ -1,7 +1,8 @@
 """Measure real-model deep runs over fixtures; output timing metadata only.
 
-Uses the configured paid provider. Tracing, model parsing and vision reranking
-are disabled to isolate director/delegate latency consistently across revisions.
+Uses the configured paid provider. Model parsing and vision reranking are
+disabled to isolate director/delegate latency consistently across revisions.
+Use --tracing to include real trace upload and verified run-link retrieval.
 Pass --checkout to benchmark an unchanged worktree with the same environment.
 """
 from __future__ import annotations
@@ -30,6 +31,7 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--director-effort", default="medium")
     parser.add_argument("--scout-effort", default="low")
+    parser.add_argument("--tracing", action="store_true")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.runs < 1:
@@ -41,8 +43,12 @@ def main() -> int:
                       TYPECAST_ENABLE_MODEL_PARSE="0", TYPECAST_ENABLE_VISION_RERANK="0",
                       TYPECAST_REASONING_EFFORT=args.director_effort,
                       TYPECAST_SCOUT_REASONING_EFFORT=args.scout_effort,
-                      LANGSMITH_API_KEY="", LANGCHAIN_API_KEY="",
-                      LANGSMITH_TRACING="false", LANGCHAIN_TRACING_V2="false")
+                      LANGSMITH_TRACING="true" if args.tracing else "false",
+                      LANGCHAIN_TRACING_V2="false")
+    if not args.tracing:
+        os.environ.update(LANGSMITH_API_KEY="", LANGCHAIN_API_KEY="")
+    elif not os.getenv("LANGSMITH_API_KEY", "").strip():
+        parser.error("--tracing requires LANGSMITH_API_KEY")
     sys.path.insert(0, str(args.checkout.resolve()))
     from agent import runtime
 
@@ -59,7 +65,7 @@ def main() -> int:
               "agent_source_sha256": source_hash.hexdigest(),
               "model": os.getenv("TYPECAST_LLM_MODEL"), "director_effort": args.director_effort,
               "scout_effort": args.scout_effort, "source_mode": "mock",
-              "model_parse": False, "vision_rerank": False, "tracing": False, "runs": []}
+              "model_parse": False, "vision_rerank": False, "tracing": args.tracing, "runs": []}
     for number in range(1, args.runs + 1):
         started = perf_counter()
         delegates = {}
@@ -88,7 +94,7 @@ def main() -> int:
         try:
             result = runtime.run_scout(ctx, scene=SCENE)
             row.update(engine=result.engine, picks=len(result.picks),
-                       fallback=result.engine != "deep")
+                       fallback=result.engine != "deep", trace_url=result.trace_url)
         except Exception as error:
             row.update(engine="error", error_kind=type(error).__name__, fallback=False)
         row.update(total_s=perf_counter() - started, first_event_s=first_event_s,
@@ -103,6 +109,7 @@ def main() -> int:
             args.output.write_text(json.dumps(report, indent=2) + "\n")
     successful = [r for r in report["runs"] if r["engine"] == "deep"]
     report["summary"] = {"attempts": args.runs, "deep_successes": len(successful),
+        "verified_trace_links": sum(bool(r.get("trace_url")) for r in report["runs"]),
         "p50_all_attempts_s": median(r["total_s"] for r in report["runs"]),
         "p50_deep_success_s": median(r["total_s"] for r in successful) if successful else None,
         "delegate_p50_s": {name: median(durations) for name in
@@ -115,7 +122,8 @@ def main() -> int:
     print(json.dumps({"summary": report["summary"]}), flush=True)
     if args.output:
         args.output.write_text(json.dumps(report, indent=2) + "\n")
-    return 0 if len(successful) == args.runs else 1
+    return 0 if (len(successful) == args.runs and
+                 (not args.tracing or report["summary"]["verified_trace_links"] == args.runs)) else 1
 
 
 if __name__ == "__main__":

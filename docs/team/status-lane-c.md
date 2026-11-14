@@ -13,6 +13,16 @@ Scope confirmed by the user: Job 2 only in NEXT-JOBS-PROMPTS.md. Other chats own
 - LangSmith authentication succeeded with the newly provided key. Live fixed/deep trace creation/read-back and optimized three-run measurement are next; no success claimed yet.
 - Local configuration now uses gpt-6.1-sol, director medium/scouts low, LANGSMITH_PROJECT=typecast; default engine remains fixed.
 
+
+### Job 2 optimized measurement
+
+- Commit ce7fd74; command `.venv/bin/python scripts/benchmark_deep.py --runs 3 --director-effort medium --scout-effort low --output cache/benchmarks/deep-after.json`.
+- Three real-model mock runs: 44.003 s, 43.273 s, 42.971 s. All three completed with engine=deep and three picks; no fallback. Median **43.273 s**, below the 45 s target (baseline83.807 s).
+- Completed-delegate medians: market6.500 s, interior7.985 s, logistics4.939 s, skeptic3.452 s (3 samples each).
+- Run1 live event intervals: interior19.684–28.133 s; logistics19.684–24.318 s. Same-turn launch and independent completion prove actual overlap, corroborating the sleeping-source test. Progress arrived during all three runs.
+- Benchmark disables model parsing, vision reranking and tracing for both versions, isolating director/delegate latency. Actual traced HTTP latency is measured separately. No real-data retrieval metric is claimed.
+- Live GET /config returned the exact four fields; SDK key present, no private credential leakage. Initial fixed HTTP trace test saved a completed, redacted LangSmith root but returned null while immediate reads were not yet visible. Fixing bounded read-back retries before claiming live tracing success.
+
 ## Previous integrated handoff
 
 Updated UTC: 2026-11-14T10:03:32Z

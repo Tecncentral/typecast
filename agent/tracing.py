@@ -18,10 +18,12 @@ from urllib3.util.retry import Retry
 from agent.interfaces import RunContext
 from contracts.schemas import Event
 
-TRACE_VERIFY_TIMEOUT_SECONDS = 2.0
+TRACE_VERIFY_TIMEOUT_SECONDS = 8.0
 TRACE_START_TIMEOUT_SECONDS = 0.25
 TRACE_FLUSH_TIMEOUT_SECONDS = 0.5
-TRACE_REQUEST_TIMEOUT_MS = (300, 700)
+TRACE_REQUEST_TIMEOUT_MS = (1000, 2000)
+TRACE_POLL_INITIAL_SECONDS = 0.15
+TRACE_POLL_MAX_SECONDS = 1.0
 _TOOL_NAMES = {"parse", "parse_scene", "search_costar", "get_property", "search_shots", "get_shot",
                "check_shot", "rerank_shots", "plan_logistics", "build_shortlist", "get_shortlist",
                "state.save.requirements", "state.save.candidates", "state.save.shortlist", "state.save.skeptic"}
@@ -149,7 +151,7 @@ class RunTrace:
         self.pick_count = len(response.picks)
         self.tool_count = sum(event.type == "tool" for event in response.events)
 
-    def _finish(self) -> str | None:
+    def _finish(self, deadline: float) -> str | None:
         try:
             self.root.add_metadata({"engine": self.ctx.engine, "source_mode": self.ctx.source_mode,
                                     "operation": self.operation, "pick_count": self.pick_count,
@@ -159,20 +161,27 @@ class RunTrace:
             self.root.end(error="Execution failed; details retained locally." if self.error else None)
             self.root.patch()
             self.client.flush(timeout=TRACE_FLUSH_TIMEOUT_SECONDS)
-            # Upload may briefly precede query visibility. The daemon wait also
-            # bounds SDK internals, including synchronous flush/drain work.
-            for attempt in range(3):
+            # A successful upload does not imply immediate read visibility.
+            # Poll until the shared deadline rather than exhausting a few fast
+            # 404s. The outer wait also bounds slow SDK flush/request/close work.
+            delay = TRACE_POLL_INITIAL_SECONDS
+            while perf_counter() < deadline:
                 try:
                     stored = self.client.read_run(self.root.id)
                     if (str(stored.id) != str(self.root.id) or stored.end_time is None
                             or str(stored.trace_id) != str(self.root.id)
                             or stored.parent_run_id is not None):
                         raise ValueError("LangSmith has not returned the completed root")
+                    if perf_counter() >= deadline:
+                        return None
                     url = self.client.get_run_url(run=stored, project_name=self.project)
                     return url if isinstance(url, str) and url.startswith(("https://", "http://")) else None
                 except Exception:
-                    if attempt < 2:
-                        sleep(0.05 * (attempt + 1))
+                    remaining = deadline - perf_counter()
+                    if remaining <= 0:
+                        break
+                    sleep(min(delay, remaining))
+                    delay = min(delay * 2, TRACE_POLL_MAX_SECONDS)
         except Exception:
             pass
         finally:
@@ -187,9 +196,10 @@ class RunTrace:
         if self.root is None:
             return
         completed: Queue = Queue(maxsize=1)
+        deadline = perf_counter() + TRACE_VERIFY_TIMEOUT_SECONDS
 
         def work():
-            completed.put(self._finish())
+            completed.put(self._finish(deadline))
 
         try:
             Thread(target=work, name="typecast-trace-verify", daemon=True).start()

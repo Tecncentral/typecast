@@ -82,7 +82,16 @@ python scripts/benchmark_deep.py --runs 3 --director-effort medium --scout-effor
   --output cache/benchmarks/deep-after.json
 ```
 
-This command uses the configured model API. It disables model parsing, vision reranking, and tracing to measure director/delegate changes consistently; reports count fallbacks separately from successful deep runs. The output contains timing metadata, not source records.
+This command uses the configured model API. It disables model parsing and vision reranking; add `--tracing` to include real trace upload and verified link retrieval. Without that flag, it measures director/delegate changes without trace-service latency. Reports count fallbacks separately from successful deep runs and require a verified link on every traced trial. The output contains timing metadata, not source records.
+
+With a mock server running on port 8000 and tracing enabled, verify actual SSE delivery, public configuration, and a fetched LangSmith run with:
+
+```bash
+python scripts/check_tracing.py --expected-engine fixed --output cache/benchmarks/fixed-trace.json
+# Use --expected-engine deep when the server runs with TYPECAST_ENGINE=deep.
+```
+
+Tracing waits at most eight seconds for a run to become readable after upload. If verification fails or takes longer, scouting still succeeds with a null trace URL and a trace-status event. This diagnostic checks the returned link independently and rejects missing links or an unexpected fallback.
 
 ```bash
 python scripts/e2e.py

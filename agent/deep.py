@@ -85,6 +85,10 @@ class _StreamEvents:
         self.last_answer = ""
         self.reviews: Reviews | None = None
 
+    def todo_update(self, todos):
+        """Emit only todo values read from a real tool update or saved checkpoint."""
+        self.ctx.event(Event(type="todo", agent="director", text=json.dumps(todos)))
+
     def update(self, chunk):
         namespace, update = chunk
         if namespace or not isinstance(update, dict):
@@ -94,7 +98,7 @@ class _StreamEvents:
             if not isinstance(payload, dict):
                 continue
             if "todos" in payload:
-                self.ctx.event(Event(type="todo", agent="director", text=json.dumps(payload["todos"])))
+                self.todo_update(payload["todos"])
             messages = payload.get("messages", [])
             if not isinstance(messages, (list, tuple)):
                 messages = [messages]
@@ -158,8 +162,38 @@ def _build_graph(model, session: ToolSession):
     return create_deep_agent(
         model=model, system_prompt=_prompt("director"), tools=[tools["build_shortlist"]],
         subagents=subagents, backend=StateBackend(), checkpointer=InMemorySaver(),
-        middleware=[FilesystemMiddleware(tools=["read_file"]), TodoListMiddleware()],
+        middleware=[FilesystemMiddleware(tools=["read_file"]), TodoListMiddleware(
+            system_prompt=("Track the source-backed scouting steps with write_todos, at most once per turn. "
+                           "Combine each update with the next source task/tool calls. Keep todo content to "
+                           "four words and task descriptions to 25 words. After the skeptic result, return "
+                           "the final authoritative ids immediately without another tool call. The application "
+                           "completes your persisted todo checkpoint only after validating those ids, every "
+                           "review, and all staged draft approval checkpoints."),
+            tool_description=("Replace the scouting todo list with content/status entries (pending, in_progress, "
+                              "completed). Keep each content to four words. Mark only verified finished steps "
+                              "completed. Call at most once per turn and alongside source work. Leave final "
+                              "verification in_progress when delegating to the skeptic; the application "
+                              "completes the checkpoint after validating the final answer and staging approvals."))],
         name="typecast_director")
+
+
+def _complete_todos(graph, config, session: ToolSession, mapper: _StreamEvents) -> None:
+    """Complete and verify the persisted plan after result validation and draft staging."""
+    session.check_deadline()
+    with _tracing()[0]:
+        snapshot = graph.get_state(config)
+        todos = snapshot.values.get("todos", [])
+        if snapshot.next or not todos:
+            raise ValueError("Deep plan is unfinished or has no persisted todos")
+        completed = [{**todo, "status": "completed"} for todo in todos]
+        # With no pending graph work, LangGraph infers the last completed node.
+        # Specifying as_node="model" would incorrectly enqueue after-model hooks.
+        checkpoint = graph.update_state(config, {"todos": completed})
+        verified = graph.get_state(checkpoint)
+        if verified.next or verified.values.get("todos") != completed:
+            raise ValueError("Deep todo completion was not persisted")
+    session.check_deadline()
+    mapper.todo_update(verified.values["todos"])
 
 
 @dataclass
@@ -329,6 +363,7 @@ def run_deep(ctx: RunContext, req: Requirements | dict) -> ScoutResponse:
         for pick in session.picks:
             session.check_deadline()
             pending[(ctx.thread_id, pick.rank)] = _stage_draft(model, ctx, pick)
+        _complete_todos(graph, config, session, mapper)
         with _approval_lock:
             session.check_deadline()
             for key in list(_approvals):

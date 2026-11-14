@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 
 from agent import deep, runtime, state, tracing
-from agent.interfaces import Requirements
+from agent.interfaces import Requirements, RunContext
 from agent.tests.test_deep import DeterministicChat
 
 
@@ -25,6 +25,7 @@ class FakeClient:
         self.release = Event()
         self.finished = Event()
         self.url = "https://smith.example/client-returned-real-run"
+        self.visible_after = 0.0
 
     def create_run(self, name, inputs, run_type, **fields):
         if self.failure == "slow_create":
@@ -53,6 +54,8 @@ class FakeClient:
 
     def read_run(self, run_id):
         self.calls.append(("read", str(run_id)))
+        if perf_counter() < self.visible_after:
+            raise LookupError("Run is not visible yet")
         if self.failure == "read":
             raise RuntimeError("private credential and source data")
         record = self.runs[str(run_id)]
@@ -121,6 +124,7 @@ def test_both_runtime_engines_read_completed_root_before_returning_client_url(mo
     assert response.engine == engine and response.picks
     assert response.trace_url == client[0].url
     assert len(client) == 1
+    assert client[0].options["timeout_ms"] == (1000, 2000)
     roots = [run for run in client[0].created if not run.get("parent_run_id")]
     assert len(roots) == 1 and roots[0]["name"] == "typecast.scout"
     root = roots[0]
@@ -151,6 +155,7 @@ def test_missing_key_and_explicit_optout_send_nothing(monkeypatch, client, key, 
 
 @pytest.mark.parametrize("failure", ["create", "update", "flush", "read", "url", "wrong_id", "unfinished"])
 def test_tracing_failures_preserve_scouting_and_never_publish_unverified_url(monkeypatch, client, failure):
+    monkeypatch.setattr(tracing, "TRACE_VERIFY_TIMEOUT_SECONDS", 0.05)
     original = tracing.Client
     def broken(**kwargs):
         obj = original(**kwargs)
@@ -181,6 +186,67 @@ def test_slow_flush_is_bounded_and_cannot_set_late_response_url(monkeypatch, cli
     client[0].release.set()
     assert client[0].finished.wait(1)
     assert response.trace_url is None
+
+
+def test_delayed_ingestion_visibility_polls_beyond_three_attempts(monkeypatch, client):
+    monkeypatch.setattr(tracing, "TRACE_VERIFY_TIMEOUT_SECONDS", 0.6)
+    monkeypatch.setattr(tracing, "TRACE_POLL_INITIAL_SECONDS", 0.01)
+    monkeypatch.setattr(tracing, "TRACE_POLL_MAX_SECONDS", 0.05)
+    original = tracing.Client
+    def delayed(**kwargs):
+        obj = original(**kwargs)
+        obj.visible_after = perf_counter() + 0.25
+        return obj
+    monkeypatch.setattr(tracing, "Client", delayed)
+    started = perf_counter()
+    response = runtime.run_scout(runtime.create_context("trace-delayed"), "office")
+    assert 0.25 <= perf_counter() - started < 0.6
+    assert response.picks and response.trace_url == client[0].url
+    reads = [call for call in client[0].calls if call[0] == "read"]
+    assert len(reads) > 3
+    assert [call[0] for call in client[0].calls][-2:] == ["url", "close"]
+    assert not any(event.type == "trace" for event in response.events)
+
+
+def test_visibility_past_deadline_returns_null_without_late_url(monkeypatch, client):
+    monkeypatch.setattr(tracing, "TRACE_VERIFY_TIMEOUT_SECONDS", 0.04)
+    monkeypatch.setattr(tracing, "TRACE_POLL_INITIAL_SECONDS", 0.01)
+    original = tracing.Client
+    def missing(**kwargs):
+        obj = original(**kwargs)
+        obj.visible_after = perf_counter() + 10
+        return obj
+    monkeypatch.setattr(tracing, "Client", missing)
+    started = perf_counter()
+    response = runtime.run_scout(runtime.create_context("trace-invisible"), "office")
+    assert perf_counter() - started < 0.3
+    assert response.picks and response.trace_url is None
+    assert client[0].finished.wait(0.3)
+    assert not any(call[0] == "url" for call in client[0].calls)
+
+
+def test_observed_five_second_ingestion_delay_fits_bounded_verification_budget(monkeypatch, client):
+    # Simulate the measured 5.5-second visibility delay without making the
+    # offline suite wait. Each unsuccessful query costs 200ms; retries are paced.
+    clock = {"now": 0.0, "reads": 0}
+    monkeypatch.setattr(tracing, "perf_counter", lambda: clock["now"])
+    monkeypatch.setattr(tracing, "sleep", lambda delay: clock.update(now=clock["now"] + delay))
+    fake = tracing._client()
+    original = fake.read_run
+    def delayed(run_id):
+        clock["reads"] += 1
+        clock["now"] += 0.2
+        if clock["now"] < 5.5:
+            raise LookupError("Run is not visible yet")
+        return original(run_id)
+    monkeypatch.setattr(fake, "read_run", delayed)
+    root = tracing.RunTree(name="typecast.scout", run_type="chain", inputs={},
+                           project_name="typecast", client=fake)
+    root.post()
+    trace = tracing.RunTrace(RunContext("trace-observed", started_at=0), "scout", client=fake, root=root)
+    assert trace._finish(deadline=tracing.TRACE_VERIFY_TIMEOUT_SECONDS) == fake.url
+    assert 5.5 <= clock["now"] < tracing.TRACE_VERIFY_TIMEOUT_SECONDS
+    assert clock["reads"] > 3
 
 
 def test_slow_start_is_bounded_and_no_trace_url_is_invented(monkeypatch, client):
