@@ -107,3 +107,9 @@ Next: 307 mapped available commercial properties plus about 20 available multifa
 OSM PR13 is merged into dev (`d6d6e2d`) after live verification and passing GitHub CI. Added optional Property.listing_types in Python and TypeScript, with the contract change announced before adapter use. Categories decode Active commercial listing types as lease, sale or auction; multiple categories coexist and missing categories stay empty. Availability rules are unchanged. Older joins remain readable.
 
 Rebuilt from the same supplied kit with a private pre-change backup: 13,096 pairs / 3,288 properties, **zero row differences across every existing column**. Category counts: empty 2,748; auction 7; auction+lease 8; auction+lease+sale 1; lease 424; lease+sale 35; sale 65. This additive change took under 20 minutes. Data tests: 29 passed. Combined current worktree gate: 254 tests plus smoke/SSE/refine/local-draft/mock-evaluation passed.
+
+### Owner 2 private cache handoff — 2026-11-14T16:22:06+00:00
+
+Verified all 10 requested IDs have complete caches. Packaged 90 source/derived files under cache/vexcel paths into ignored `cache/handoffs/typecast-vexcel-owner2-20261114.zip` (42,904,234 bytes), plus private manifest. ZIP integrity passed; no configured credential values appear in its source files. All 10 have OSM noise screening; seven have parking estimates. Current availability: one available, two not_available, seven unknown. These older human-selected interiors are not the new available-property demo set. The user has the archive and a reply to send privately; no external message was sent by this agent.
+
+Owner 2 plans test/docs changes in test_data.py and their root STATUS.md section; those files remain theirs. Applied the reported Windows CSV fixture fix (`newline=""` for csv.writer). Focused data/evaluation tests: 45 passed. OSM PR13 and listing-category PR14 are merged into dev.

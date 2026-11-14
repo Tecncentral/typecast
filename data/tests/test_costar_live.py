@@ -54,7 +54,7 @@ def private_join(tmp_path, monkeypatch):
                 "commercial-listing-summary": [listing(), listing(3, availabilityType=5, availableOnDate=None), listing(4, status=3)]}
     for name in builder.DATASETS:
         (kit / "data" / f"{name}.jsonl").write_text("".join(json.dumps(r) + "\n" for r in datasets.get(name, [])))
-    with (kit / "commercial-properties.csv").open("w") as handle:
+    with (kit / "commercial-properties.csv").open("w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(["PropertyId", "MatterportModelId", "Address", "City", "State"])
         writer.writerows((pid, model, "Synthetic St", "Los Angeles", "CA")
