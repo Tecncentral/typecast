@@ -62,11 +62,16 @@ def evaluate_app(app, scenes: list[dict], labels: dict) -> list[dict]:
     from contracts.schemas import ScoutResponse
 
     rows = []
+    city_pools = {}
     with TestClient(app) as client:
         for scene in scenes:
             row = {"id": scene["id"], "split": scene["split"], "recall_at_10": None,
                    "relevant_count": len(set(labels.get(scene["id"], {}).get("relevant_shot_ids", []))),
                    "retrieved_count": 0, "engine": "unknown", "source_mode": "unknown", "error": None}
+            if "evaluation" in scene:
+                row.update(pool_scope=scene["evaluation"]["pool_scope"], requested_city=None,
+                           reviewed_count=len(labels.get(scene["id"], {}).get("reviewed_shot_ids", [])),
+                           eligible_relevant_count=None)
             started = perf_counter()
             response = client.post("/scout", json={"scene": scene["scene"]})
             row["latency_ms"] = (perf_counter() - started) * 1000
@@ -84,6 +89,19 @@ def evaluate_app(app, scenes: list[dict], labels: dict) -> list[dict]:
                 row["retrieved_count"] = len(top10)
                 if relevant:
                     row["recall_at_10"] = len(set(top10) & relevant) / len(relevant)
+                if "evaluation" in scene:
+                    # Diagnose the global-label/city-filter mismatch without changing
+                    # the human text or the metric's full pooled denominator.
+                    from data.costar_tools import search_costar
+                    from index.search import get_active_index
+                    requirements = state.load(run.thread_id, "requirements")
+                    city = requirements.city if hasattr(requirements, "city") else requirements["city"]
+                    row["requested_city"] = city
+                    if city not in city_pools:
+                        city_pools[city] = {p.property_id for p in search_costar(city=city, available_only=False)}
+                    catalog = get_active_index()
+                    row["eligible_relevant_count"] = sum(
+                        catalog.get_shot(sid).property_id in city_pools[city] for sid in relevant)
             rows.append(row)
     return rows
 
@@ -105,11 +123,13 @@ def _score(value):
 
 def render_report(rows, *, mock: bool, labels_path: Path, date: str) -> str:
     summary = summarize(rows)
+    pooled = any("pool_scope" in row for row in rows)
     marker = "mock run: not a result\n\n" if mock else ""
     lines = [marker + "# Retrieval evaluation", "", f"Date: {date}", "",
-             "The scene texts are authored fiction, not source data. No relevance judgments are inferred from mock scores.", "",
+             ("The exact authored visual prompts and human/live judgments come from the frozen blinded lab."
+              if pooled else "The scene texts are authored fiction, not source data. No relevance judgments are inferred from mock scores."), "",
              f"Engine(s): {', '.join(summary['engines'])}. Source mode(s): {', '.join(summary['source_modes'])}.", "",
-             "| Split | Attempted | Succeeded | Scored labels | Unlabeled | Mean recall@10 | p50 ms | p95 ms |",
+             f"| Split | Attempted | Succeeded | Scored labels | {'Empty judged pools' if pooled else 'Unlabeled'} | Mean recall@10 | p50 ms | p95 ms |",
              "|---|---:|---:|---:|---:|---:|---:|---:|"]
     for split in ("all", "test", "tune"):
         selected = rows if split == "all" else [row for row in rows if row["split"] == split]
@@ -125,10 +145,28 @@ def render_report(rows, *, mock: bool, labels_path: Path, date: str) -> str:
                   "| Scene | Split | Top-k count | Recall@10 | Latency ms | Engine | Source mode | Status |",
                   "|---|---|---:|---:|---:|---|---|---|"])
     for row in rows:
-        status = row["error"] or ("scored" if row["recall_at_10"] is not None else "unlabeled; skipped")
+        status = row["error"] or ("scored" if row["recall_at_10"] is not None else
+                                  "reviewed; no relevant in pool" if pooled else "unlabeled; skipped")
         lines.append(f"| {row['id']} | {row['split']} | {row['retrieved_count']} | {_score(row['recall_at_10'])} | "
                      f"{row['latency_ms']:.2f} | {row['engine']} | {row['source_mode']} | {status} |")
+    if pooled:
+        lines.extend(["", "These are judgments of a frozen global top-40 cosine pool, not exhaustive catalog relevance. "
+                      "The /scout pipeline filters retrieval by the parsed city (Los Angeles by default) and may rerank candidates. "
+                      "This measures pooled pipeline recall@10, not global CLIP retrieval accuracy. Relevant views outside the city pool remain in the denominator; "
+                      "the diagnostic below shows this eligibility mismatch. Empty selections are complete reviews with no relevant views in the judged pool and are skipped for recall.", "",
+                      "| Scene | Parsed city | Reviewed pool | Relevant gold | City-eligible gold |",
+                      "|---|---|---:|---:|---:|"])
+        for row in rows:
+            if "pool_scope" in row:
+                eligible = row["eligible_relevant_count"]
+                lines.append(f"| {row['id']} | {row['requested_city'] or 'N/A'} | {row['reviewed_count']} | "
+                             f"{row['relevant_count']} | {'N/A' if eligible is None else eligible} |")
     label_name = str(labels_path.relative_to(ROOT)) if labels_path.is_relative_to(ROOT) else labels_path.name
+    if pooled:
+        lines.extend(["", f"Labels file: `{label_name}`. Reviewer provenance, reviewed pools and frozen index fingerprints remain in ignored private JSONL files.", "",
+                      "Keep test judgments frozen and use only tune scenes for development. Reproduce with the same exported `--scenes` and `--labels`, "
+                      "`--mode live --split test`, and the frozen `--index-dir`. Index changes or stale/AI/mock reviews are rejected.", ""])
+        return "\n".join(lines)
     lines.extend(["", f"Labels file: `{label_name}`. The template intentionally has 20 empty label sets.", "",
                   "Before tuning, inspect the real shot corpus and hand-label relevant shots for all 20 scenes, recording the labeler. "
                   "Keep licensed shot ids and judgments in an ignored private file such as `cache/eval/labels.jsonl`; do not fill the public template. "
@@ -147,20 +185,41 @@ def main(argv=None) -> int:
     parser.add_argument("--split", choices=("all", "test", "tune"), default="all")
     parser.add_argument("--mode", choices=("mock", "live"), default="mock")
     parser.add_argument("--engine", choices=("fixed", "deep"), default="fixed")
+    parser.add_argument("--index-dir", type=Path, help="live frozen index root or generation; defaults to TYPECAST_INDEX_DIR/cache/shot-index")
     parser.add_argument("--output", type=Path, default=ROOT / "docs/team/eval.md")
     args = parser.parse_args(argv)
     if args.mode == "mock" and args.engine != "fixed":
         parser.error("mock evaluation uses the fixed engine with all model calls disabled")
     scenes, labels = load_inputs(args.scenes.resolve(), args.labels.resolve(), args.split)
+    bridged = any("evaluation" in scene for scene in scenes)
+    pinned_index = None
+    if bridged and args.mode != "live":
+        parser.error("Frozen human/live lab exports require --mode live")
     if args.mode == "mock":
         context = mock_app()
     else:
         # Configure adapters before importing app; live mode never substitutes fixtures.
         os.environ.update(TYPECAST_USE_MOCKS="0", TYPECAST_ENGINE=args.engine)
+        from dotenv import load_dotenv
+        load_dotenv(ROOT / ".env", override=False)
+        if bridged:
+            from agent.eval.label_bridge import validate_live_inputs
+            try:
+                pinned_index = validate_live_inputs(
+                    scenes, labels, args.index_dir or Path(os.getenv("TYPECAST_INDEX_DIR", str(ROOT / "cache/shot-index"))))
+            except ValueError as exc:
+                parser.error(str(exc))
+            os.environ["TYPECAST_INDEX_DIR"] = str(pinned_index)
+            from index.search import configure_index
+            configure_index(cache_dir=pinned_index)
+        elif args.index_dir:
+            os.environ["TYPECAST_INDEX_DIR"] = str(args.index_dir.resolve())
         from agent.app import app
         context = nullcontext(app)
     with context as app:
         rows = evaluate_app(app, scenes, labels)
+    if pinned_index is not None:
+        validate_live_inputs(scenes, labels, pinned_index)
     summary = summarize(rows)
     is_mock = args.mode == "mock" or "mock" in summary["source_modes"]
     report = render_report(rows, mock=is_mock, labels_path=args.labels.resolve(),
@@ -169,8 +228,9 @@ def main(argv=None) -> int:
     args.output.write_text(report, encoding="utf-8")
     if is_mock:
         print("mock run: not a result")
+    skipped = "reviewed empty pools" if bridged else "unlabeled"
     print(f"Scenes: {summary['attempted']} attempted, {summary['succeeded']} succeeded; "
-          f"{summary['scored']} labeled scenes scored, {summary['unlabeled']} unlabeled skipped")
+          f"{summary['scored']} labeled scenes scored, {summary['unlabeled']} {skipped} skipped")
     print(f"recall@10: {_score(summary['recall_at_10'])}")
     print(f"Latency: p50={summary['p50_ms']:.2f} ms, p95={summary['p95_ms']:.2f} ms")
     print(f"Engine: {', '.join(summary['engines'])}; source mode: {', '.join(summary['source_modes'])}")

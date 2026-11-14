@@ -114,6 +114,20 @@ Verified all 10 requested IDs have complete caches. Packaged 90 source/derived f
 
 Owner 2 plans test/docs changes in test_data.py and their root STATUS.md section; those files remain theirs. Applied the reported Windows CSV fixture fix (`newline=""` for csv.writer). Focused data/evaluation tests: 45 passed. OSM PR13 and listing-category PR14 are merged into dev.
 
+### Expanded evidence and frozen human evaluation — 2026-11-14 16:48 UTC
+
+Vexcel/OSM precompute now covers all 343 frozen indexed properties: 343 aerials, semantic-search and segmentation responses, 343 successful OSM sources, 338 parcel attributes. Parking estimates: 224 (147 SAM3, 77 OSM); 129 meet 3 trucks + 30 cars. Noise screening flags 128 properties: 70 freeway, 54 rail and 28 airport/runway flags, with overlap. One reproducible mapped walking route is estimated; 342 distances remain unknown. Five parcel-detail requests returned HTTP 404 and remain explicit unknowns. All aerials decode and geometry audits pass.
+
+The main sequential batch took 20m33s and reused the original 19 caches. One transient OSM connection failure triggered the outage barrier; one retry pass on the same endpoint recovered all 38 missing sources after cooldown. Hash checks prove all 1,710 successful Vexcel source files remained unchanged during that retry, including all 95 original sources. Private evidence: `cache/vexcel/expanded-final-report.json` and `coverage.json`. There are 327 available indexed candidates; 212 have parking estimates. Their private candidate file uses the actual indexed model ids.
+
+User explicitly authorized private Discord delivery. The 43 MB handoff exceeded Discord's 20 MB file limit, so it was split into three independent ZIPs of 17,161,222 / 16,943,322 / 8,800,013 bytes. Their combined contents were verified byte-for-byte against all 90 original files. Sent all three to the verified four-member HackPrinceton '26 group DM through the signed-in web app; each attachment now has a download link. No server upload or Git data commit. Private evidence: `cache/handoffs/discord-upload-parts.json` and `discord-sent.jpg`.
+
+The labeling bridge freezes exact authored scene text, split, blinded top-40 pools and SHA-256 fingerprints of the immutable index. It accepts complete human/live reviews only, rejecting stale text, pools, timestamps, AI/mock labels and index changes. Exported scenes/labels stay in ignored cache. The live evaluator pins the reviewed generation, checks it before and after execution, and reports pooled pipeline recall with a city-eligibility diagnostic. This does not claim exhaustive catalog or global CLIP recall. README documents the reproducible freeze/review/export/live sequence.
+
+The user agreed to label the 15 test scenes at `http://localhost:8765/evaluate`; the lab remains pinned to the frozen 10,568-view generation. No human reviews are saved yet, so expanded-index recall@10 remains pending. Previous 608-view labels cannot establish this index's accuracy. No test judgments have been invented or used for tuning.
+
+Private `cache/demo-set.json` contains nine inspected, available properties with estimated parking (six Los Angeles, three Houston) and five authored scenes. Initial fixed-engine scouting times: 27.135, 22.825, 22.124, 24.793 and 21.445 seconds. All five used real model parsing and 20 fresh vision scores with zero vision failures, three live picks and all three evidence sources. Each five-truck refinement reused its exact candidate pool with no new search, changed allocation/ranking, and saved unsent local drafts. The same deep-engine baseline is running before speed changes; final matched timings and browser verification follow.
+
 ### Available interior coverage and frozen index — 2026-11-14 16:43 UTC
 
 Base dev: `20cb03a`. This milestone adds the bounded private bulk runner and its
