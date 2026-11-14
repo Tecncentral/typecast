@@ -19,6 +19,9 @@ from agent import runtime, state, tracing
 
 app = FastAPI(title="Typecast")
 
+from index.production_integration import shared_router
+app.include_router(shared_router())
+
 
 class RefineRequest(BaseModel):
     thread_id: str = Field(pattern=state.THREAD_ID_PATTERN)
