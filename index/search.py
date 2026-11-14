@@ -20,6 +20,9 @@ DEFAULT_EMBEDDING_MODEL = "sentence-transformers/clip-ViT-B-32"
 SHOTS_FILENAME = "shots.json"
 EMBEDDINGS_FILENAME = "embeddings.npy"
 MANIFEST_FILENAME = "manifest.json"
+# Compatibility override used by the integrator's isolated offline harness.
+# None keeps normal process environment selection; True/False explicitly overrides it.
+USE_MOCKS: bool | None = None
 
 
 class IndexUnavailableError(RuntimeError):
@@ -31,6 +34,8 @@ class ShotNotFoundError(KeyError):
 
 
 def _use_mocks_enabled() -> bool:
+    if USE_MOCKS is not None:
+        return USE_MOCKS
     raw = os.environ.get("TYPECAST_USE_MOCKS", "1").strip().lower()
     return raw not in {"0", "false", "no", "off", ""}
 
@@ -332,19 +337,9 @@ class ShotRetrievalIndex:
             return []
 
         if self.embeddings is None:
-            # Explicit mock mode without embeddings: deterministic lexical/fixture fallback only when TYPECAST_USE_MOCKS=1.
-            if query_shot_id is not None:
-                scores = np.ones(candidates.size, dtype=np.float32)
-            else:
-                assert query_text is not None
-                terms = {t for t in query_text.lower().split() if t}
-                scores = np.array(
-                    [
-                        float(sum(1 for t in terms if t in self.shots[idx].model_dump_json().lower()))
-                        for idx in candidates
-                    ],
-                    dtype=np.float32,
-                )
+            # Preserve shared fixture ranking so offline demos remain reproducible.
+            # These supplied scores are not measured semantic similarities.
+            scores = np.array([self.shots[idx].score or 0.0 for idx in candidates], dtype=np.float32)
         else:
             if src_idx is not None:
                 query_vec = self.embeddings[src_idx]
@@ -366,6 +361,8 @@ class ShotRetrievalIndex:
                 if query_shot_id is not None
                 else f"matched query: {query_text}"
             )
+            if self.is_mock:
+                reason = "MOCK fixture ranking (no semantic model)"
             results.append(
                 base.model_copy(
                     update={

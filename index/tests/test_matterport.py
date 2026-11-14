@@ -278,8 +278,9 @@ def test_malformed_skybox_faces_and_partial_failure_handling(tmp_path: Path) -> 
     assert report.models_requested == 2
     assert report.models_succeeded == 1
     assert report.models_failed == 1
-    assert report.sweeps_seen == 3
-    assert report.sweeps_skipped == 2
+    # Two malformed sweeps share a position; spatial dedup selects only one.
+    assert report.sweeps_seen == 2
+    assert report.sweeps_skipped == 1
     assert report.shots_written == 3
     assert report.shots_failed == 1
     assert len(manifest["records"]) == 3
@@ -415,6 +416,14 @@ def test_resume_skips_valid_local_images_and_redownloads_corrupt_ones(tmp_path: 
         "https://cdn.example.test/face_4.jpg",
     ]
     assert len(manifest["records"]) == 4
+
+
+def test_spatial_sampling_covers_far_views_without_near_duplicates():
+    from index.matterport import select_spread_panos
+    panos = [dict(id=str(i), position=dict(x=x, y=0, z=1))
+             for i, x in enumerate([0, 0.1, 2, 10, 5])]
+    result = select_spread_panos(panos, 3)
+    assert [p['position']['x'] for p in result] == [0, 10, 5]
 
 
 def test_nonzero_exit_when_zero_valid_shots_produced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

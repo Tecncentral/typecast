@@ -43,7 +43,7 @@ Existing search_shots/get_shot/check_shot signatures and Shot schema are preserv
 Real search uses normalized image/text cosine similarity, filters before top-k,
 and excludes both source model and source property for example-shot queries.
 Mock mode defaults on for the shared scaffold and uses the existing fixture file;
-mock ordering is lexical and must never be presented as semantic quality evidence.
+mock ordering preserves supplied fixture scores and is not semantic quality evidence.
 
 Image paths are `/cache/views/<shot_id>.jpg`, relative to the repo root. Owner 4
 must serve these **only to the registered team in a local/private environment**;

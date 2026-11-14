@@ -10,6 +10,7 @@ from PIL import Image
 from contracts.schemas import Shot
 from index.cut_views import cut_all
 from index.store import ROOT, DEFAULT_MODEL, encoder, save_index
+from index.matterport import atomic_write_json
 
 def cache_path(value):
     path = (ROOT / value).resolve()
@@ -22,6 +23,7 @@ def prepare(manifest_path):
     if isinstance(rows, dict):
         rows = rows['records']
     shots = []
+    provenance = {}
     for row in rows:
         for key in ('property_id', 'model_id', 'sweep_id'):
             if not re.fullmatch(r'[A-Za-z0-9_-]+', row[key]):
@@ -58,10 +60,14 @@ def prepare(manifest_path):
                 room_area_m2=row.get('room_area_m2'), ceiling_m=row.get('ceiling_m'),
                 depth_m=row.get('depth_m') if row['format'] == 'perspective' else None,
                 measure_on_site=row.get('measure_on_site', True)))
+            provenance[identity] = {**row.get('provenance', {}),
+                'room_id': row.get('room_id'), 'floor_id': row.get('floor_id'),
+                'classification': row.get('classification'), 'source_digest': digest}
     if not shots:
         raise ValueError('Empty image export')
     if len({s.shot_id for s in shots}) != len(shots):
         raise ValueError('Duplicate exported views')
+    atomic_write_json(cache_path('cache/view-provenance.json'), provenance)
     return shots
 
 def main():

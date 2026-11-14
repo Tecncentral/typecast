@@ -326,7 +326,7 @@ def _sleep_backoff(attempt: int, base_sec: float, sleep_fn: Callable[[float], No
         sleep_fn(delay)
 
 
-def fetch_model_panos(
+def fetch_model_record(
     session: HttpSessionLike,
     *,
     model_id: str,
@@ -336,12 +336,13 @@ def fetch_model_panos(
     max_retries: int = DEFAULT_MAX_RETRIES,
     backoff_base: float = DEFAULT_BACKOFF_BASE_SEC,
     sleep_fn: Callable[[float], None] = time.sleep,
-) -> list[dict[str, Any]]:
+    query: str = PANOS_GRAPHQL_QUERY,
+) -> dict[str, Any]:
     """Query Matterport GraphQL API for panoLocations without leaking auth or signed URLs."""
     if endpoint != MATTERPORT_GRAPH_ENDPOINT:
         raise MatterportIngestionError("Credentials may only be sent to the official Matterport endpoint")
     payload = {
-        "query": PANOS_GRAPHQL_QUERY,
+        "query": query,
         "variables": {"id": model_id},
     }
 
@@ -402,16 +403,19 @@ def fetch_model_panos(
             raise MatterportIngestionError(
                 f"GraphQL response missing data.model for model '{model_id}'"
             )
-        panos = model_obj.get("panoLocations")
-        if not isinstance(panos, list):
-            raise MatterportIngestionError(
-                f"GraphQL response missing panoLocations list for model '{model_id}'"
-            )
-        return [p for p in panos if isinstance(p, dict)]
+        return dict(model_obj)
 
     raise MatterportIngestionError(
         f"GraphQL request exhausted retries for model '{model_id}': {last_error}"
     )
+
+
+def fetch_model_panos(session, **kwargs) -> list[dict[str, Any]]:
+    model = fetch_model_record(session, **kwargs)
+    panos = model.get('panoLocations')
+    if not isinstance(panos, list):
+        raise MatterportIngestionError('GraphQL response missing panoLocations list')
+    return [p for p in panos if isinstance(p, dict)]
 
 
 def download_cdn_image_bytes(
@@ -521,6 +525,35 @@ def _validate_skybox_children(pano: Mapping[str, Any], *, model_id: str, sweep_i
     return urls
 
 
+def select_spread_panos(panos: list[dict], limit: int) -> list[dict]:
+    """Greedy spatial coverage, suppressing views closer than half a metre.
+
+    This selects camera positions, not room identities or verified camera poses.
+    Missing positions remain eligible after the spatially grounded candidates.
+    """
+    known, unknown, seen = [], [], set()
+    for pano in panos:
+        identity = pano.get('id')
+        if not isinstance(identity, str) or identity in seen:
+            continue
+        seen.add(identity)
+        position = _extract_position(pano)
+        if position is None:
+            unknown.append(pano)
+        else:
+            known.append((pano, tuple(position[a] for a in ('x', 'y', 'z'))))
+    chosen = known[:1]
+    remaining = known[1:]
+    while remaining and len(chosen) < limit:
+        distances = [min(sum((a-b)**2 for a,b in zip(item[1], current[1]))
+                         for current in chosen) for item in remaining]
+        best = max(range(len(remaining)), key=lambda n: distances[n])
+        if distances[best] < 0.25:
+            break
+        chosen.append(remaining.pop(best))
+    return ([item[0] for item in chosen] + unknown)[:limit]
+
+
 def ingest_matterport(
     *,
     models_path: str | Path,
@@ -553,6 +586,12 @@ def ingest_matterport(
     out_root.mkdir(parents=True, exist_ok=True)
     images_root = out_root / IMAGES_SUBDIR
     images_root.mkdir(parents=True, exist_ok=True)
+    previous = {}
+    try:
+        prior = json.loads((out_root / SOURCE_MANIFEST_FILENAME).read_text(encoding='utf-8'))
+        previous = {r['shot_id']: r.get('provenance', {}) for r in prior['records']}
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
 
     # Strict separation: graph_session handles Basic Auth to Matterport GraphQL;
     # cdn_session never receives auth credentials.
@@ -584,7 +623,7 @@ def ingest_matterport(
                 continue
 
             report.models_succeeded += 1
-            bounded_panos = panos[:max_sweeps]
+            bounded_panos = select_spread_panos(panos, max_sweeps)
 
             for pano in bounded_panos:
                 report.sweeps_seen += 1
@@ -610,10 +649,13 @@ def ingest_matterport(
                         out_root, IMAGES_SUBDIR, pair.model_id, f"{sweep_id}_face{face_idx}.jpg"
                     )
 
-                    fetched_at = clock().isoformat()
+                    shot_id = f"{pair.model_id}__{sweep_id}__f{face_idx}"
+                    checked_at = clock().isoformat()
+                    fetched_at = checked_at
                     if is_valid_local_image(abs_image_path):
                         report.shots_resumed += 1
                         source_state = "resumed_local"
+                        fetched_at = previous.get(shot_id, {}).get('fetched_at')
                     else:
                         try:
                             img_bytes = download_cdn_image_bytes(
@@ -635,7 +677,6 @@ def ingest_matterport(
                             )
                             continue
 
-                    shot_id = f"{pair.model_id}__{sweep_id}__f{face_idx}"
                     records.append(
                         {
                             "shot_id": shot_id,
@@ -655,6 +696,7 @@ def ingest_matterport(
                                 "position_m": position,
                                 "sweep_label": sweep_label,
                                 "fetched_at": fetched_at,
+                                "checked_at": checked_at,
                                 "ingest_status": source_state,
                                 "orientation_caveat": ORIENTATION_CAVEAT,
                             },
