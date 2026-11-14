@@ -16,7 +16,7 @@ const SPEED_M_S = 1.1;
 const CAPTURE_HEIGHT_M = 1.5;
 // Whole-room sets (several scan points, cameras from the scan itself) arrive with a known scale.
 const ROOM_CELL_M = 0.1;
-const ROOM_REACH_M = { draft: 2.2, refined: 3.0 }; // how far from the nearest scan point the set holds up
+const ROOM_REACH_M = { draft: 2.2, refined: 6.0 }; // how far from the nearest scan point the set holds up
 const BODY_M = 0.25;
 // Splats at body height in one 10 cm cell that count as something solid, for a draft's
 // half-million splats. A denser reconstruction puts more splats on the same surface.
@@ -190,17 +190,37 @@ function measureRoom(mesh, splat, eye) {
   const nx = Math.min(800, Math.ceil((Math.max(...points.map((p) => p[0])) + pad - minX) / cell));
   const nz = Math.min(800, Math.ceil((Math.max(...points.map((p) => p[2])) + pad - minZ) / cell));
   const counts = new Uint16Array(nx * nz);
-  const low = (splat.floor_y ?? 0) + 0.35 * scale;
-  const high = (splat.floor_y ?? 0) + 1.5 * scale;
+  const floor = new Uint16Array(nx * nz);
+  const floorY = splat.floor_y ?? 0;
+  const low = floorY + 0.35 * scale;
+  const high = floorY + 1.5 * scale;
   let total = 0;
   mesh.forEachSplat((index, center, scales, quaternion, opacity) => {
     total += 1;
-    if (opacity < 0.3 || center.y < low || center.y > high) return;
+    if (opacity < 0.3 || center.y > high) return;
     const ix = Math.floor((center.x - minX) / cell);
     const iz = Math.floor((center.z - minZ) / cell);
-    if (ix >= 0 && iz >= 0 && ix < nx && iz < nz && counts[iz * nx + ix] < 65535) counts[iz * nx + ix] += 1;
+    if (ix < 0 || iz < 0 || ix >= nx || iz >= nz) return;
+    if (center.y >= low) {
+      if (counts[iz * nx + ix] < 65535) counts[iz * nx + ix] += 1;
+    } else if (Math.abs(center.y - floorY) <= 0.2 * scale && floor[iz * nx + ix] < 65535) {
+      floor[iz * nx + ix] += 1;
+    }
   });
   const solidAt = Math.max(SOLID_SPLATS, Math.round((SOLID_SPLATS * total) / DRAFT_SPLATS));
+  // You can only stand where the set has a floor: outside the walls there is nothing to stand on.
+  const floorAt = Math.max(1, Math.round(solidAt / 6));
+  const hasFloor = (ix, iz) => {
+    let seen = 0;
+    for (let dz = -1; dz <= 1; dz += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const jx = ix + dx;
+        const jz = iz + dz;
+        if (jx >= 0 && jz >= 0 && jx < nx && jz < nz) seen += floor[jz * nx + jx];
+      }
+    }
+    return seen >= floorAt * 3;
+  };
   // Solid cells, grown by a body's half-width.
   const grow = Math.round(BODY_M / ROOM_CELL_M);
   const solid = new Uint8Array(nx * nz);
@@ -226,7 +246,8 @@ function measureRoom(mesh, splat, eye) {
       for (let ix = Math.max(0, Math.floor(cx - reachCells)); ix < Math.min(nx, cx + reachCells); ix += 1) {
         const d = Math.hypot(ix + 0.5 - cx, iz + 0.5 - cz);
         // A tripod stood at every scan point, so the floor right there is free whatever the splat says.
-        if (d <= reachCells && (!solid[iz * nx + ix] || door[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M)) open[iz * nx + ix] = 1;
+        const clear = (!solid[iz * nx + ix] && hasFloor(ix, iz)) || door[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M;
+        if (d <= reachCells && clear) open[iz * nx + ix] = 1;
       }
     }
   }
