@@ -33,7 +33,7 @@ The main app now has semantic “Location scouting | Director's Room” navigati
 
 ## History snapshot
 
-Closing content pass: 1439 reachable objects, 685 unique blobs. Complete historical path pass: 180 commits, 277 distinct paths, no private/data-output path hits; new commits since that path pass contain documentation and the scoped Director/masthead changes only. No additional sensitive-value category appeared in the closing content pass. Credential assignments also cleared one synthetic sanitization-test sentinel listed above.
+Closing content pass: 1439 reachable objects, 685 unique blobs. Complete historical path pass: 185 commits, 279 distinct paths, no private/data-output path hits. No additional sensitive-value category appeared in the closing content pass. Credential assignments also cleared one synthetic sanitization-test sentinel listed above.
 
 | Ref | Commit |
 | --- | --- |
