@@ -59,6 +59,9 @@ def _local_image(image_path: str) -> Path | None:
     parsed = urlparse(image_path)
     if not parsed.scheme and image_path.startswith(("cache/", "/cache/")):
         candidate = CACHE_ROOT / unquote(image_path).lstrip("/").removeprefix("cache/")
+    elif Path(image_path).is_absolute():
+        # Windows drive letters (C:) are filesystem paths, not URL schemes.
+        candidate = Path(image_path)
     elif parsed.scheme:
         return None
     else:
