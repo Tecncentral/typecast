@@ -33,6 +33,8 @@ const state = {
   previous: null,      // the response before the latest follow-up, for the diff
   followUp: null,      // the follow-up message that produced `response`
   refining: false,
+  pendingFollowUp: null,
+  noStream: false,     // the event stream failed, so this run used POST /scout
   stream: null,
 };
 
@@ -88,6 +90,7 @@ function startRun(scene) {
   state.events = [];
   state.response = null;
   state.previous = null;
+  state.noStream = false;
   state.followUp = null;
   state.running = true;
   $("refine-form").hidden = true;
@@ -110,13 +113,41 @@ function startRun(scene) {
     es.close();
     finish(JSON.parse(m.data));
   });
-  es.addEventListener("error", (m) => {
+  es.addEventListener("error", async (m) => {
     es.close();
-    // A server "error" event carries data; a dropped connection does not.
-    let msg = "Lost the connection to the Typecast API.";
-    if (m.data) { try { msg = JSON.parse(m.data).message || msg; } catch { /* keep default */ } }
-    fail(msg);
+    if (state.stream !== es) return;
+    state.stream = null;
+    // A server "error" event carries data: the run itself failed.
+    if (m.data) {
+      let msg = "Scouting failed.";
+      try { msg = JSON.parse(m.data).message || msg; } catch { /* keep default */ }
+      return fail(msg);
+    }
+    // No data: the stream itself broke. Before any event, fall back to the plain endpoint.
+    if (!state.events.length) return scoutWithoutStream(scene);
+    fail(await apiReachable() ? "The live stream dropped before a result arrived."
+      : "The Typecast API stopped responding.");
   });
+}
+
+async function apiReachable() {
+  try { return (await fetch("/health", { cache: "no-store" })).ok; } catch { return false; }
+}
+
+/** Fallback when the event stream is unavailable: POST /scout, and say live progress is missing. */
+async function scoutWithoutStream(scene) {
+  state.noStream = true;
+  renderPlan();
+  try {
+    const r = await fetch("/scout", { method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ scene }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof j.detail === "string" ? j.detail : `The API answered HTTP ${r.status}.`);
+    finish(j);
+  } catch (err) {
+    fail(err instanceof TypeError || !(await apiReachable())
+      ? "The Typecast API is not reachable. Is the server running?" : err.message);
+  }
 }
 
 function finish(res) {
@@ -135,8 +166,9 @@ function fail(message) {
   state.running = false;
   $("scout-btn").disabled = false;
   showError(`${message} Nothing was invented in its place; try again.`);
+  $("results-head").replaceChildren();
+  if (!state.response) fill($("cards"), h("div", { class: "nomatch" }, h("p", {}, "No result for this run. Nothing is shown in its place.")));
   renderPlan();
-  renderResults();
 }
 
 function elapsed() {
@@ -164,7 +196,9 @@ function renderPlan() {
   }
   $("run-meta").textContent = res
     ? `${state.followUp ? "Follow-up re-rank · " : ""}${res.engine || "?"} engine · ${res.source_mode || "?"} data · thread ${res.thread_id}`
-    : state.running ? "Streaming the agent's real progress events" : "";
+    : state.running ? (state.noStream ? "Live progress unavailable: waiting for the final result only"
+      : "Streaming the agent's real progress events") : "";
+  if (res && state.noStream) $("run-meta").textContent += " · live progress was unavailable; events shown after the run";
 
   // To-do: the deep engine publishes its own; otherwise derive from events.
   const todos = latestTodos(state.events);
