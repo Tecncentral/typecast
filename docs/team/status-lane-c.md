@@ -1,8 +1,10 @@
 # Lane C status
 
-Updated UTC: 2026-11-14T10:55:57.323407+00:00
-Verified implementation: `e672e70` (PR [#7](https://github.com/Tecncentral/typecast/pull/7)).
-Scope confirmed by the user: **Job 2 only** in `NEXT-JOBS-PROMPTS.md`; other chats own Jobs 1 and 3.
+Updated UTC: 2026-11-14T19:07:00+00:00
+Verified application: `cf716c1` (PR [#19](https://github.com/Tecncentral/typecast/pull/19)).
+Current milestone: human evaluation complete, **15/15 live held-out requests scored; mean pooled pipeline recall@10 0.2706**. See [the full report](eval.md) and the final entry below. This integration work includes the expanded index, OSM/Vexcel caches, private team handoff and live demo/performance checks; the viewer remains owned by the other chat.
+
+The sections below retain the earlier milestone history. The initial Job 2 implementation was `e672e70` (PR [#7](https://github.com/Tecncentral/typecast/pull/7)), when this chat owned Job 2 and other chats owned Jobs 1 and 3.
 
 ## Outcome
 
@@ -233,3 +235,13 @@ Chromium loaded 88 images across the ten final deep initial/refined responses wi
 Private reproduction/evidence: `cache/demo-set.json`, `cache/demo-checks/final-comparison.json`, all per-attempt summaries/responses/refinements, browser reports/screenshots, Vexcel caches and vision caches for every demo scene/follow-up. The application continues to need the model API for parsing/director execution; cached evidence cannot guarantee an entirely offline agent run.
 
 Only held-out evaluation remains dependent on the human: zero of fifteen test reviews are saved. The frozen lab is running at http://localhost:8765/evaluate and is open in a separate in-app browser tab with the first test scene loaded; no labels were selected or saved by this agent. Export and live scoring are ready, and README/docs/team/eval.md explicitly retain N/A until actual human reviews exist.
+
+### Completed human evaluation — 2026-11-14 19:07 UTC
+
+The user supplied the completed lab export: all 20 reviews are human/live, including 15 test and five tuning scenes. The export exactly matches the saved lab records. Bridge validation passed exact scene text, split, all reviewed pool ids, review timestamps and unchanged frozen index fingerprints. An unmodified private copy and the 15-scene bridge export remain under ignored `cache/evaluation/`; no source identifiers or raw judgments enter Git. No additional human labeling is required for this benchmark.
+
+Ran the existing evaluator on all 15 test scenes with the live fixed engine, `gpt-6.1-sol` parser/vision at medium effort, parsing/vision uploads/tracing enabled, and the frozen 10,568-view index. One attempt per scene, no warmup, no retries and no tuning from the test labels. Every request succeeded with actual model parsing; 150 fresh visual scores, zero cached scores, zero vision failures and zero fallback events. Thirteen responses included trace URLs; two null trace links remain recorded, with their successful requests included in the metrics.
+
+Result: **mean pooled pipeline recall@10 0.2706 across 15 scored scenes**, median **14.539 s**, p95 **19.693 s**. The 600 reviewed scene/view pairs contain 352 positives; the returned first-ten sets recover 99. This is a macro average, not 99/352. All parsed cities defaulted to Los Angeles, leaving 212 eligible positives and 140 Houston positives in the denominator. The city-constrained mathematical ceiling is 0.3790; the global top-ten ceiling is 0.4814 because each scene has 8–37 positives. These diagnostic ceilings do not replace the measured score. The metric measures first-ten set membership, not the visual order inside that set or the final three property cards.
+
+The unchanged harness was wrapped only to retain responses, candidate ids and rows privately. Evidence and code/input fingerprints: `cache/evaluation/runs/20261114T190213Z/`. Independent per-scene arithmetic matches the report. Full gate: **291 tests passed**, plus smoke, actual fixture streaming, same-pool refinement, unsent local-draft approval and mock-evaluation checks. README and `docs/team/eval.md` now publish the actual held-out result and limitations. The five tuning scenes were excluded; all human labels and the frozen index remain unchanged. The human-review blocker is resolved; this completes the requested integration/evaluation milestones.
