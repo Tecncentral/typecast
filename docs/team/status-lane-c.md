@@ -1,8 +1,8 @@
 # Lane C status
 
-Updated UTC: 2026-11-14T20:44:00+00:00
+Updated UTC: 2026-11-14T20:50:00+00:00
 Verified implementation: `ec0d183` in merged PR [#24](https://github.com/Tecncentral/typecast/pull/24); selected-default follow-up is in this commit.
-Current milestone: Job 5 tuning complete, **20 candidates / concurrency 5 / batches of 5 selected** from 42 actual requests and 860 image scorings. Full gate: **345 tests passed**. One v2 test pass is running; v1 remains unchanged. Submission drafts are prepared, and the other chat still owns the viewer.
+Current milestone: Job 5 tuning and the single v2 test pass complete. **73.33% precision lower bound / 30.48% macro recall**, versus v1's 66.00% / 27.06%. Defaults are **20/5/5**, selected only on tune scenes. Full gate: **350 tests passed**. Demo refresh is running; v1 is unchanged and the other chat owns the viewer.
 
 The sections below retain the earlier milestone history. The initial Job 2 implementation was `e672e70` (PR [#7](https://github.com/Tecncentral/typecast/pull/7)), when this chat owned Job 2 and other chats owned Jobs 1 and 3.
 
@@ -267,3 +267,11 @@ An independent audit recomputed all 42 tune attempts against the five frozen tun
 All 42 actual requests succeeded: **860 fresh image scorings / 544 vision calls / 42 parser calls**, no cache hits, scoring errors, fallbacks, duplicates or rate limits. The final tables and provenance caveats are in [eval.md](eval.md#tune-experiments). Experiments ended at 20:40 UTC, before the 16:30 Eastern cutoff.
 
 Production defaults and `.env.example` now select pool20/concurrency5/batch5. Baseline tests explicitly request per-image scoring. A selected-default test verifies four five-image calls, retained tail and an explicit k override. Full repository gate passed **345 tests**, plus smoke, SSE/refine/local-draft and mock evaluation. The separately labeled, exactly-once v2 fixed-engine test pass is underway with an empty private vision cache; no test-driven retuning follows it. Demo cache warming and final submission measurements remain next.
+
+### v2 retained; parser reporting corrected — 2026-11-14 20:50 UTC
+
+The locked `8ff496b` setting ran exactly once on all fifteen frozen tests: **110/150 relevant returns (73.33% precision lower bound), 0.30482012486033894 macro recall**, median/p95 **16.057/24.459 s**. Eight returns were unjudged and counted as misses. All requests were fixed/live with actual parsing, **300 fresh image scores in 60 vision calls**, zero scoring errors or actual engine/provider fallbacks, and fifteen verified trace URLs. Original review/index/input fingerprints match v1. The report labels this **v2 (after changes informed by v1)**; no test-based retuning followed it.
+
+Audit caught fifteen redundant `fallback` events containing successful parser accounting. The parser had copied every provider event into its failure-note field, then the runtime emitted that note as fallback. Restricting failure notes to actual fallback/model_failure events preserves model_request and rate_limit types without changing ranking, defaults or model requests. Added event-classification and actual offline API regression coverage. Full gate: **350 passed**, plus smoke/SSE/refine/local-draft/mock evaluation. The original v2 responses and metrics are retained without rerun; their reporting defect is disclosed.
+
+Private v2 evidence: `cache/evaluation/runs/v2-20261114T204301Z/`. All twenty human reviews and the frozen index remain unchanged. Selected-default demo cache warming, fresh both-engine rehearsal and final submission assets are in progress.

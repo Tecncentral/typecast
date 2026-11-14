@@ -100,7 +100,8 @@ def parse_scene(scene: str, *, emit: Callable[[Event], None] | None = None) -> R
     provider_events = []
 
     def on_event(event: Event):
-        provider_events.append(event)
+        if event.type in {"fallback", "model_failure"}:
+            provider_events.append(event)
         if emit:
             emit(event)
 
