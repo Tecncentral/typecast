@@ -426,6 +426,25 @@ def test_spatial_sampling_covers_far_views_without_near_duplicates():
     assert [p['position']['x'] for p in result] == [0, 10, 5]
 
 
+def test_failed_refresh_preserves_good_manifest_and_download_timestamp(tmp_path):
+    from index.matterport import atomic_write_json
+    models = _write_models_file(tmp_path, [{'model_id': 'new', 'property_id': 'p'}])
+    root = tmp_path / 'cache/matterport'
+    image = root / 'images/old.jpg'
+    image.parent.mkdir(parents=True)
+    image.write_bytes(_make_jpeg_bytes())
+    prior = {'shot_id': 'old', 'image_path': 'images/old.jpg',
+             'provenance': {'fetched_at': '2026-11-14T01:00:00+00:00'}}
+    atomic_write_json(root / 'source_manifest.json', {'records': [prior]})
+    with pytest.raises(MatterportIngestionError, match='preserved'):
+        ingest_matterport(models_path=models, output_dir=root, auth=('fake', 'fake'),
+            graph_session=FakeGraphSession(lambda *a: FakeResponse(401)),
+            cdn_session=FakeCdnSession(lambda *a: None), max_retries=0)
+    after = json.loads((root / 'source_manifest.json').read_text())
+    assert after['records'] == [prior]
+    assert after['summary']['models_failed'] == 1
+
+
 def test_nonzero_exit_when_zero_valid_shots_produced(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr('index.matterport.ROOT', tmp_path)
     models_file = _write_models_file(tmp_path, [{"model_id": "model_fail", "property_id": "prop_f"}])

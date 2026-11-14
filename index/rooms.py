@@ -10,7 +10,8 @@ ROOMS_GRAPHQL_QUERY = (
     "query Rooms($id:ID!){model(id:$id){"
     "floors{id label vertices{id position{x y}} edges{id type thickness vertices{id}}} "
     "rooms{id floor{id} classifications{label confidence} boundary{edges{id}} "
-    "dimensions(units:metric){areaFloor width depth height}}}}"
+    "dimensions(units:metric){areaFloor width depth height}} "
+    "panoLocations{id anchor{id floor{id} room{id}} rotation{x y z w}}}}"
 )
 
 _EPS = 1e-9
@@ -350,8 +351,30 @@ def enrich_source_manifest(
             out.update({"room_id": None, "floor_id": None, "classification": None, "room_area_m2": None, "ceiling_m": None, "depth_m": None, "measure_on_site": True})
             prov["room_match_warnings"] = ["missing_rooms_payload_for_model"]
         else:
+            # These links were verified through the live official GraphQL schema.
+            model = (rooms_payload.get('data') or {}).get('model') or {}
+            pano = next((p for p in model.get('panoLocations', [])
+                         if p.get('id') == rec.get('sweep_id')), {})
+            anchor = pano.get('anchor') or {}
+            anchor_floor = (anchor.get('floor') or {}).get('id')
+            anchor_room = (anchor.get('room') or {}).get('id')
+            if anchor_floor:
+                prov['floor_id'] = anchor_floor
+            if anchor.get('id'):
+                prov['anchor_id'] = anchor['id']
+            if pano.get('rotation'):
+                prov['source_rotation_quaternion'] = dict(pano['rotation'])
             pano_floor = prov.get("floor_id") if isinstance(prov.get("floor_id"), str) else None
             match = match_sweep_to_room(rooms_payload, prov.get("position_m"), pano_floor_id=pano_floor)
+            assigned = [r for r in model.get('rooms', []) if r.get('id') == anchor_room
+                        and (r.get('floor') or {}).get('id') == anchor_floor]
+            if anchor_floor and len(assigned) == 1:
+                room = assigned[0]
+                dims = room.get('dimensions') or {}
+                label, _ = _top_classification(room.get('classifications'))
+                match = SweepRoomMatch(anchor_room, anchor_floor, label,
+                    _positive_finite(dims.get('areaFloor')), _positive_finite(dims.get('height')),
+                    warnings=('provider_anchor_room_assignment', 'unverified_metric_estimate_measure_on_site'))
             out.update({
                 "room_id": match.room_id,
                 "floor_id": match.floor_id,

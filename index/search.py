@@ -120,6 +120,16 @@ def _load_shots_file(path: Path, *, error_cls: type[Exception]) -> list[Shot]:
             shot = Shot.model_validate(item)
         except Exception as exc:  # noqa: BLE001
             raise error_cls(f"Invalid Shot entry in '{path}': {exc}") from exc
+        updates = {}
+        for field in ('room_area_m2', 'ceiling_m', 'depth_m'):
+            value = getattr(shot, field)
+            if value is not None and (not np.isfinite(value) or value <= 0):
+                updates[field] = None
+                updates['measure_on_site'] = True
+        if not np.isfinite(shot.heading_deg):
+            raise error_cls('Shot heading must be finite')
+        if updates:
+            shot = shot.model_copy(update=updates)
         if shot.shot_id in seen_ids:
             raise error_cls(f"Duplicate shot_id '{shot.shot_id}' in '{path}'")
         seen_ids.add(shot.shot_id)
@@ -228,7 +238,8 @@ class ShotRetrievalIndex:
         shots = _load_shots_file(shots_path, error_cls=IndexUnavailableError)
 
         manifest_rows = manifest.get("row_count")
-        if manifest_rows is not None and int(manifest_rows) != len(shots):
+        if manifest_rows is not None and (isinstance(manifest_rows, bool)
+                or not isinstance(manifest_rows, int) or manifest_rows != len(shots)):
             raise IndexUnavailableError(
                 f"Manifest row_count ({manifest_rows}) != shots count ({len(shots)})"
             )
@@ -402,7 +413,7 @@ def get_active_index() -> ShotRetrievalIndex:
             )
         else:
             _ACTIVE_INDEX = ShotRetrievalIndex.from_cache_dir(
-                _CACHE_DIR_OVERRIDE or DEFAULT_CACHE_DIR
+                _CACHE_DIR_OVERRIDE or Path(os.getenv('TYPECAST_INDEX_DIR', str(DEFAULT_CACHE_DIR)))
             )
     return _ACTIVE_INDEX
 

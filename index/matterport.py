@@ -586,9 +586,10 @@ def ingest_matterport(
     out_root.mkdir(parents=True, exist_ok=True)
     images_root = out_root / IMAGES_SUBDIR
     images_root.mkdir(parents=True, exist_ok=True)
-    previous = {}
+    previous, previous_records = {}, {}
     try:
         prior = json.loads((out_root / SOURCE_MANIFEST_FILENAME).read_text(encoding='utf-8'))
+        previous_records = {r['shot_id']: r for r in prior['records']}
         previous = {r['shot_id']: r.get('provenance', {}) for r in prior['records']}
     except (OSError, ValueError, KeyError, TypeError):
         pass
@@ -708,19 +709,30 @@ def ingest_matterport(
         if own_cdn and hasattr(c_sess, "close"):
             c_sess.close()  # type: ignore[attr-defined]
 
+    # A refresh must not erase the last usable catalog on provider failure.
+    # Retain earlier valid local records, including models outside this batch.
+    merged_records = {}
+    for shot_id, record in previous_records.items():
+        try:
+            image_path = resolve_safe_subpath(out_root, record['image_path'])
+            if is_valid_local_image(image_path):
+                merged_records[shot_id] = record
+        except (KeyError, TypeError, MatterportIngestionError):
+            pass
+    merged_records.update({r['shot_id']: r for r in records})
     manifest_payload: dict[str, Any] = {
         "schema_version": "1.0",
         "generated_at": clock().isoformat(),
         "orientation_caveat": ORIENTATION_CAVEAT,
         "summary": report.to_dict(),
-        "records": records,
+        "records": list(merged_records.values()),
     }
     manifest_path = out_root / SOURCE_MANIFEST_FILENAME
     atomic_write_json(manifest_path, manifest_payload)
 
     if not records:
         raise MatterportIngestionError(
-            "Ingestion produced zero valid perspective shots; see summary report in source_manifest.json"
+            "Current batch produced zero valid shots; prior usable records were preserved in source_manifest.json"
         )
 
     return manifest_payload, report

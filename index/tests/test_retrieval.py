@@ -287,3 +287,24 @@ def test_get_shot_and_check_shot_delegate_to_geometry_check_fit(
 
     with pytest.raises(ShotNotFoundError):
         get_shot("unknown")
+
+
+def test_invalid_catalog_dimensions_become_unknown_and_bad_row_count_is_sanitized(tmp_path):
+    data = [_shot_dict('s1', 'm1', 'p1', room_area_m2=0, ceiling_m=float('nan'), depth_m=-1)]
+    path = _write_cache(tmp_path / 'index', data, np.array([[1, 0]], dtype=np.float32))
+    idx = ShotRetrievalIndex.from_cache_dir(path)
+    shot = idx.get_shot('s1')
+    assert (shot.room_area_m2, shot.ceiling_m, shot.depth_m) == (None, None, None)
+    assert shot.measure_on_site and idx.check_shot('s1').status == 'unknown'
+    (path / 'manifest.json').write_text(json.dumps({'embedding_model': DEFAULT_EMBEDDING_MODEL,
+                                                  'row_count': 'bad'}))
+    with pytest.raises(IndexUnavailableError, match='row_count'):
+        ShotRetrievalIndex.from_cache_dir(path)
+
+
+def test_reader_honors_custom_index_directory(tmp_path, monkeypatch):
+    path = _write_cache(tmp_path / 'custom', [_shot_dict('custom', 'm', 'p')],
+                        np.array([[1, 0]], dtype=np.float32))
+    monkeypatch.setenv('TYPECAST_USE_MOCKS', '0')
+    monkeypatch.setenv('TYPECAST_INDEX_DIR', str(path))
+    assert get_shot('custom').shot_id == 'custom'

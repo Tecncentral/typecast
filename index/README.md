@@ -7,6 +7,22 @@ joins **Typecast**. Never copy credentials into prompts or GitHub.
 
 ## Run
 
+### One-command setup for another teammate
+
+After installing baseline and index requirements and setting private sponsor keys:
+
+```sh
+python -m index.bootstrap --max-models 20 --max-sweeps 8
+```
+
+This downloads/validates the official catalog, chooses deterministic catalog-linked
+properties, resumes imagery, fetches room evidence and builds CLIP embeddings.
+Use `--models cache/team-models.json` when Owner 2 supplies the agreed property
+set. `--prepare-only` skips encoding. `--reuse-catalog` explicitly permits using
+the cached CSV. There is no silent fixture fallback. The complete command was
+verified locally against 19 available models and 608 views; one catalog model was
+unavailable. Reproduction needs event-valid credentials and optional model weights.
+
 From the repository root, install the baseline lock first. CLIP is optional and
 heavy; install `python -m pip install -r index/requirements.txt` for indexing and
 real text search. The core tests use controlled vectors and do not download models.
@@ -24,6 +40,27 @@ python -m index.matterport --models cache/matterport/models.json --max-models 3 
 python -m index.build cache/matterport/source_manifest.json --prepare-only
 python -m index.build cache/matterport/source_manifest.json
 ```
+
+For room evidence and the optional standalone interior demo:
+
+```sh
+python -m index.enrich cache/matterport/source_manifest.json
+python -m index.build cache/matterport/rooms_source_manifest.json
+# PowerShell: $env:TYPECAST_USE_MOCKS='0'
+# macOS/Linux: export TYPECAST_USE_MOCKS=0
+python -m uvicorn index.preview:app --host 127.0.0.1 --port 8765
+```
+
+Open http://127.0.0.1:8765. The first query loads CLIP; subsequent queries reuse
+the encoder. The preview serves only indexed images within cache/views, never
+the entire cache or .env. `cache/view-provenance.json` preserves original scan
+positions, face indices, source checksums, retrieval timestamps and room labels.
+Direct provider anchor room/floor links take precedence; otherwise matching requires
+a unique containing closed boundary and reliable floor identity. Ambiguity remains
+unknown. Source rotation quaternions are retained without assuming SDK conventions.
+Area and ceiling values
+are provider estimates; directional depth remains unknown. The user confirmed
+hackathon-demo permission; this does not put raw assets into public GitHub.
 
 The importer uses the production GraphQL API, separates Basic credentials from
 CDN requests, bounds requests/retries, verifies images, resumes valid downloads,

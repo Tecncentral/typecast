@@ -149,3 +149,20 @@ def test_null_dimensions_and_manifest_enrichment_adapter() -> None:
     assert rec["measure_on_site"] is True
     assert rec["heading_deg"] == 0.0
     assert rec["provenance"]["fetched_at"] == "2026-11-14T00:00:00+00:00"
+
+
+def test_provider_anchor_supplies_floor_and_room_without_guessing_elevation():
+    room = _room('upstairs', 'f2', [], area=30, height=3)
+    payload = _payload([{'id': 'f1'}, {'id': 'f2'}], [room])
+    payload['data']['model']['panoLocations'] = [{'id': 's', 'anchor': {
+        'id': 'a', 'floor': {'id': 'f2'}, 'room': {'id': 'upstairs'}},
+        'rotation': {'x': 0, 'y': 0, 'z': 0, 'w': 1}}]
+    source = {'records': [{'model_id': 'm', 'sweep_id': 's', 'heading_deg': 90,
+                          'provenance': {'position_m': {'x': 1, 'y': 1, 'z': 7}}}]}
+    record = enrich_source_manifest(source, {'m': payload})['records'][0]
+    assert record['room_id'] == 'upstairs' and record['floor_id'] == 'f2'
+    assert record['ceiling_m'] == 3 and record['measure_on_site']
+    assert record['depth_m'] is None and record['heading_deg'] == 90
+    assert record['provenance']['anchor_id'] == 'a'
+    payload['data']['model']['panoLocations'][0]['anchor']['floor']['id'] = 'f1'
+    assert enrich_source_manifest(source, {'m': payload})['records'][0]['room_id'] is None

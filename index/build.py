@@ -26,7 +26,7 @@ def prepare(manifest_path):
     provenance = {}
     for row in rows:
         for key in ('property_id', 'model_id', 'sweep_id'):
-            if not re.fullmatch(r'[A-Za-z0-9_-]+', row[key]):
+            if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]{0,127}', row[key]):
                 raise ValueError('Identifiers must be filesystem-safe')
         raw_source = Path(row['image_path'])
         source = cache_path(raw_source if raw_source.is_absolute() or raw_source.parts[0] == 'cache'
