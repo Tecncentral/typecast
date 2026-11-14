@@ -1,5 +1,20 @@
 # Lane C status
 
+## Job 2 in progress — 2026-11-14T10:31:34.497475+00:00
+
+Scope confirmed by the user: Job 2 only in NEXT-JOBS-PROMPTS.md. Other chats own real data and the viewer.
+
+- Unchanged baseline at a89cbad: real deep runs 84.368 s, 83.807 s, and 77.242 s (third fell back during skeptic). Median all attempts 83.807 s; successful deep median 84.087 s; 2/3 deep success.
+- Baseline completed-delegate medians: market 10.712 s, interior 18.179 s, logistics 10.986 s (3 samples each); skeptic 14.012 s (2 completed samples). The benchmark collector initially mixed fixed-fallback stages into the third run; restored its deep-only times at millisecond precision from captured terminal events and fixed the collector to filter engine=deep.
+- Baseline command: `.venv/bin/python scripts/benchmark_deep.py --checkout /tmp/typecast-job2-baseline --runs 3 --director-effort high --scout-effort high --output cache/benchmarks/deep-before.json` (exit1 honestly reports the fallback).
+- Implemented concurrent interior/logistics scouts, separate medium/low director/scout effort, <=2048-byte model summaries, full private sources.json, shared cached logistics, fixed/deep trace verification, and allowlisted GET /config.
+- Actual graph concurrency proof with sleeping source tools: interior 0–181.53 ms, logistics 0.60–185.81 ms. Both started before either finished; cached logistics is not fetched again.
+- `.venv/bin/python scripts/verify.py`: 129 passed in 2.97 s; smoke/e2e PASS (first event1.46 ms, result5.42 ms; no new search on refine); mock eval20/20, recall N/A. `pip check`: no broken requirements. No new dependency was added.
+- LangSmith authentication succeeded with the newly provided key. Live fixed/deep trace creation/read-back and optimized three-run measurement are next; no success claimed yet.
+- Local configuration now uses gpt-6.1-sol, director medium/scouts low, LANGSMITH_PROJECT=typecast; default engine remains fixed.
+
+## Previous integrated handoff
+
 Updated UTC: 2026-11-14T10:03:32Z
 Verified integrated commit: `d3ca338f12f29bb0ef318a9b88ea5960a344edb2` (dev and local lane-c).
 Verified tree: `d6bd490d8580b7967a68a7160c9a1871989265cb`.

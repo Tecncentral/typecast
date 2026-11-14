@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import importlib
 import os
+from contextvars import copy_context
 from queue import Empty, Queue
 from threading import Event as ThreadEvent, Thread
 from time import perf_counter
 from uuid import uuid4
 
 from contracts.schemas import Event, ScoutResponse
-from agent import deep, parse, pipeline, state
+from agent import deep, parse, pipeline, state, tracing
 from agent.interfaces import RunContext, timed
 
 DEEP_TIMEOUT_SECONDS = 90.0
@@ -75,7 +76,9 @@ def _deep_or_fixed(ctx: RunContext, req) -> ScoutResponse:
             completed.put((None, {}, error))
 
     started = perf_counter()
-    Thread(target=work, name=f"typecast-deep-{ctx.thread_id}", daemon=True).start()
+    worker_context = copy_context()
+    Thread(target=worker_context.run, args=(work,),
+           name=f"typecast-deep-{ctx.thread_id}", daemon=True).start()
     try:
         response, pending, error = completed.get(timeout=DEEP_TIMEOUT_SECONDS)
         if error is not None:
@@ -97,7 +100,7 @@ def _deep_or_fixed(ctx: RunContext, req) -> ScoutResponse:
     return pipeline.scout(ctx, req)
 
 
-def _execute(ctx: RunContext, action) -> ScoutResponse:
+def _execute(ctx: RunContext, action, operation: str) -> ScoutResponse:
     emitted: list[Event] = []
     downstream = ctx.emit
 
@@ -107,19 +110,23 @@ def _execute(ctx: RunContext, action) -> ScoutResponse:
 
     ctx.emit = emit
     try:
-        _check_source_mode(ctx)
-        response = action()
+        with tracing.run_trace(ctx, operation) as trace:
+            _check_source_mode(ctx)
+            response = action()
+            response.thread_id = ctx.thread_id
+            response.engine = ctx.engine
+            response.source_mode = ctx.source_mode
+            response.events = list(emitted)
+            state.save(ctx.thread_id, "shortlist", response.picks)
+            skeptic = "\n\n".join(f"## Pick {pick.rank}: {pick.property.address}\n" +
+                                    "\n".join(f"- {note}" for note in pick.skeptic_notes)
+                                    for pick in response.picks)
+            state.save(ctx.thread_id, "skeptic", skeptic)
+            trace.complete(response)
         ctx.timings["total_ms"] = (perf_counter() - ctx.started_at) * 1000
-        response.thread_id = ctx.thread_id
-        response.engine = ctx.engine
-        response.source_mode = ctx.source_mode
         response.events = list(emitted)
         response.timings = dict(ctx.timings)
-        state.save(ctx.thread_id, "shortlist", response.picks)
-        skeptic = "\n\n".join(f"## Pick {pick.rank}: {pick.property.address}\n" +
-                                "\n".join(f"- {note}" for note in pick.skeptic_notes)
-                                for pick in response.picks)
-        state.save(ctx.thread_id, "skeptic", skeptic)
+        response.trace_url = trace.trace_url
         state.record_run(ctx.thread_id, engine=ctx.engine, source_mode=ctx.source_mode, timings=ctx.timings)
         return response
     except Exception:
@@ -147,7 +154,7 @@ def run_scout(ctx: RunContext, scene=None, example_shot_id=None) -> ScoutRespons
                 req = parse.parse_scene(scene, emit=ctx.event)
         return _deep_or_fixed(ctx, req) if ctx.engine == "deep" else pipeline.scout(ctx, req)
 
-    return _execute(ctx, action)
+    return _execute(ctx, action, "scout")
 
 
 def run_refine(ctx: RunContext, message: str) -> ScoutResponse:
@@ -158,4 +165,4 @@ def run_refine(ctx: RunContext, message: str) -> ScoutResponse:
         ctx.event(Event(type="plan", agent="runtime", text="Refining the saved candidates with the fixed engine."))
         return pipeline.refine(ctx, saved, message)
 
-    return _execute(ctx, action)
+    return _execute(ctx, action, "refine")

@@ -4,7 +4,7 @@ import json
 import os
 import pathlib
 from threading import Event as ThreadEvent
-from typing import Optional
+from typing import Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from contracts.schemas import Pick, ScoutRequest, ScoutResponse
-from agent import runtime, state
+from agent import runtime, state, tracing
 
 app = FastAPI(title="Typecast")
 
@@ -29,6 +29,40 @@ class ApproveRequest(BaseModel):
     thread_id: str = Field(pattern=state.THREAD_ID_PATTERN)
     pick_rank: int = Field(ge=1)
     decision: str
+
+
+class ViewerConfig(BaseModel):
+    mode: Literal["mock", "live", "mixed"]
+    engine: Literal["fixed", "deep"]
+    tracing: bool
+    matterport_sdk_key: str | None
+
+
+def _viewer_sdk_key() -> str | None:
+    # Matterport documents applicationKey in browser imports/iframes and a
+    # domain allow list: https://developers.matterport.com/embed-sdk/
+    sdk_key = os.getenv("MATTERPORT_SDK_KEY", "").strip()
+    if not sdk_key:
+        return None
+    # Fail closed if someone accidentally copied a server credential here.
+    for name, value in os.environ.items():
+        if name != "MATTERPORT_SDK_KEY" and name.endswith(("_KEY", "_SECRET", "_TOKEN", "_PASSWORD")):
+            private_value = value.strip()
+            if private_value and private_value in sdk_key:
+                return None
+    return sdk_key
+
+
+@app.get("/config", response_model=ViewerConfig)
+def viewer_config():
+    """Allow-listed browser settings; engine is configured choice, not a run result."""
+    modes = set(runtime.source_modes().values())
+    mode = next(iter(modes)) if len(modes) == 1 and modes <= {"mock", "live"} else "mixed"
+    engine = os.getenv("TYPECAST_ENGINE", "fixed").lower()
+    if engine not in {"fixed", "deep"}:
+        raise HTTPException(503, "TYPECAST_ENGINE must be fixed or deep")
+    return {"mode": mode, "engine": engine, "tracing": tracing.configured(),
+            "matterport_sdk_key": _viewer_sdk_key()}
 
 
 @app.get("/health")
