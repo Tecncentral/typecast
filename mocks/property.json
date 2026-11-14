@@ -1,0 +1,67 @@
+[
+ {
+  "property_id": "mock-p1",
+  "address": "100 Example St (FAKE)",
+  "city": "Los Angeles",
+  "lat": 34.05,
+  "lon": -118.25,
+  "type": "Office",
+  "year_built": 1978,
+  "available": true,
+  "size_sqft": 8000,
+  "contact": "listing contact (FAKE)",
+  "model_id": "mock-m1"
+ },
+ {
+  "property_id": "mock-p2",
+  "address": "200 Sample Ave (FAKE)",
+  "city": "Los Angeles",
+  "lat": 34.059999999999995,
+  "lon": -118.26,
+  "type": "Office",
+  "year_built": 1984,
+  "available": true,
+  "size_sqft": 12000,
+  "contact": "listing contact (FAKE)",
+  "model_id": "mock-m2"
+ },
+ {
+  "property_id": "mock-p3",
+  "address": "300 Placeholder Blvd (FAKE)",
+  "city": "Los Angeles",
+  "lat": 34.07,
+  "lon": -118.27,
+  "type": "Industrial",
+  "year_built": 1969,
+  "available": true,
+  "size_sqft": 16000,
+  "contact": "listing contact (FAKE)",
+  "model_id": "mock-m3"
+ },
+ {
+  "property_id": "mock-p4",
+  "address": "400 Demo Way (FAKE)",
+  "city": "Los Angeles",
+  "lat": 34.08,
+  "lon": -118.28,
+  "type": "Retail",
+  "year_built": 2004,
+  "available": false,
+  "size_sqft": 20000,
+  "contact": "listing contact (FAKE)",
+  "model_id": "mock-m4"
+ },
+ {
+  "property_id": "mock-p5",
+  "address": "500 Fixture Rd (FAKE)",
+  "city": "Los Angeles",
+  "lat": 34.089999999999996,
+  "lon": -118.29,
+  "type": "Office",
+  "year_built": 1988,
+  "available": true,
+  "size_sqft": 24000,
+  "contact": "listing contact (FAKE)",
+  "model_id": "mock-m5"
+ }
+]

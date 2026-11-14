@@ -1,0 +1,15 @@
+# secrets and licensed data: never commit
+.env
+cache/
+*.jsonl.gz
+*.zip
+costar*/
+CoStar*/
+# python / node
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+node_modules/
+dist/
+.DS_Store

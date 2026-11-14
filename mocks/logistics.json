@@ -1,0 +1,141 @@
+[
+ {
+  "property_id": "mock-p1",
+  "truck_spaces": 4,
+  "car_spaces": 45,
+  "parking_polygon": [
+   [
+    34.05,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.2496
+   ],
+   [
+    34.05,
+    -118.2496
+   ]
+  ],
+  "walk_m": 40,
+  "noise_flags": [],
+  "aerial_image_path": null,
+  "estimated": true
+ },
+ {
+  "property_id": "mock-p2",
+  "truck_spaces": 1,
+  "car_spaces": 12,
+  "parking_polygon": [
+   [
+    34.05,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.2496
+   ],
+   [
+    34.05,
+    -118.2496
+   ]
+  ],
+  "walk_m": 220,
+  "noise_flags": [
+   "freeway within 200 m"
+  ],
+  "aerial_image_path": null,
+  "estimated": true
+ },
+ {
+  "property_id": "mock-p3",
+  "truck_spaces": 6,
+  "car_spaces": 80,
+  "parking_polygon": [
+   [
+    34.05,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.2496
+   ],
+   [
+    34.05,
+    -118.2496
+   ]
+  ],
+  "walk_m": 30,
+  "noise_flags": [],
+  "aerial_image_path": null,
+  "estimated": true
+ },
+ {
+  "property_id": "mock-p4",
+  "truck_spaces": 3,
+  "car_spaces": 30,
+  "parking_polygon": [
+   [
+    34.05,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.2496
+   ],
+   [
+    34.05,
+    -118.2496
+   ]
+  ],
+  "walk_m": 60,
+  "noise_flags": [],
+  "aerial_image_path": null,
+  "estimated": true
+ },
+ {
+  "property_id": "mock-p5",
+  "truck_spaces": 2,
+  "car_spaces": 25,
+  "parking_polygon": [
+   [
+    34.05,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.25
+   ],
+   [
+    34.0503,
+    -118.2496
+   ],
+   [
+    34.05,
+    -118.2496
+   ]
+  ],
+  "walk_m": 90,
+  "noise_flags": [
+   "rail line within 300 m"
+  ],
+  "aerial_image_path": null,
+  "estimated": true
+ }
+]

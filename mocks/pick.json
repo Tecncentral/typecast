@@ -1,0 +1,258 @@
+[
+ {
+  "rank": 1,
+  "property": {
+   "property_id": "mock-p3",
+   "address": "300 Placeholder Blvd (FAKE)",
+   "city": "Los Angeles",
+   "lat": 34.07,
+   "lon": -118.27,
+   "type": "Industrial",
+   "year_built": 1969,
+   "available": true,
+   "size_sqft": 16000.0,
+   "contact": "listing contact (FAKE)",
+   "model_id": "mock-m3"
+  },
+  "shots": [
+   {
+    "shot_id": "mock-p3-s0",
+    "model_id": "mock-m3",
+    "sweep_id": "sw0",
+    "heading_deg": 0.0,
+    "image_path": "mocks/img/mock-p3-s0.jpg",
+    "property_id": "mock-p3",
+    "room_area_m2": 140.0,
+    "ceiling_m": 3.2,
+    "depth_m": 11.0,
+    "measure_on_site": false,
+    "score": 0.76,
+    "reason": null
+   },
+   {
+    "shot_id": "mock-p3-s1",
+    "model_id": "mock-m3",
+    "sweep_id": "sw1",
+    "heading_deg": 90.0,
+    "image_path": "mocks/img/mock-p3-s1.jpg",
+    "property_id": "mock-p3",
+    "room_area_m2": 150.0,
+    "ceiling_m": 3.2,
+    "depth_m": 12.0,
+    "measure_on_site": false,
+    "score": 0.74,
+    "reason": null
+   }
+  ],
+  "shot_fit": {
+   "fits": true,
+   "needed_depth_m": 8.78,
+   "have_depth_m": 11.0,
+   "ceiling_m": 3.2,
+   "note": "24 mm lens framing 6 m needs 8.78 m; room has 11 m."
+  },
+  "logistics": {
+   "property_id": "mock-p3",
+   "truck_spaces": 6,
+   "car_spaces": 80,
+   "parking_polygon": [
+    [
+     34.05,
+     -118.25
+    ],
+    [
+     34.0503,
+     -118.25
+    ],
+    [
+     34.0503,
+     -118.2496
+    ],
+    [
+     34.05,
+     -118.2496
+    ]
+   ],
+   "walk_m": 30.0,
+   "noise_flags": [],
+   "aerial_image_path": null,
+   "estimated": true
+  },
+  "reason": "CoStar: industrial built 1969, available; Matterport: 140 m2 room, 3.2 m ceiling, shot fits; Vexcel: 6 truck and 80 car spaces, 30 m away.",
+  "skeptic_notes": [
+   "No objection."
+  ]
+ },
+ {
+  "rank": 2,
+  "property": {
+   "property_id": "mock-p1",
+   "address": "100 Example St (FAKE)",
+   "city": "Los Angeles",
+   "lat": 34.05,
+   "lon": -118.25,
+   "type": "Office",
+   "year_built": 1978,
+   "available": true,
+   "size_sqft": 8000.0,
+   "contact": "listing contact (FAKE)",
+   "model_id": "mock-m1"
+  },
+  "shots": [
+   {
+    "shot_id": "mock-p1-s0",
+    "model_id": "mock-m1",
+    "sweep_id": "sw0",
+    "heading_deg": 0.0,
+    "image_path": "mocks/img/mock-p1-s0.jpg",
+    "property_id": "mock-p1",
+    "room_area_m2": 60.0,
+    "ceiling_m": 2.6,
+    "depth_m": 6.0,
+    "measure_on_site": false,
+    "score": 0.9,
+    "reason": null
+   },
+   {
+    "shot_id": "mock-p1-s1",
+    "model_id": "mock-m1",
+    "sweep_id": "sw1",
+    "heading_deg": 90.0,
+    "image_path": "mocks/img/mock-p1-s1.jpg",
+    "property_id": "mock-p1",
+    "room_area_m2": 70.0,
+    "ceiling_m": 2.6,
+    "depth_m": 7.0,
+    "measure_on_site": false,
+    "score": 0.88,
+    "reason": null
+   }
+  ],
+  "shot_fit": {
+   "fits": false,
+   "needed_depth_m": 8.78,
+   "have_depth_m": 6.0,
+   "ceiling_m": 2.6,
+   "note": "24 mm lens framing 6 m needs 8.78 m; room has 6 m. Ceiling 2.6 m leaves little room to rig lights."
+  },
+  "logistics": {
+   "property_id": "mock-p1",
+   "truck_spaces": 4,
+   "car_spaces": 45,
+   "parking_polygon": [
+    [
+     34.05,
+     -118.25
+    ],
+    [
+     34.0503,
+     -118.25
+    ],
+    [
+     34.0503,
+     -118.2496
+    ],
+    [
+     34.05,
+     -118.2496
+    ]
+   ],
+   "walk_m": 40.0,
+   "noise_flags": [],
+   "aerial_image_path": null,
+   "estimated": true
+  },
+  "reason": "CoStar: office built 1978, available; Matterport: 60 m2 room, 2.6 m ceiling, shot is tight; Vexcel: 4 truck and 45 car spaces, 40 m away.",
+  "skeptic_notes": [
+   "Shot is tight: 24 mm lens framing 6 m needs 8.78 m; room has 6 m. Ceiling 2.6 m leaves little room to rig lights."
+  ]
+ },
+ {
+  "rank": 3,
+  "property": {
+   "property_id": "mock-p2",
+   "address": "200 Sample Ave (FAKE)",
+   "city": "Los Angeles",
+   "lat": 34.059999999999995,
+   "lon": -118.26,
+   "type": "Office",
+   "year_built": 1984,
+   "available": true,
+   "size_sqft": 12000.0,
+   "contact": "listing contact (FAKE)",
+   "model_id": "mock-m2"
+  },
+  "shots": [
+   {
+    "shot_id": "mock-p2-s0",
+    "model_id": "mock-m2",
+    "sweep_id": "sw0",
+    "heading_deg": 0.0,
+    "image_path": "mocks/img/mock-p2-s0.jpg",
+    "property_id": "mock-p2",
+    "room_area_m2": 100.0,
+    "ceiling_m": 2.9,
+    "depth_m": 8.5,
+    "measure_on_site": false,
+    "score": 0.83,
+    "reason": null
+   },
+   {
+    "shot_id": "mock-p2-s1",
+    "model_id": "mock-m2",
+    "sweep_id": "sw1",
+    "heading_deg": 90.0,
+    "image_path": "mocks/img/mock-p2-s1.jpg",
+    "property_id": "mock-p2",
+    "room_area_m2": 110.0,
+    "ceiling_m": 2.9,
+    "depth_m": 9.5,
+    "measure_on_site": false,
+    "score": 0.81,
+    "reason": null
+   }
+  ],
+  "shot_fit": {
+   "fits": false,
+   "needed_depth_m": 8.78,
+   "have_depth_m": 8.5,
+   "ceiling_m": 2.9,
+   "note": "24 mm lens framing 6 m needs 8.78 m; room has 8.5 m."
+  },
+  "logistics": {
+   "property_id": "mock-p2",
+   "truck_spaces": 1,
+   "car_spaces": 12,
+   "parking_polygon": [
+    [
+     34.05,
+     -118.25
+    ],
+    [
+     34.0503,
+     -118.25
+    ],
+    [
+     34.0503,
+     -118.2496
+    ],
+    [
+     34.05,
+     -118.2496
+    ]
+   ],
+   "walk_m": 220.0,
+   "noise_flags": [
+    "freeway within 200 m"
+   ],
+   "aerial_image_path": null,
+   "estimated": true
+  },
+  "reason": "CoStar: office built 1984, available; Matterport: 100 m2 room, 2.9 m ceiling, shot is tight; Vexcel: 1 truck and 12 car spaces, 220 m away.",
+  "skeptic_notes": [
+   "Noise: freeway within 200 m.",
+   "Shot is tight: 24 mm lens framing 6 m needs 8.78 m; room has 8.5 m.",
+   "Parking short: 1 truck / 12 car spaces against 3 / 30 needed."
+  ]
+ }
+]
