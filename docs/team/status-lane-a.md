@@ -99,3 +99,6 @@ GitHub push and PR checks at bcb9c39 succeeded. A final browser fix makes lens e
 recalculate on input (35 mm / Super35 shows 39.2 degrees and 4.22 m subject distance).
 The refreshed team ZIP passes integrity validation: 619 files, 608 images,
 300,445,311 bytes. Output handoff and standalone lookbook are updated.
+
+
+Current integration and human-action handoff: [index/HANDOFF.md](../../index/HANDOFF.md). User will label later; no labels or accuracy claim were added.
