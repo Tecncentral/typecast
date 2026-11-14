@@ -1,3 +1,21 @@
+# Current Owner 1 integration status
+
+Updated 2026-11-14 21:10 UTC. Published feature head a982125 in PR #22: full gate 539 passed / one skipped, smoke, fixture SSE/refinement/unsent-draft checks and exact-head CI success. Final documentation closeout follows. Earlier entries below are historical snapshots.
+
+Shared `agent.app` serves Director and the merged full viewer on port 8771. Commit `5da12ac` adds the actual `plan_production_shoot` Deep Agents tool; fake-model graph dispatch is tested. A live trace of this new tool is not yet verified. The deterministic planner and UI notices are not an agent trace.
+
+Browser verified: real plans/rejection, independent A/B staging, reviewed text proposals, playback and exports. Scan viewfinder lens/ratio/drag/frame grab/reopen were checked with four horizon cube faces. Orientation is scan-relative, not world-aligned; the 6 m depth illustration is an assumption. An actual silent 1280×720, 4.921 s WebM downloaded and played with a real frame and moving Mara. Project import has 29 pure tests, but browser import remains untested after extension file upload was blocked.
+
+Grok audit fixes now have passing regressions for rejected properties resurfacing in faulty backend responses, missing/invalid statuses revealing availability or parking claims, unsafe exported provenance IDs and negative-time actor extrapolation. Adapted the audit DOM fixture to current reel/import/viewfinder controls. Playback progress remains display-only. Final combined gate is recorded in PR.
+
+Private data limit: the older local 11-column join lacks richer availability fields and local Vexcel logistics. PRs #12/#21 provide no private bundle link; PR #21 says the data is on Owner 2's laptop. Exact property/model mapping remains separately checked. Discord checked: the integration captain's 14 November 15:01 Eastern reply about PR #21 says the expanded private index/Vexcel caches and final demo are on that teammate's laptop. The reported inventory is 343 properties, 10,568 views, 327 available indexed properties, Vexcel caches for 344 properties and nine available demo properties. These are teammate-reported counts, not a local reproduction. A second copy is unnecessary for the planned demo; pull this lane on the demo laptop and verify its current data there. This local checkout retains the older 11-column join and no Vexcel cache. The judged demo may show user-authorized licensed imagery; no private bundle or licensed-image export goes into public Git or public uploads.
+
+Labeling is complete. Expanded v2 PR #27 reports 73.33% precision lower bound and 30.48% macro recall, with repeated review by the same reviewer rather than a new holdout. Root did not reproduce it. Keep this separate from original 608-view and earlier expanded results; these do not measure general accuracy, Director/solver quality or filmmaker validation. No further labeling is needed.
+
+Next: live new-tool trace if claimed, browser project-import verification when upload is available, demo rehearsal/fallback and human submission/sponsor opt-ins. See [Director's Room](../../index/DIRECTORS-ROOM.md) and [demo script](../../index/DEMO-SCRIPT.md).
+
+---
+
 # Owner 1 planning milestone
 
 Updated 2026-11-14 12:32 UTC. Branch lane-a / PR #6.
@@ -103,6 +121,18 @@ The refreshed team ZIP passes integrity validation: 619 files, 608 images,
 
 Current integration and human-action handoff: [index/HANDOFF.md](../../index/HANDOFF.md). User will label later; no labels or accuracy claim were added.
 
+
+Human evaluation complete:20/20 live scenes saved,15 test/5 tune. Held-out pooled recall@10:38.9% cosine,30.5% diverse. Aggregate methodology/results are in index/EVALUATION.md; labels remain private. Human labeling is no longer a blocker.
 ## Owner 3 geometry question — 2026-11-14 16:00 UTC
 
 Can room outlines establish depth along each indexed view heading using a verified room-to-panorama coordinate transform? Cube headings are local and image-heading alignment remains unverified. Please provide the transform and a checked example before asserting directional depth. Until then `depth_m=null` and shot fit remains “unknown, measure on site.” Coverage expansion preserves existing shot IDs, vectors and provenance.
+
+## Director's Room milestone — 2026-11-14T19:28:18Z
+
+Based on dev cf716c1 and solver d3ba812. Claude/Gemini/Grok independently critiqued and approved the bounded animatic scope; Claude drafted the UI, Gemini the API/join helper, and Sol medium reviewed lifecycle/privacy/validation with root integration. Implemented standalone `/director`: real multi-scene candidate plans, reject/replan, exact CoStar property/model join checks, manual frame choice within a property, three generic actors, linear motion, two independent variants, durations/dialogue, validated text/optional-speech brainstorm proposals with Apply/Discard/Undo, PNG/JSON/static embedded-image shoot-pack export. No 3D registration, occlusion, video render, music tool or fake agent trace.
+
+Verified: 363 passed/1 skipped + smoke/offline E2E/mock evaluation gate; node syntax and UI snapshot/privacy checks; browser real three-scene build, A/B isolation, playback/pause, reviewed real proposal, actual downloaded exports and rejected-location frame review. Real API observations: cold two-scene plan24.66s; warm plan+replan2.69s; brainstorm4.82s. These are individual timings. Exports and licensed frames remain local, outside Git.
+
+Handoff and actual limits: [index/DIRECTORS-ROOM.md](../../index/DIRECTORS-ROOM.md). Owner 3 must integrate the new planner as a genuine Deep Agents tool/shared endpoint; Owner 4 can link/incorporate the studio. Updated Owner 2 private join/Vexcel cache is needed for richer availability/logistics proof; current11-column join produces unknown metadata. Exact property/model mapping is checked separately and known conflicts are excluded. Source-image heading/metric actor fit remain unverified. Text provider reuses the user's authorized existing key privately; no credentials changed in Git. Next: integration review, stage rehearsal/fallback recording and human sponsor opt-ins/submission.
+
+Published studio commit5a38d63 in PR#22, then merged updated dev3a49aad cleanly. The merged report completes the expanded frozen human benchmark (15test of20reviews, macro pooled pipeline recall@10 .2706, p50/p95 14.539/19.693s). These are Owner 3's retained live measurements, not a reproduction from this checkout's smaller private cache. No further labeling is required for that benchmark. Original608-view results remain separate. Eligibility and integration notes were updated after reading the new report.

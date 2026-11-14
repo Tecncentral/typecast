@@ -56,11 +56,14 @@ def _number(value, unit: str = "") -> str:
     return "unknown" if value is None else f"{value:g}{unit}"
 
 
+def _availability_status(prop: Property) -> str:
+    # Legacy flags may be present, but do not establish a known listing status.
+    return prop.availability_status or "unknown"
+
+
 def _availability(prop: Property) -> str:
-    if prop.availability_status is not None:
-        return {"available": "available", "not_available": "not listed as available",
-                "unknown": "unknown"}[prop.availability_status]
-    return "available" if prop.available else "occupied"
+    return {"available": "available", "not_available": "not listed as available",
+            "unknown": "unknown"}[_availability_status(prop)]
 
 
 def _noise(logi: Logistics) -> str:
@@ -88,15 +91,21 @@ def _fit(ctx: RunContext, req: Requirements, shot: Shot) -> ShotFit:
         data.update(fits=False, status="unknown", have_depth_m=shot.depth_m,
                     ceiling_m=shot.ceiling_m, note="Room depth or ceiling is unknown; measure on site.")
     elif shot.measure_on_site:
-        data.update(fits=False, status="tight", note=f"{raw.note} Geometry estimated; measure on site.")
+        data.update(fits=False, status="unknown",
+                    note="Geometry estimated; fit unverified; measure on site. "
+                         f"Estimated depth {_number(shot.depth_m, ' m')} and ceiling "
+                         f"{_number(shot.ceiling_m, ' m')} do not establish measured clearance.")
     elif req.min_ceiling_m is not None and shot.ceiling_m < req.min_ceiling_m:
         data.update(fits=False, status="tight",
                     note=f"Ceiling {shot.ceiling_m:g} m is below the required {req.min_ceiling_m:g} m.")
     return ShotFit.model_validate(data)
 
 
-def _failed_fit(req: Requirements, fit: ShotFit) -> bool:
-    # Unlike provisional/unknown fits, these views are known to fail the shot.
+def _failed_fit(req: Requirements, fit: ShotFit, *, measure_on_site: bool = False) -> bool:
+    # Estimates cannot establish a measured physical failure or a pass.
+    if measure_on_site:
+        return False
+    # A known measured dimension can fail even if the other dimension is unknown.
     return ((fit.have_depth_m is not None and fit.have_depth_m < needed_depth_m(req.focal_mm, req.frame_width_m))
             or (req.min_ceiling_m is not None and fit.ceiling_m is not None
                 and fit.ceiling_m < req.min_ceiling_m))
@@ -113,7 +122,7 @@ def _evidence(prop: Property, shot: Shot, fit: ShotFit, logi: Logistics) -> list
         item("costar", f"Property type: {prop.type}.", prop.type or None),
         item("costar", f"Year built: {_number(prop.year_built)}.", prop.year_built),
         item("costar", f"Availability: {_availability(prop)}. {prop.availability_reason or ''}".strip(),
-             None if prop.availability_status == "unknown" else prop.available),
+             None if _availability_status(prop) == "unknown" else _availability_status(prop)),
         item("matterport", f"Room area: {_number(shot.room_area_m2, ' m2')}.", shot.room_area_m2, geometry),
         item("matterport", f"Ceiling: {_number(shot.ceiling_m, ' m')}.", shot.ceiling_m, geometry),
         item("matterport", f"Room depth: {_number(shot.depth_m, ' m')}.", shot.depth_m, geometry),
@@ -159,11 +168,10 @@ def _skeptic(prop: Property, fit: ShotFit, logi: Logistics, req: Requirements) -
         notes.append(f"Parking short: {_number(logi.truck_spaces)} truck / {_number(logi.car_spaces)} car spaces "
                      f"against {req.trucks} / {req.cars} needed.")
         blockers += 1
-    if not prop.available:
+    availability = _availability_status(prop)
+    if availability != "available":
         notes.append("Availability is unknown; confirm listing status before booking."
-                     if prop.availability_status == "unknown" else
-                     "Space is not listed as available." if prop.availability_status == "not_available" else
-                     "Space is occupied, not listed as available.")
+                     if availability == "unknown" else "Space is not listed as available.")
         blockers += 1
     if logi.walk_m is None:
         notes.append("Parking walk distance is unknown; measure on site.")
@@ -191,7 +199,7 @@ def _evaluate(ctx: RunContext, req: Requirements, shots: list[Shot],
             checked = []
             for order, view in enumerate(views):
                 fit = _fit(ctx, req, view)
-                failed = _failed_fit(req, fit)
+                failed = _failed_fit(req, fit, measure_on_site=view.measure_on_site)
                 if failed:
                     _event(ctx, "skeptic", f"{prop.address}, view {view.shot_id}: rejected shot fit: {fit.note}", "skeptic")
                 quality = 3 if failed else (0 if fit.fits else 2 if fit.status == "unknown" else 1)
@@ -201,7 +209,7 @@ def _evaluate(ctx: RunContext, req: Requirements, shots: list[Shot],
                 checked.append((quality, size_quality, order, view, fit))
             checked.sort(key=lambda entry: entry[:3])
             _, _, _, best, fit = checked[0]
-            selected = [best] + [v for _, _, _, v, f in checked[1:] if not _failed_fit(req, f)][:1]
+            selected = [best] + [v for _, _, _, v, f in checked[1:] if not _failed_fit(req, f, measure_on_site=v.measure_on_site)][:1]
             # Deep scouts collect logistics alongside interior retrieval. Reuse
             # those exact source records when joining their results; an absent
             # cache entry must not quietly trigger another source request.
@@ -216,7 +224,7 @@ def _evaluate(ctx: RunContext, req: Requirements, shots: list[Shot],
         notes, blockers = _skeptic(prop, fit, logi, req)
         for note in notes or ["No objection."]:
             _event(ctx, "skeptic", f"{prop.address}: {note}", "skeptic")
-        candidates.append(_Candidate(prop, selected, fit, logi, notes, blockers, _failed_fit(req, fit)))
+        candidates.append(_Candidate(prop, selected, fit, logi, notes, blockers, _failed_fit(req, fit, measure_on_site=best.measure_on_site)))
     return candidates
 
 

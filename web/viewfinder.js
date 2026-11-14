@@ -98,7 +98,7 @@ void main() {
   else { c = textureLod(f3, cuv, lod).rgb; has = loaded.w; }
   float elev = abs(asin(clamp(d.y, -1.0, 1.0)));
   vec3 none = vec3(0.071, 0.082, 0.086) * (1.0 - 0.45 * elev / QUARTER);
-  float band = smoothstep(0.0, 0.025, uv.y) * smoothstep(1.0, 0.975, uv.y);
+  float band = smoothstep(0.0, 0.025, uv.y) * (1.0 - smoothstep(0.975, 1.0, uv.y));
   color = vec4(mix(none, c, band * has), 1.0);
 }`;
 
@@ -174,7 +174,7 @@ function createRenderer(canvas) {
       textures.forEach((t) => gl.deleteTexture(t));
       gl.deleteBuffer(buffer);
       gl.deleteProgram(program);
-      gl.getExtension("WEBGL_lose_context")?.loseContext();
+      // Reuse this canvas on the next open; explicitly losing its context prevents that.
     },
   };
 }
@@ -259,6 +259,8 @@ class Viewfinder {
     this.renderer = null;
     this.raf = 0;
     this.velocity = 0;
+    this.generation = 0;
+    this.animating = false;
     this.buildControls();
     this.bindInput();
     this.renderShotList();
@@ -346,6 +348,7 @@ class Viewfinder {
       this.velocity = (-dx * degPerPx) / Math.max(8, now - last.t);
       last = { x: e.clientX, y: e.clientY, t: now };
       this.kick();
+      this.updateReadout();
     });
     const release = (e) => {
       pointers.delete(e.pointerId);
@@ -480,7 +483,7 @@ class Viewfinder {
     const depth = distance + 3;
     const aspect = this.state.aspect;
     this.$(".vf-m-lens").textContent = `${Math.round(this.state.lens)} mm · Super 35 · ${aspect.label}${aspect.id === "1.78" ? "" : " : 1"}`;
-    this.$(".vf-width-value").textContent = `${width} m`;
+    this.$(".vf-width-value").textContent = `${width} m assumed`;
     this.$(".vf-dist").textContent = `Camera ${distance.toFixed(1)} m back to hold`;
     this.$(".vf-depth").textContent = `wide · needs ${depth.toFixed(1)} m of room`;
     const s = this.sweep;
@@ -491,7 +494,7 @@ class Viewfinder {
     }
     if (s?.ceiling_m != null) room += ` · ceiling ${s.ceiling_m.toFixed(1)} m${s.measure_on_site ? " est." : ""}`;
     this.$(".vf-m-room").textContent = room;
-    const status = `${Math.round(this.state.lens)} mm · ${this.state.aspect.label} · bearing ${Math.round(this.state.yaw)}°`;
+    const status = `${Math.round(this.state.lens)} mm · ${this.state.aspect.label} · scan-relative ${Math.round(this.state.yaw)}°`;
     this.$(".vf-status").textContent = status;
   }
 
@@ -529,6 +532,7 @@ class Viewfinder {
   }
 
   animateTo(target, duration) {
+    this.animating = true;
     const from = { ...this.view };
     const start = performance.now();
     cancelAnimationFrame(this.tween);
@@ -542,6 +546,8 @@ class Viewfinder {
       this.draw();
       if (t < 1) this.tween = requestAnimationFrame(step);
       else {
+        this.animating = false;
+        this.tween = 0;
         this.state.pitch = this.clampPitch(this.view.pitch);
         this.view.pitch = this.state.pitch;
         this.updateReadout();
@@ -568,6 +574,8 @@ class Viewfinder {
 
   async open(shotId, sourceImage) {
     if (this.dialog.open) return;
+    const generation = ++this.generation;
+    const current = () => generation === this.generation && this.dialog.open && !this.dialog.classList.contains("is-closing");
     this.sourceImage = sourceImage;
     this.$(".vf-address").textContent = addressFromAlt(sourceImage?.alt) || "Scanned room";
     this.poster.src = sourceImage?.currentSrc || sourceImage?.src || "";
@@ -579,7 +587,9 @@ class Viewfinder {
       const r = await fetch(`/api/sweep/${encodeURIComponent(shotId)}`);
       if (!r.ok) throw new Error(String(r.status));
       sweep = await r.json();
+      if (!current()) return;
     } catch {
+      if (!current()) return;
       this.$(".vf-status").textContent = "The 360° view isn't available for this frame.";
       this.dialog.classList.add("no-webgl");
       return;
@@ -601,6 +611,7 @@ class Viewfinder {
       this.$(".vf-status").textContent = "This browser can't draw the 360° view; showing the captured frame.";
       return;
     }
+    const renderer = this.renderer;
     const flight = this.flyIn(sourceImage);
     const faces = await Promise.all(
       [0, 90, 180, 270].map(async (heading, i) => {
@@ -611,7 +622,8 @@ class Viewfinder {
         img.src = face.image_path.startsWith("/") ? face.image_path : `/${face.image_path}`;
         try {
           await img.decode();
-          this.renderer.setFace(i, img);
+          if (!current() || this.renderer !== renderer) return false;
+          renderer.setFace(i, img);
           return true;
         } catch {
           return false;
@@ -619,7 +631,7 @@ class Viewfinder {
       }),
     );
     await flight;
-    if (!this.dialog.open) return;
+    if (!current() || this.renderer !== renderer) return;
     this.draw();
     const missing = faces.filter((ok) => !ok).length;
     this.revealLive(missing);
@@ -667,11 +679,15 @@ class Viewfinder {
 
   async close() {
     if (!this.dialog.open || this.dialog.classList.contains("is-closing")) return;
+    ++this.generation;
     this.dialog.classList.add("is-closing");
     const done = this.dialog.animate([{ opacity: 1 }, { opacity: 0 }], { duration: reducedMotion() ? 1 : 180, easing: "ease-in" });
     await done.finished.catch(() => {});
     cancelAnimationFrame(this.tween);
     cancelAnimationFrame(this.coastRaf);
+    cancelAnimationFrame(this.raf);
+    this.raf = 0;
+    this.animating = false;
     this.renderer?.dispose();
     this.renderer = null;
     this.poster.getAnimations().forEach((a) => a.cancel());
@@ -683,7 +699,11 @@ class Viewfinder {
   }
 
   grab() {
-    if (!this.renderer || !this.dialog.open) return;
+    if (!this.renderer || !this.dialog.open || !this.dialog.classList.contains("is-live") || this.dialog.classList.contains("is-closing")) return;
+    if (this.animating) {
+      this.$(".vf-status").textContent = "Framing is moving. Grab again when it settles.";
+      return;
+    }
     this.draw();
     const c = this.canvas;
     const fr = this.frame.getBoundingClientRect();
@@ -712,7 +732,7 @@ class Viewfinder {
       this.$(".vf-flash").animate([{ opacity: 0.7 }, { opacity: 0 }], { duration: 260, easing: "ease-out" });
     }
     this.renderShotList(shot.id);
-    this.$(".vf-status").textContent = `Frame grabbed: ${shot.lens} mm, ${this.state.aspect.label}, bearing ${shot.yaw}°`;
+    this.$(".vf-status").textContent = `Frame grabbed: ${shot.lens} mm, ${this.state.aspect.label}, scan-relative heading ${shot.yaw}°`;
   }
 
   renderShotList(freshId) {
@@ -725,7 +745,7 @@ class Viewfinder {
       const li = el("li", "vf-shot");
       const button = el("button", "vf-shot-recall");
       button.type = "button";
-      button.setAttribute("aria-label", `Recall shot ${i + 1}: ${shot.lens} millimetre, ${shot.aspect}, bearing ${shot.yaw} degrees`);
+      button.setAttribute("aria-label", `Recall shot ${i + 1}: ${shot.lens} millimetre, ${shot.aspect}, scan-relative heading ${shot.yaw} degrees`);
       const img = el("img");
       img.src = shot.thumb;
       img.alt = "";
