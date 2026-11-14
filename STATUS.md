@@ -1,5 +1,7 @@
 # Status
 
+Full list of what is and is not built: `docs/REMAINING.md`.
+
 Update your own section before you stop. Keep it short: works / broken / next / waiting on.
 
 ## Shared
@@ -19,5 +21,5 @@ Update your own section before you stop. Keep it short: works / broken / next / 
 - next: deepagents harness with the four subagents
 
 ## Owner 4 (web/, bridge/, docs/)
-- works: nothing yet
+- works: text conversation logic and terminal chat (bridge/), run end to end; Photon adapter written, not run
 - next: run view on `mocks/pick.json` and `mocks/events.jsonl`

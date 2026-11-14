@@ -6,7 +6,7 @@ Built at HackPrinceton Fall 2026 on CoStar property data, Matterport 3D scans an
 
 ## Status
 
-Scaffold. The pipeline and API run end to end on **fake data** in `mocks/`. No real CoStar, Matterport or Vexcel calls are wired in yet. See `STATUS.md`.
+Scaffold. The pipeline and API run end to end on **fake data** in `mocks/`. No real CoStar, Matterport or Vexcel calls are wired in yet. See `docs/REMAINING.md` for exactly what is and is not built.
 
 ## Run it
 
