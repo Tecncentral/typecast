@@ -531,12 +531,17 @@ def select_spread_panos(panos: list[dict], limit: int) -> list[dict]:
     This selects camera positions, not room identities or verified camera poses.
     Missing positions remain eligible after the spatially grounded candidates.
     """
-    known, unknown, seen = [], [], set()
+    known, unknown, invalid, seen = [], [], [], set()
     for pano in panos:
         identity = pano.get('id')
         if not isinstance(identity, str) or identity in seen:
             continue
         seen.add(identity)
+        try:
+            _validate_skybox_children(pano, model_id='selection', sweep_id=identity)
+        except MatterportIngestionError:
+            invalid.append(pano)
+            continue
         position = _extract_position(pano)
         if position is None:
             unknown.append(pano)
@@ -551,7 +556,7 @@ def select_spread_panos(panos: list[dict], limit: int) -> list[dict]:
         if distances[best] < 0.25:
             break
         chosen.append(remaining.pop(best))
-    return ([item[0] for item in chosen] + unknown)[:limit]
+    return ([item[0] for item in chosen] + unknown + invalid)[:limit]
 
 
 def ingest_matterport(

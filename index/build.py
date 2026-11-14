@@ -18,6 +18,16 @@ def cache_path(value):
         raise ValueError('Source and output images must stay inside cache/')
     return path
 
+
+def _dimension(value):
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, TypeError):
+        return None
+    return number if math.isfinite(number) and number > 0 else None
+
 def prepare(manifest_path):
     rows = json.loads(cache_path(manifest_path).read_text(encoding='utf-8'))
     if isinstance(rows, dict):
@@ -57,9 +67,11 @@ def prepare(manifest_path):
                 Image.fromarray(pixels).save(target, quality=90)
             shots.append(Shot(shot_id=identity, property_id=row['property_id'], model_id=row['model_id'],
                 sweep_id=row['sweep_id'], heading_deg=heading, image_path='/' + target.relative_to(ROOT).as_posix(),
-                room_area_m2=row.get('room_area_m2'), ceiling_m=row.get('ceiling_m'),
-                depth_m=row.get('depth_m') if row['format'] == 'perspective' else None,
-                measure_on_site=row.get('measure_on_site', True)))
+                room_area_m2=_dimension(row.get('room_area_m2')), ceiling_m=_dimension(row.get('ceiling_m')),
+                depth_m=_dimension(row.get('depth_m')) if row['format'] == 'perspective' else None,
+                measure_on_site=row.get('measure_on_site', True) or any(
+                    row.get(key) is not None and _dimension(row.get(key)) is None
+                    for key in ('room_area_m2', 'ceiling_m', 'depth_m'))))
             provenance[identity] = {**row.get('provenance', {}),
                 'room_id': row.get('room_id'), 'floor_id': row.get('floor_id'),
                 'classification': row.get('classification'), 'source_digest': digest}

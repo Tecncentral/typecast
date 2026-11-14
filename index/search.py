@@ -37,8 +37,8 @@ class ShotNotFoundError(KeyError):
 def _use_mocks_enabled() -> bool:
     if USE_MOCKS != _INITIAL_USE_MOCKS:
         return USE_MOCKS
-    raw = os.environ.get("TYPECAST_USE_MOCKS", "1").strip().lower()
-    return raw not in {"0", "false", "no", "off", ""}
+    # Exact same value convention as the shared runtime and data adapters.
+    return os.environ.get("TYPECAST_USE_MOCKS", "1") == "1"
 
 
 def _l2_normalize_1d(vec: np.ndarray, *, context: str) -> np.ndarray:
@@ -123,7 +123,8 @@ def _load_shots_file(path: Path, *, error_cls: type[Exception]) -> list[Shot]:
         updates = {}
         for field in ('room_area_m2', 'ceiling_m', 'depth_m'):
             value = getattr(shot, field)
-            if value is not None and (not np.isfinite(value) or value <= 0):
+            if value is not None and (isinstance(item.get(field), bool)
+                    or not np.isfinite(value) or value <= 0):
                 updates[field] = None
                 updates['measure_on_site'] = True
         if not np.isfinite(shot.heading_deg):

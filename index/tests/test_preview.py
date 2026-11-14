@@ -26,5 +26,24 @@ def test_preview_serves_only_indexed_view_images(tmp_path, monkeypatch):
         result = client.get('/api/search', params={'q': 'room'}).json()
         assert result['mode'] == 'live' and result['indexed_views'] == 2
         assert 'PRIVATE' not in str(result)
+        assert client.get('/api/search', params={'example': 'view'}).status_code == 200
+    finally:
+        configure_index()
+
+
+def test_fixture_preview_images_and_encoder_failure_are_honest(monkeypatch):
+    import index.search as search
+    configure_index(search.ShotRetrievalIndex.from_mocks())
+    try:
+        client = TestClient(preview.app)
+        response = client.get('/api/search', params={'q': 'room'})
+        data = response.json()
+        assert data['mode'] == 'mock'
+        assert client.get('/image/' + data['shots'][0]['shot_id']).status_code == 200
+        def fail(**kwargs):
+            raise RuntimeError('provider-private-detail')
+        monkeypatch.setattr(preview, 'search_shots', fail)
+        response = client.get('/api/search', params={'q': 'room'})
+        assert response.status_code == 503 and 'provider-private-detail' not in response.text
     finally:
         configure_index()

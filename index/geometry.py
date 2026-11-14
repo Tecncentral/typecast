@@ -9,7 +9,7 @@ MIN_RIG_CEILING_M = 2.7
 
 
 def _positive(value, name):
-    if not math.isfinite(value) or value <= 0:
+    if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
         raise ValueError(f"{name} must be finite and positive")
     return value
 
