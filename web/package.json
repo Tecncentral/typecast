@@ -1,0 +1,9 @@
+{
+  "name": "typecast-web",
+  "private": true,
+  "type": "module",
+  "description": "Typecast viewer. No build step: served as static files by agent/app.py at /app.",
+  "scripts": {
+    "test": "node --test tests/*.test.mjs"
+  }
+}
