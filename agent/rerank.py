@@ -29,7 +29,7 @@ _VISION_SLOTS = BoundedSemaphore(MAX_CONCURRENCY)
 SHOT_TIMEOUT_S = 20.0
 MAX_IMAGE_BYTES = 20 * 1024 * 1024
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 class VisualScore(BaseModel):
@@ -158,7 +158,9 @@ def rerank_shots(ctx: RunContext, req: Requirements, shots, k: int = 20) -> list
     except OSError:
         event("Vision rerank skipped: prompt unavailable; kept embedding order.")
         return original
-    text = json.dumps(req.model_dump(exclude={"explicit_fields", "parsed_with_model", "parse_note"}), sort_keys=True)
+    # Authored scene text is the visual brief, including any follow-up text.
+    # Inferred parser wording must not change either this payload or its cache key.
+    text = json.dumps({"scene": req.scene}, sort_keys=True)
     fingerprint = _digest(instructions + text)
     provider_id = getattr(provider, "cache_identity", type(provider).__name__)
     results, pending = {}, []
