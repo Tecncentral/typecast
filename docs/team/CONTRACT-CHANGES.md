@@ -1,6 +1,6 @@
 # Contract changes
 
-Baseline: contracts/schemas.py and schemas.ts at 6928661. No changes proposed yet.
+Baseline: contracts/schemas.py and schemas.ts at 6928661. Accepted additive changes are recorded below.
 
 For each proposal record owner, timestamp, fields/signatures, null semantics, producer/consumer lanes, fixture updates and migration. Integrator coordinates all affected consumers before merging. Prefer additive fields with defaults; never change coordinate order or units silently.
 
@@ -19,3 +19,14 @@ Migration: existing API event names agent/result remain; consumers should render
 - `POST /approve` on a deep-engine thread resumes the saved deepagents human-approval checkpoint; fixed-engine threads save a local draft directly. Both always return sent=false.
 
 - Event type `trace` reports a traced run whose real URL could not be retrieved. It does not supply or invent a URL.
+
+## Viewer configuration — 2026-11-14
+
+Owner: C; consumer: D. Additive `GET /config` returns exactly four fields:
+
+- `mode`: `mock`, `live`, or `mixed` if adapter settings disagree.
+- `engine`: configured `fixed` or `deep`; the completed scout response still reports the actual engine after any fallback. Invalid engine configuration returns a sanitized 503.
+- `tracing`: boolean reflecting configured/enabled tracing; it does not guarantee a trace will succeed.
+- `matterport_sdk_key`: public browser SDK application key or null. No model/API secret is returned. SDK values that alias private credential values are suppressed.
+
+Matterport's [official Embed SDK guide](https://developers.matterport.com/embed-sdk/) documents applicationKey in browser code and domains in the key allowlist. Lane D may use this key for its browser viewer; `/health` and all existing response contracts remain compatible.

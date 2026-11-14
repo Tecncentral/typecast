@@ -68,6 +68,27 @@ def test_unknown_geometry_never_crashes_or_claims_fit(monkeypatch, missing):
     assert any("Shot fit unknown" in note for note in pick.skeptic_notes)
 
 
+def test_precomputed_logistics_is_used_without_source_requests(monkeypatch):
+    _, shots = dataset(monkeypatch, [{"pid": "p-cache"}])
+    cached = Logistics(property_id="p-cache", truck_spaces=0, car_spaces=0,
+                       walk_m=500, estimated=True)
+    monkeypatch.setattr(pipeline, "plan_logistics", lambda *args: pytest.fail("Duplicate logistics request"))
+    candidates = pipeline._evaluate(RunContext("cached-logistics"), Requirements(trucks=3), shots,
+                                    logistics={"p-cache": cached})
+    assert len(candidates) == 1 and candidates[0].logi is cached
+    assert candidates[0].blockers > 0
+
+
+def test_missing_precomputed_logistics_is_an_error_without_hidden_fetch(monkeypatch):
+    _, shots = dataset(monkeypatch, [{}])
+    events = []
+    monkeypatch.setattr(pipeline, "plan_logistics", lambda *args: pytest.fail("Hidden logistics request"))
+    candidates = pipeline._evaluate(RunContext("missing-logistics", emit=events.append), Requirements(),
+                                    shots, logistics={})
+    assert candidates == []
+    assert any(event.type == "error" for event in events)
+
+
 def test_estimated_geometry_is_at_most_tight(monkeypatch):
     dataset(monkeypatch, [{"estimated": True}])
     result = pipeline.scout(RunContext(thread_id="estimated-geometry"), Requirements(scene="Office"))

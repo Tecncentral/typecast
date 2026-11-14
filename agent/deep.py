@@ -47,8 +47,8 @@ def is_available() -> bool:
                 and importlib.util.find_spec("deepagents") and importlib.util.find_spec(integration))
 
 
-def _chat_model():
-    """Use the application's text provider, including its reasoning setting."""
+def _chat_model(*, scout: bool = False):
+    """Create an independent director or delegate model with its own effort."""
     from langchain.chat_models import init_chat_model
     provider = os.getenv("TYPECAST_LLM_PROVIDER", "openai").strip().lower()
     model = os.getenv("TYPECAST_LLM_MODEL", "").strip()
@@ -58,9 +58,9 @@ def _chat_model():
     options: dict[str, Any] = {"api_key": key, "timeout": 15.0, "max_retries": 0}
     if provider == "openai":
         options.update(use_responses_api=True, store=False, include=["reasoning.encrypted_content"])
-        effort = os.getenv("TYPECAST_REASONING_EFFORT", "").strip()
-        if effort:
-            options["reasoning"] = {"effort": effort}
+        setting, default = (("TYPECAST_SCOUT_REASONING_EFFORT", "low") if scout else
+                            ("TYPECAST_REASONING_EFFORT", "medium"))
+        options["reasoning"] = {"effort": os.getenv(setting, default).strip() or default}
     return init_chat_model(model, model_provider=provider, **options)
 
 
@@ -85,6 +85,10 @@ class _StreamEvents:
         self.last_answer = ""
         self.reviews: Reviews | None = None
 
+    def todo_update(self, todos):
+        """Emit only todo values read from a real tool update or saved checkpoint."""
+        self.ctx.event(Event(type="todo", agent="director", text=json.dumps(todos)))
+
     def update(self, chunk):
         namespace, update = chunk
         if namespace or not isinstance(update, dict):
@@ -94,7 +98,7 @@ class _StreamEvents:
             if not isinstance(payload, dict):
                 continue
             if "todos" in payload:
-                self.ctx.event(Event(type="todo", agent="director", text=json.dumps(payload["todos"])))
+                self.todo_update(payload["todos"])
             messages = payload.get("messages", [])
             if not isinstance(messages, (list, tuple)):
                 messages = [messages]
@@ -152,14 +156,44 @@ def _build_graph(model, session: ToolSession):
         ("skeptic", "Read the verified shortlist and object to each pick using its evidence.", "skeptic", ["get_shortlist"]),
     ]
     subagents = [{"name": name, "description": description, "system_prompt": _prompt(prompt),
-                  "model": model, "tools": [tools[t] for t in names],
+                  "model": _chat_model(scout=True), "tools": [tools[t] for t in names],
                   "middleware": [FilesystemMiddleware(tools=["read_file"])]}
                  for name, description, prompt, names in specs]
     return create_deep_agent(
         model=model, system_prompt=_prompt("director"), tools=[tools["build_shortlist"]],
         subagents=subagents, backend=StateBackend(), checkpointer=InMemorySaver(),
-        middleware=[FilesystemMiddleware(tools=["read_file"]), TodoListMiddleware()],
+        middleware=[FilesystemMiddleware(tools=["read_file"]), TodoListMiddleware(
+            system_prompt=("Track the source-backed scouting steps with write_todos, at most once per turn. "
+                           "Combine each update with the next source task/tool calls. Keep todo content to "
+                           "four words and task descriptions to 25 words. After the skeptic result, return "
+                           "the final authoritative ids immediately without another tool call. The application "
+                           "completes your persisted todo checkpoint only after validating those ids, every "
+                           "review, and all staged draft approval checkpoints."),
+            tool_description=("Replace the scouting todo list with content/status entries (pending, in_progress, "
+                              "completed). Keep each content to four words. Mark only verified finished steps "
+                              "completed. Call at most once per turn and alongside source work. Leave final "
+                              "verification in_progress when delegating to the skeptic; the application "
+                              "completes the checkpoint after validating the final answer and staging approvals."))],
         name="typecast_director")
+
+
+def _complete_todos(graph, config, session: ToolSession, mapper: _StreamEvents) -> None:
+    """Complete and verify the persisted plan after result validation and draft staging."""
+    session.check_deadline()
+    with _tracing()[0]:
+        snapshot = graph.get_state(config)
+        todos = snapshot.values.get("todos", [])
+        if snapshot.next or not todos:
+            raise ValueError("Deep plan is unfinished or has no persisted todos")
+        completed = [{**todo, "status": "completed"} for todo in todos]
+        # With no pending graph work, LangGraph infers the last completed node.
+        # Specifying as_node="model" would incorrectly enqueue after-model hooks.
+        checkpoint = graph.update_state(config, {"todos": completed})
+        verified = graph.get_state(checkpoint)
+        if verified.next or verified.values.get("todos") != completed:
+            raise ValueError("Deep todo completion was not persisted")
+    session.check_deadline()
+    mapper.todo_update(verified.values["todos"])
 
 
 @dataclass
@@ -257,14 +291,8 @@ def approve_draft(ctx: RunContext, pick_rank: int, decision: str) -> dict:
 
 
 def _tracing():
-    from langsmith import Client, tracing_context
-    key = os.getenv("LANGSMITH_API_KEY", "").strip()
-    if not key:
-        return tracing_context(enabled=False), None
-    from langchain_core.tracers.langchain import LangChainTracer
-    client = Client(api_key=key)
-    tracer = LangChainTracer(client=client, project_name=os.getenv("LANGSMITH_PROJECT", "typecast"))
-    return tracing_context(enabled=True, client=client), tracer
+    from agent.tracing import graph_tracing
+    return graph_tracing(), None
 
 
 def run_deep(ctx: RunContext, req: Requirements | dict) -> ScoutResponse:
@@ -291,9 +319,7 @@ def run_deep(ctx: RunContext, req: Requirements | dict) -> ScoutResponse:
         graph = _build_graph(model, session)
         config: dict[str, Any] = {"configurable": {"thread_id": f"{ctx.thread_id}-{uuid4().hex}"},
                                   "recursion_limit": 100}
-        tracing, tracer = _tracing()
-        if tracer:
-            config["callbacks"] = [tracer]
+        tracing, _ = _tracing()
         with tracing:
             payload = {"messages": [{"role": "user", "content": json.dumps({
                 "requirements": req.model_dump(mode="json"), "example_shot_id": example})}],
@@ -324,7 +350,10 @@ def run_deep(ctx: RunContext, req: Requirements | dict) -> ScoutResponse:
                     pick.skeptic_notes.append(note)
         # Only this main worker writes working memory: raw LangGraph tool threads
         # do not inherit runtime's state.stage_writes ContextVar.
-        for name, obj in (("requirements", req), ("candidates", session.shots),
+        for name, obj in (("requirements", req),
+                          ("sources", {"properties": session.properties, "logistics": session.logistics,
+                                       "missing_logistics": sorted(session.missing_logistics)}),
+                          ("candidates", session.shots),
                           ("shortlist", session.picks),
                           ("skeptic", "\n\n".join(f"## Pick {p.rank}: {p.property.address}\n" +
                               "\n".join(f"- {n}" for n in p.skeptic_notes) for p in session.picks))):
@@ -334,6 +363,7 @@ def run_deep(ctx: RunContext, req: Requirements | dict) -> ScoutResponse:
         for pick in session.picks:
             session.check_deadline()
             pending[(ctx.thread_id, pick.rank)] = _stage_draft(model, ctx, pick)
+        _complete_todos(graph, config, session, mapper)
         with _approval_lock:
             session.check_deadline()
             for key in list(_approvals):
@@ -342,16 +372,10 @@ def run_deep(ctx: RunContext, req: Requirements | dict) -> ScoutResponse:
             _approvals.update(pending)
             while len(_approvals) > MAX_APPROVALS:
                 _approvals.popitem(last=False)
-        trace_url = None
-        if tracer and tracer.latest_run is not None:
-            try:
-                trace_url = tracer.client.get_run_url(run=tracer.latest_run, project_name=tracer.project_name)
-            except Exception:
-                ctx.event(Event(type="trace", agent="langsmith", text="Run traced; trace URL is unavailable."))
         ctx.event(Event(type="final", agent="director", text=f"{len(session.picks)} source-backed picks reviewed by the skeptic."))
         return ScoutResponse(thread_id=ctx.thread_id, picks=session.picks, gave_up=session.gave_up,
                              events=events, engine="deep", source_mode=ctx.source_mode,
-                             trace_url=trace_url, timings=dict(ctx.timings))
+                             trace_url=None, timings=dict(ctx.timings))
     except Exception as exc:
         if not session.failures:
             ctx.event(Event(type="error", agent="director",

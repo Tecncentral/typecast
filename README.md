@@ -54,7 +54,7 @@ curl -s localhost:8000/scout -H 'content-type: application/json' \
 
 ## Model configuration and access checks
 
-Use the project `.env` for `LLM_API_KEY` and `VISION_API_KEY`, with provider model IDs in `TYPECAST_LLM_MODEL` and `TYPECAST_VISION_MODEL`. `TYPECAST_REASONING_EFFORT=high` selects the requested reasoning effort. `TYPECAST_ENGINE=fixed|deep` selects execution; responses report the engine that actually finished. Model parse and vision rerank can be disabled with `TYPECAST_ENABLE_MODEL_PARSE=0` and `TYPECAST_ENABLE_VISION_RERANK=0`. Vision upload additionally requires `TYPECAST_ALLOW_VISION_UPLOAD=1`.
+Use the project `.env` for `LLM_API_KEY` and `VISION_API_KEY`, with provider model IDs in `TYPECAST_LLM_MODEL` and `TYPECAST_VISION_MODEL`. `TYPECAST_REASONING_EFFORT` controls director/text reasoning (default `medium`); `TYPECAST_SCOUT_REASONING_EFFORT` controls the four delegate model instances (default `low`). Both use the configured text model. `TYPECAST_ENGINE=fixed|deep` selects execution; responses report the engine that actually finished. Model parse and vision rerank can be disabled with `TYPECAST_ENABLE_MODEL_PARSE=0` and `TYPECAST_ENABLE_VISION_RERANK=0`. Vision upload additionally requires `TYPECAST_ALLOW_VISION_UPLOAD=1`.
 
 The toolkit's visible Matterport API key goes in `MATTERPORT_API_KEY`; its hidden API token goes in `MATTERPORT_API_SECRET`. The SDK key is separate. Check credential presence without exposing values:
 
@@ -69,7 +69,29 @@ The verification gate forcibly disables model calls and tracing, even when priva
 
 `GET /scout/stream` sends `event: agent` while tools execute, then `event: result`; failures end with `event: error`. `POST /scout` uses the same runtime. `/refine` preserves the thread and reranks saved candidates without new property or shot searches. A known geometric failure is rejected; unknown or estimated fits stay unverified. Blocking alternatives are explicitly labelled.
 
-The deep engine uses actual Deep Agents director/scout/skeptic graphs over the same source tools and ranking logic. A failed run or 90-second deadline triggers a visible fixed-engine fallback. Deep approval resumes a human-approval checkpoint; both engines save drafts locally and always report `sent=false`. Tracing is enabled only when `LANGSMITH_API_KEY` is configured; `trace_url` is null unless a real run URL is available.
+The deep engine uses actual Deep Agents director/scout/skeptic graphs over the same source tools and ranking logic. After market retrieval, interior and logistics scouts run concurrently; the shortlist combines their full source records from session state. Model-facing tool responses are compact summaries. A failed run or 90-second deadline triggers a visible fixed-engine fallback. Deep approval resumes a human-approval checkpoint; both engines save drafts locally and always report `sent=false`.
+
+Configure `LANGSMITH_API_KEY` and `LANGSMITH_PROJECT` (default `typecast`) for traces of fixed and deep runs. `LANGSMITH_TRACING=false` disables tracing. A response includes a trace URL only after the client retrieves the completed run and returns its URL; absent credentials or tracing failures leave `trace_url=null`.
+
+`GET /config` gives the viewer exactly `mode`, `engine`, `tracing`, and `matterport_sdk_key`. Mode is `mock`, `live`, or `mixed` when adapters disagree; engine is the configured selection, while scout responses identify the engine that actually finished. The only exposed key is the browser SDK application key, or null when absent/unsafe. Matterport documents its [browser use and domain allowlist](https://developers.matterport.com/embed-sdk/). API credentials are never included.
+
+Compare deep-engine latency with three real-provider runs over fixture data:
+
+```bash
+python scripts/benchmark_deep.py --runs 3 --director-effort medium --scout-effort low \
+  --output cache/benchmarks/deep-after.json
+```
+
+This command uses the configured model API. It disables model parsing and vision reranking; add `--tracing` to include real trace upload and verified link retrieval. Without that flag, it measures director/delegate changes without trace-service latency. Reports count fallbacks separately from successful deep runs and require a verified link on every traced trial. The output contains timing metadata, not source records.
+
+With a mock server running on port 8000 and tracing enabled, verify actual SSE delivery, public configuration, and a fetched LangSmith run with:
+
+```bash
+python scripts/check_tracing.py --expected-engine fixed --output cache/benchmarks/fixed-trace.json
+# Use --expected-engine deep when the server runs with TYPECAST_ENGINE=deep.
+```
+
+Tracing waits at most eight seconds for a run to become readable after upload. If verification fails or takes longer, scouting still succeeds with a null trace URL and a trace-status event. This diagnostic checks the returned link independently and rejects missing links or an unexpected fallback.
 
 ```bash
 python scripts/e2e.py
