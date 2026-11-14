@@ -124,6 +124,31 @@ def test_offline_cache_preserves_unknown_and_never_calls_provider(tmp_path):
     assert set(result["failures"]) == {"property", "search", "detection", "osm", "aerial"}
 
 
+def test_failed_coordinate_refresh_never_rebinds_old_sources(tmp_path):
+    old = property_record()
+    directory = tmp_path / "vexcel/test-p1"
+    directory.mkdir(parents=True)
+    (directory / "source-coordinates.json").write_text("[0, 0]")
+    (directory / "detection.json").write_text(json.dumps(segmentation()))
+    (directory / "private-old-evidence.txt").write_text("preserve this generation")
+    changed = old.model_copy(update={"lat": 1.0, "lon": 1.0})
+    with pytest.raises(RuntimeError, match="coordinates changed"):
+        precompute_property(changed, None, cache_root=tmp_path, offline=True)
+    class Failed:
+        def __getattr__(self, name):
+            def call(*args):
+                raise ProviderError("Synthetic network failure")
+            return call
+    result = precompute_property(changed, Failed(), cache_root=tmp_path, refresh=True)
+    assert result["logistics"]["car_spaces"] is None
+    assert not (directory / "detection.json").exists()
+    archived = list((tmp_path / "vexcel/.history/test-p1").glob("*/private-old-evidence.txt"))
+    assert len(archived) == 1 and archived[0].read_text() == "preserve this generation"
+    assert json.loads((directory / "source-coordinates.json").read_text()) == [1, 1]
+    offline = precompute_property(changed, None, cache_root=tmp_path, offline=True)
+    assert not offline["sources"]["detection"] and offline["logistics"]["car_spaces"] is None
+
+
 def test_network_failures_redact_credential_query_urls():
     class Session:
         def request(self, *args, **kwargs):

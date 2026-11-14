@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import time
+import uuid
 
 from PIL import Image, ImageDraw
 from shapely.geometry import Point, mapping
@@ -180,8 +181,20 @@ def precompute_property(property: Property, client: VexcelClient | None, *, cach
     directory.mkdir(parents=True, exist_ok=True)
     binding = directory / "source-coordinates.json"
     coordinates = [property.lat, property.lon]
-    if binding.is_file() and json.loads(binding.read_text()) != coordinates and not refresh:
-        raise RuntimeError("Property coordinates changed; explicit --refresh required for source caches")
+    changed = binding.is_file() and json.loads(binding.read_text()) != coordinates
+    if changed:
+        if not refresh:
+            raise RuntimeError("Property coordinates changed; explicit --refresh required for source caches")
+        # Preserve the previous complete generation before publishing a new
+        # binding. Failed refreshes must never relabel old source files as if
+        # they belonged to the new coordinates. A whole-directory rename is
+        # atomic and keeps every previous response/image available privately.
+        previous = (root / "vexcel/.history" / property.property_id / uuid.uuid4().hex).resolve()
+        if not previous.is_relative_to(root / "vexcel"):
+            raise ValueError("Previous-generation path escapes private cache")
+        previous.parent.mkdir(parents=True, exist_ok=True)
+        directory.rename(previous)
+        directory.mkdir()
     atomic_json(binding, coordinates)
     sources = {"failures": {}}
     for name, filename, method in (("property", "property.json", "property"),

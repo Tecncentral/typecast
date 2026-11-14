@@ -15,7 +15,10 @@ credential-bearing URLs and source rows. CLI output is aggregate coverage only.
 
 Successful sources are reused. `--refresh` explicitly replaces them and is
 required when a property's coordinates change. `--offline` derives records
-without network calls or a key. `--property-id` selects an explicit private ID.
+without network calls or a key. On a coordinate change the complete previous
+cache generation is preserved under private `cache/vexcel/.history/` before
+fetching new sources; a failed refresh cannot rebind stale imagery or masks.
+`--property-id` selects an explicit private ID.
 `--without-osm` records a known OSM outage without repeatedly calling it. The
 first OSM failure also suppresses OSM requests for the rest of that batch.
 Requests are bounded and sequential. Missing sources cause a nonzero exit while
