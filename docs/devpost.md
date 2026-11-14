@@ -1,86 +1,88 @@
 # Typecast — cast the space, check the shoot
 
-Submission draft for human review. Main track: **Entertainment and Media**.
-
-Intended special-track targets: **CoStar, LangChain, Amazon and ChatOverflow**. These are targets, not claims of eligibility or awards. Track evidence and remaining checks are below.
+Submission draft for human review. Main-track intent: **Entertainment and Media**. Evidence-backed special-track candidates: **CoStar** and **LangChain**, subject to the current event criteria. No Peri, Photon, Amazon or ChatOverflow claim is made without human-confirmed evidence. World Labs is a tool we used, not a competition track.
 
 Team Discord names: **[MEMBER 1] · [MEMBER 2] · [MEMBER 3] · [MEMBER 4]**.
 
-**[SCREENSHOT PENDING: approved viewer showing real interior frames, source evidence, a parking aerial and a skeptic objection.]**
+**[SCREENSHOT PENDING: human-approved image of the merged viewer, with source evidence and any AI label legible. Licensed imagery remains private until publication permission is confirmed.]**
 
 ## Inspiration
 
-A script asks for a tense office confrontation or a warehouse handoff. A location manager has to turn that creative brief into a place a crew can use: the right room, a usable camera position, enough parking, and permission to shoot. Those decisions sit across property listings, interior tours and aerial imagery.
+A script asks for a warehouse handoff. A location manager needs a real room that can play the scene, a camera position, enough parking, and permission to shoot. An attractive image alone cannot answer all of that. A whole script adds another question: how many times must the crew pack up and move?
 
-Typecast brings them into one scouting conversation. It treats a building as a possible set and keeps the practical objections beside the picture.
+Typecast connects the creative decision with the practical evidence. It treats a building as a possible set and keeps the reasons to visit—and the reasons to pause—beside the picture.
 
 ## What it does
 
-Paste a scene set in Los Angeles or Houston. Typecast finds actual interior camera views, joins them to the correct property, and returns a shortlist with source evidence and explicit uncertainty. Change the brief to “Need parking for 5 trucks.” The same conversation reallocates the parking budget and changes ranking or allocation using the retrieved candidate pool.
+Paste a scene set in Los Angeles or Houston. A director plans, property/interior/logistics scouts gather evidence, and a read-only skeptic challenges the shortlist. The inside-out descent connects the chosen property's map position, Vexcel aerial and real Matterport frame in one reveal. Open **Look around** to compose in the viewfinder; when cached AI dressing exists, a wipe compares the scan with an imagined dressed set. Sources: [viewer acceptance](team/status-lane-d.md), [viewfinder](../web/viewfinder.js), [dressing report](team/status-worlds.md).
 
-The deep engine writes a plan, delegates to property, interior and logistics scouts, and asks a read-only skeptic to challenge the shortlist. The scout can inspect why a space was selected and what still needs an on-site check. Explicit approval saves a local inquiry draft with `sent=false`.
+Ask **“Need parking for 5 trucks.”** The same thread reuses its retrieved candidates and changes their ranking or parking allocation. The Director's Room takes a script, groups scenes by property and compares plans by coverage, company moves and visual similarity. Grouping is optimized within the retrieved pool; company moves assume one visit per property, not a measured travel schedule. Sources: [refinement](../agent/pipeline.py), [production planner](../index/production.py).
 
-The intended Monday user is a location manager or student producer preparing a recce: a shortlist of real rooms to inspect, with the property and crew logistics already connected. We have not measured time saved in a production or completed a customer deployment.
+The intended Monday user is a location manager or student producer preparing a recce: real rooms to inspect, with property identity and crew logistics connected. Explicit approval saves an unsent local inquiry draft. We have not measured production time saved, completed a booking or deployed to a customer.
 
 ## How we built it
 
-Each data layer answers a different production question:
-
 | Layer | Decision it supports |
 | --- | --- |
-| **CoStar** | Is this the right property, in the requested city, with recorded building facts and marketed lease availability? Exact property/model mappings connect it to the interior. |
-| **Matterport** | What can the camera actually see? Real scan views support visual retrieval, reranking and source geometry checks. Missing depth remains unknown. |
-| **Vexcel** | Where could the crew stage? Attributed aerials and actual SAM3 parking masks support estimated parking polygons and one shared car/truck area budget. |
-| **OpenStreetMap supplement** | Mapped parking polygons, source-connected walking routes, and freeway, rail or airport/runway proximity screens. Proximity is not a sound measurement. |
+| **CoStar** | Is this the right property, in the requested city, with recorded building facts and marketed lease availability? Exact property/model mappings connect it to the interior and let the Director's Room group scenes at one location. |
+| **Matterport** | What can the camera see? Real scan views support retrieval, visual ranking and the interactive viewfinder. Available geometry is evidence; unmeasured directional depth remains unknown. |
+| **Vexcel** | Where could the crew stage? Attributed aerials and traced SAM3 parking-mask pixels support estimated parking polygons and a shared car/truck area budget. |
+| **OpenStreetMap supplement** | Mapped parking, source-connected walking routes and proximity to freeway, rail or airport/runway geometry. Proximity is not a sound measurement. |
 
-We built a Python/FastAPI API, CLIP interior retrieval and permission-gated visual reranking. LangChain `deepagents` supplies the director, separate scout contexts, a persisted plan and an actual human-approval checkpoint for local drafts. A deterministic engine shares the evidence and constraint functions. Real execution events feed the stream; LangSmith links appear only when verified. Both engines preserve the actual mode and report a fallback when one occurs.
+Python/FastAPI serves a plain JavaScript viewer, CLIP retrieval and permission-gated visual reranking. LangChain `deepagents` supplies the director, separate scout contexts, persisted plan and an actual approval checkpoint for local drafts. The fixed engine shares source and constraint functions. Progress comes from actual execution, and LangSmith links appear only after verification. Sources: [architecture](architecture.md), [API](../agent/app.py), [deep execution](../agent/deep.py).
 
-Provider downloads and derived imagery stay in private caches. The current index has **10,568 views from 343 properties across 329 models**. It covers all 307 mapped available commercial properties selected in LA and Houston, 20 available multifamily properties, and the retained original set. Sixteen other available commercial properties lack a supplied scan mapping. Availability describes marketed lease space, not filming permission.
+For the Matterport team's **consistent refurnishing** wishlist item, we use World Labs Atlas to derive posed RGBD from real scan faces and pass the same depth constraints into `atlasChisel` while changing appearance. The UI compares that imagined furnishing with the real room. Depth is derived from the real images; we do not claim it is a measured Matterport depth import or a guarantee of exact geometry. This is a demonstrated approach to consistent refurnishing, not a benchmark of cross-view consistency. Sources: [dressing pipeline](../worlds/dress.py), [owner's verification](team/status-worlds.md).
 
-See [architecture](architecture.md), [data definitions](../data/SCHEMA.md) and the [evaluation report](team/eval.md).
+**TODO — optional walkable result:** the merged verification covers image dressing. Before adding the wishlist claim “interior splats from sparse scans,” require the World Labs owner's merged walkable result, source-view count, generation time, asset size, measured cost and observed navigation limits. Leave those numbers blank until verified; no sparse-scan splat achievement is claimed here.
+
+Private source downloads and derived assets stay in ignored caches. The frozen index contains **10,568 views / 343 properties / 329 models**: all **307** mapped available commercial properties selected in LA and Houston, **20** available multifamily properties and the retained original set. **Sixteen** additional available commercial properties lack a supplied scan mapping. Source: [frozen coverage](team/status-lane-c.md). Availability describes marketed lease space, not filming rights.
+
+## What is real vs AI-generated
+
+The scan imagery, property association and aerial are source evidence. Parking capacity is estimated; unknown measurements remain unknown. AI set dressing is an imagined appearance constrained by depth derived from the scanned room, with the persistent label **“AI-imagined set dressing, not the real room”**. Areas outside the dressed image coverage show the real room dimmed, and dressed frame grabs are marked. Sources: [viewfinder](../web/viewfinder.js), [dressing verification](team/status-worlds.md).
+
+A generated dressing does not establish physical feasibility, costs, current furniture or owner consent. An art department must evaluate it. Property availability does not establish vacancy, access or filming permission. The viewer does not turn estimated parking or noise proximity into measured conditions.
 
 ## Challenges we ran into
 
-The difficult part was keeping attractive images tied to trustworthy evidence. We required exact source mappings, traced real parking-mask pixels instead of using detection rectangles, preserved polygon holes, and charged trucks and cars against one area budget. Unknown parking never became an invented zero. A straight line never became a walking route.
+We had to keep the image tied to the evidence. Exact source mappings replaced address guesses. Real mask pixels and preserved holes replaced convenient detection rectangles. Trucks and cars consume one area budget. Missing parking stays unknown; a line between centroids never becomes a walking route. Sources: [data definitions](../data/SCHEMA.md), [Vexcel/OSM methods](../data/VEXCEL.md).
 
-Public Overpass outages initially left noise and walking unknown. A documented regional endpoint and one bounded retry recovered all 343 OSM caches. Five Vexcel property-extract requests still return 404; their unavailable parcel attributes remain explicit. Cached aerials, semantic-search responses and segmentation responses exist for all 343 properties.
+A bounded Overpass retry recovered **343** OSM caches; **five** Vexcel parcel-detail requests still returned 404. Their unavailable attributes remain explicit even though aerial, semantic-search and segmentation caches exist. Source: [coverage report](team/status-lane-c.md). Source caches support venue resilience, but the live parser/director still need a model connection: a retained video must say **recorded live run**, and fixture mode must say **MOCK**.
 
-The evaluation exposed two retrieval limits: the v1 visual stage reordered the existing first ten candidates, and scenes without a named city searched Los Angeles. We kept that benchmark frozen and reserved five separate tuning scenes for experiments.
+The frozen evaluation exposed limited rerank depth and the Los Angeles default for city-free scenes. We preserved v1 and selected the next configuration only on separate tune scenes. The visual reveal posed a similar honesty problem: the real scan and imagined dressing must remain distinguishable throughout the wipe and frame capture.
 
 ## Accomplishments that we're proud of
 
-We verified five authored demo scenes through both live engines, including three source-backed picks per scene, a real skeptic objection, a five-truck refinement with no fresh search, and an unsent local draft. The scenes cover an LA office confrontation, warehouse handoff and empty-shop rehearsal, plus a Houston office meeting and apartment conversation.
+The viewer's recorded acceptance covers the real descent, viewfinder, source/mode labels, same-thread refinement and unsent drafts. The dressing owner reports precomputed image dressing for the **five** authored demo anchors; a later scout can select a different scan point, so the actual returned pick must be checked. Sources: [viewer report](team/status-lane-d.md), [dressing report](team/status-worlds.md). The combined stage judge-path gate and backup recording remain separately recorded in the [runbook](demo-runbook.md).
 
-After selecting 20/5/5, all ten warm searches across those five scenes succeeded with twenty cached visual scores each. Median times were **10.092 seconds fixed** and **44.160 seconds deep**; the first deep request included lazy process initialization. All five-truck refinements and unsent drafts passed. Three optional trace links were unavailable (one fixed, two deep); original timings were retained and those follow-ups used the same threads without scouting again. These authored rehearsals are separate from the human benchmark.
+Previous selected-default rehearsals completed **five scenes on each engine**: warm medians **10.092 s fixed / 44.160 s deep**. Every follow-up and local draft passed; **three** optional trace links were unavailable and retained. The first deep request includes lazy initialization. These authored demos are separate from the human benchmark. Source: [retained demo refresh](team/eval.md#demo-refresh-after-v2). Current stage measurements come from [lane C](team/status-lane-c.md).
 
-The frozen **v1** human evaluation returned **99 judged-relevant views out of 150 top-ten results: a 66% precision@10 lower bound**, counting unjudged returns as misses. Mean pooled pipeline **recall@10 was 27.06%** across **15 test scenes reviewed by one person**. The labels came from global top-40 pools, not the whole catalog. The city-constrained mean recall ceiling was **37.90%**, and the global top-ten ceiling **48.14%**. Those ceilings explain the benchmark constraints; they do not replace the observed score. Median request latency was **14.539 seconds**, with fresh visual scores and no warmup. This metric evaluates retrieved-view membership, not the final three cards.
+The frozen v1 returned **99/150** judged-relevant views: **66% precision@10 lower bound**, **27.06% mean pooled recall@10**, across **15** scenes reviewed by **one** person. Unjudged results count as misses. Global top-40 judging pools and the city filter limit the result; the city-constrained recall ceiling is **37.90%**, global top-ten ceiling **48.14%**. Median request time was **14.539 s** with fresh visual scores and no warmup. Source: [frozen evaluation](team/eval.md).
 
-A budgeted experiment used only the five separate tune scenes: 42 real requests and 860 image scorings. It selected twenty candidates scored in batches of five, with concurrency five. Equal-engine tune precision lower bound was 37% versus 36% at baseline; the slowest selected deep request was 55.494 seconds.
+A separate **five-scene** tune study used **42 requests / 860 image scorings**, selecting **20 candidates / concurrency 5 / batch size 5**. Equal-engine tune precision lower bound was **37%**, versus **36%** baseline; the slowest selected deep run was **55.494 s**. This small difference does not establish general improvement. Source: [tune experiments](team/eval.md#tune-experiments).
 
-The single **v2 (after changes informed by v1)** pass then recovered **110/150 relevant returns: 73.33% precision lower bound and 30.48% macro recall**, with eight unjudged returns counted as misses. All fifteen requests succeeded; median/p95 were 16.057/24.459 seconds, using 300 fresh image scores in 60 vision calls. This is a post-change repeat on the same single-reviewer test set, not a new untouched holdout or a statistical-significance claim. The original v1 remains unchanged in the report.
+The single **v2 (after changes informed by v1)** repeat recovered **110/150**, giving **73.33% precision@10 lower bound / 30.48% macro recall**. **Eight** unjudged returns count as misses; all **15** requests succeeded, with median/p95 **16.057/24.459 s** and **300** fresh image scores in **60** vision calls. This is a post-change repeat on the same single-reviewer set, not an untouched holdout or statistical-significance claim. Neither benchmark evaluates final-card quality or exhaustive catalog relevance. Source: [v2 report](team/eval.md#v2-after-changes-informed-by-v1).
 
 ## What we learned
 
-A useful scouting result needs reasons to visit and reasons to pause. An estimated parking outline can help a producer plan a recce while still leaving access, truck clearance and current availability unresolved. A skeptic that exposes those limits is part of the product.
+A useful scout needs reasons to visit and reasons to pause. A parking outline can support a recce while still leaving access, truck clearance and current availability unresolved. The skeptic is useful precisely because it exposes those limits.
 
-We also learned to keep relevance, latency and demo polish separate. A cached rehearsal can be fast while a frozen human benchmark still reveals a narrow search pool or a city mismatch. We publish those differences instead of combining them into one accuracy claim.
+We also learned to keep retrieval quality, live latency and presentation polish separate. The descent makes the source connection understandable. The dressing comparison makes the creative possibility visible. Neither changes what the benchmark proves.
 
 ## What's next
 
-We selected a deeper rerank pool through five-scene tuning; broader human review is needed to establish whether the modest tune gain generalizes. Next steps include a clearer city choice, a separately gated exterior mode, more cities, and source geometry that can support additional camera-fit checks.
+Broader human review should test whether deeper reranking generalizes. A clearer city choice, separately gated exterior mode, more cities and directional geometry would improve the scouting workflow. The Director's Room needs production-user validation before claiming saved company moves or crew time. Optional walkable dressing remains the owning session's separate verification gate.
 
-Our social-good goal is to offer free scouting access to student crews and help owners earn income from suitable unused space, subject to verified access and filming permission. That is a proposed direction: we have not demonstrated free access, a completed booking, owner income or a charitable partnership.
+Our social-good goal is free scouting for student crews and income opportunities for suitable unused buildings. Free access, owner income, a charitable partnership and completed bookings are goals, not demonstrated outcomes.
 
 ## Track evidence and human completion
 
 | Target | Evidence available | Remaining confirmation |
 | --- | --- | --- |
-| **Entertainment and Media** | Creativity: casting spaces from scenes. Utility: connected recce evidence. Avidity: repeatable rehearsals, retained failures and a measured benchmark. Charity: proposed student access and opportunities for empty space. | Confirm the single main-track selection in Devpost. Social benefit remains a goal; final viewer polish awaits its browser acceptance gate. |
-| **CoStar** | Three combined data layers with distinct decisions; plan, scouts, skeptic and a practical location-manager workflow. | Confirm current sponsor submission requirements and permitted public screenshots/video. Packet-derived rubric notes are in [HANDOFF](HANDOFF.md#rubrics). |
-| **LangChain** | Actual `deepagents` director/delegates, read-only skeptic, checkpointed draft approval and verified LangSmith traces. | Confirm the event's current sponsor criteria. |
-| **Amazon** | The repository handoff records equal weights for creativity, usefulness, implementation and user experience. | Official eligibility/service requirements remain unverified. No AWS or other Amazon integration is claimed. |
-| **ChatOverflow** | Intended target only. | Agent connection, enrollment, scoring and eligibility evidence are unverified. Its leaderboard participation is separate from the project submission. |
+| **Entertainment and Media** | Creativity: casting and imagining sets. Utility: connected recce evidence and script grouping. Avidity: retained rehearsals, failure records and a benchmark. Charity: proposed student access and reuse of empty space. | Confirm the main-track selection. Social benefit remains a goal. |
+| **CoStar** | CoStar/Matterport/Vexcel decisions, plan/scouts/skeptic, the inside-out source reveal and depth-guided consistent refurnishing. | Confirm current sponsor criteria and public-media permission. Wishlist correspondence describes our implementation; it does not assert sponsor acceptance. [Packet notes](HANDOFF.md#rubrics). |
+| **LangChain** | Actual `deepagents`, separate delegates, read-only skeptic, approval checkpoint and verified traces where available. | Confirm current sponsor criteria. |
+| **Peri, Photon, Amazon, ChatOverflow** | No eligibility claim in this draft. | Human evidence is required before adding any claim. Peri needs consultation evidence; Photon its required live-channel evidence; Amazon its service/eligibility requirements; ChatOverflow agent connection, enrollment and separate leaderboard requirements. |
+| **World Labs** | Atlas image dressing, explicitly labeled as AI-imagined. | Tool used, not a claimed track. Walkable/splat result and costs remain subject to the owner's verified report. |
 
-**Peri and Photon are conditional additions only.** Peri needs human-confirmed consultation evidence; Photon needs human-confirmed eligibility and the required live-channel evidence. Neither is claimed in this draft.
-
-Before submission, a human fills the Discord names, resolves the track notes, approves publishable media, and submits the entry. Official references for confirmation: [event](https://www.hackprinceton.com/), [Devpost](https://hackprinceton-fall-26.devpost.com/) and [ChatOverflow leaderboard](https://chatoverflow.dev/leaderboard/hackprinceton). Sponsor presence on the event page alone does not establish project eligibility.
+A human supplies Discord names, checks eligibility, approves public media and repository release, and submits. Final factual pass after human merges and the post-01:00 ET judge-path check remains **pending**. Official event references for that human check are the [event](https://www.hackprinceton.com/) and [Devpost](https://hackprinceton-fall-26.devpost.com/); sponsor presence alone does not establish eligibility.
