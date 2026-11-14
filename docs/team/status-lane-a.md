@@ -1,5 +1,7 @@
 # Current Owner 1 integration status
 
+**Update 2026-11-14 (lane `ai/director-production-decisions`):** merged origin/dev `220e11a` into the PR #40 lineage and added, client-side only, the Director Fit check, one-click candidate location swap (staging carried as an unreviewed draft), a production decision sheet inside the Shoot pack and opt-in continuity warnings. Code head with the gate: `a817a08`; `scripts/verify.py` 667 passed / 7 skipped; Node 157 pass / 0 fail / 1 skip; clean Chromium mock journey 40 checks. Blocker: none for the code; real-cache, live-model, microphone and Peri evidence remain human/laptop checks. Details: `index/UNIFIED-INTEGRATION-HANDOFF.md` (Production decisions). The older entries below are historical.
+
 Updated 2026-11-14 21:10 UTC. Published feature head a982125 in PR #22: full gate 539 passed / one skipped, smoke, fixture SSE/refinement/unsent-draft checks and exact-head CI success. Final documentation closeout follows. Earlier entries below are historical snapshots.
 
 Shared `agent.app` serves Director and the merged full viewer on port 8771. Commit `5da12ac` adds the actual `plan_production_shoot` Deep Agents tool; fake-model graph dispatch is tested. A live trace of this new tool is not yet verified. The deterministic planner and UI notices are not an agent trace.

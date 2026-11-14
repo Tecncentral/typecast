@@ -88,3 +88,13 @@ legacy `[lat,lon]` ring into the matching unannotated image. It rejects unsuppor
 or out-of-bounds geometry and falls back to revealing the supplied annotated
 aerial unchanged. No new polygon or building-centroid claim is inferred. No
 existing response schema or endpoint behavior changes.
+
+
+## Director project JSON: production decisions (client-only, additive) - 2026-11-14
+
+Owner: lane-a (Director). Producer and consumer: `index/director.js` and `index/director-project.js`; no backend, `contracts/schemas.py` or TypeScript change, no coordinate or unit change.
+- Optional per-scene `location_choice`: `{shot_id, property_id, from_shot_id, from_property_id, staging_reviewed}`. Identifiers match `^[\w.:-]+$` (<=120), `staging_reviewed` is a required boolean; requires `evidence.frame`. Meaning: the user swapped this scene to another candidate; `staging_reviewed:false` means the staging was carried over and not verified on the new frame.
+- Optional per-scene `notes`: `{dressing, group}`; `dressing` <=600 characters (control characters stripped on import), `group` <=12 characters `[A-Za-z0-9_-]`. User text only; never sent to a model.
+- Optional per-variant `origin: "authored-sample"` (already recorded in the sample work) is the only accepted origin value.
+- Null semantics: absent means none; old files import unchanged. A saved choice is restored only if the same exact frame is an eligible candidate in the fresh plan response; otherwise the staging is retained for review. Rejections are reset by import, so none can leak back. Top-level `locations`, `company_moves` and `mean_similarity` are null (with `plan_note`) when a hand swap exists.
+- Migration: none required; files without these fields behave as before.
