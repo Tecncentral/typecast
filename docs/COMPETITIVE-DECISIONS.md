@@ -16,5 +16,11 @@ Primary links (peer repos as cited by the Grok review; not re-opened by this ses
 2. **Authored sample alternative: built, explicit opt-in.** Grok and Gemini both pointed to an offline fallback. The brainstorm API still returns 503 without a model and is never substituted. The button loads a fixed, pre-written mirror-and-cross pattern derived from take A (or one generic performer), labelled "pre-authored, not AI-generated", through the existing review step; only Apply writes B. It is an offline convenience, not prize evidence.
 3. **Not built:** the labeled synthetic cube/viewfinder sample and the room/constraint visualisation changes from the Grok report. Out of scope for this bounded milestone; a synthetic live-looking source would risk weakening provenance. No source capacity or availability is fabricated.
 
+## Reported film-industry conversation (unverified)
+The user reports a contact who makes short movies and mentioned an unnamed, reportedly Emmy-winning production that searched for a location for about seven months, then built the set. This is the user's paraphrase: no title, award, company, quote or permission is verified, it is not a usability test, endorsement, case study or Peri eligibility, and it does not show Typecast would save time. The design hypothesis is only that Typecast might help producers judge adapt-an-existing-room versus build-a-set earlier with real frames and clearly imagined dressing. No ROI or cost figure is claimed.
+
+## Authored sample gate
+Grok's conditional approval required the sample's origin to follow the take. It now does (per-take validated `origin`, drawn into PNG, WebM, shoot pack and Compare, saved in Project JSON); see `index/UNIFIED-INTEGRATION-HANDOFF.md`.
+
 ## Honest positioning
 Strengths we can show with evidence in this repo: real-source provenance and Unknown handling, exact-frame staging, rejection guarantees, labelled mock vs live, AI-vs-real labelling. Whether any of that matters to judges or a film professional is unknown until a live demo and the pending feedback.

@@ -76,6 +76,7 @@
         dialogue: String(s.shot.dialogue ?? '').slice(0, 800),
         actors,
       };
+      if (s.shot.origin === 'authored-sample') shot.origin = 'authored-sample';
       const out = { id: String(s.id ?? `s${i + 1}`).slice(0, 32), heading: String(s.heading ?? '').slice(0, 120),
         shot_id: s.shot_id, prov: String(s.prov ?? '').slice(0, 200), start, shot };
       start += shot.duration_sec;

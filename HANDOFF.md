@@ -8,6 +8,8 @@ Branch `ai/claude-release-audit` (PR #31), base origin/dev dbceec2. Code head: c
 
 > Third pass: read-only Compare A/B, explicit authored offline sample, dressed-cache no-spend guard, docs/COMPETITIVE-DECISIONS.md. See index/UNIFIED-INTEGRATION-HANDOFF.md section on Compare A/B. Not pushed; no film consultation claimed.
 
+> Fourth pass: authored-sample origin now follows the take (card, JSON, import, pack, PNG, WebM); mobile compare captions; film anecdote recorded as unverified in index/FILM-VALIDATION-HANDOFF.md. Main code phase ends; not pushed.
+
 ## 1. Goal
 Release QA for HackPrinceton Typecast (Director, reel, project import, viewfinder, AI dressing). Fix reproduced failures only; mock/synthetic data only; no push/merge/provider calls/private data. Interior labeling is complete; no more labeling.
 

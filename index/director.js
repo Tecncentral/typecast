@@ -1,6 +1,7 @@
 'use strict';
 const $ = (id) => document.getElementById(id);
 const POSES = ['stand', 'sit', 'walk'];
+const ORIGIN_SAMPLE = 'authored-sample', ORIGIN_TAG = 'AUTHORED SAMPLE · not AI';
 const BADGE = 'UNCALIBRATED SCREEN-SPACE REHEARSAL · GEOMETRIC FIT UNKNOWN';
 // Stage palette and type follow the scouting app (web/styles.css tokens).
 const INK = { bg: '#0b0d0d', text: '#f2efe8', muted: '#adb5b3', accent: '#edbd69', scrim: 'rgba(11,13,13,.74)' };
@@ -67,14 +68,17 @@ function noteFrameChanges(prev) {
       S.frameChange[sid] = { from: old, to: a.shot_id };
   }
 }
-function sanitizeShot(s) {
+// `origin` is provenance, never content: model responses and unknown values cannot set it; only trusted callers pass keepOrigin.
+function sanitizeShot(s, keepOrigin = false) {
   const actors = (Array.isArray(s?.actors) ? s.actors : []).slice(0, 3).map((a, i) => {
     const x0 = r3(clamp(a?.x0, 0, 1, 0.5)), y0 = r3(clamp(a?.y0, 0, 1, 0.85));
     return { id: String(a?.id ?? `a${i + 1}`).slice(0, 32), name: String(a?.name ?? '').slice(0, 24) || `Actor ${i + 1}`,
       pose: POSES.includes(a?.pose) ? a.pose : 'stand', x0, y0,
       x1: r3(clamp(a?.x1, 0, 1, x0)), y1: r3(clamp(a?.y1, 0, 1, y0)), scale: clamp(a?.scale, 0.3, 2, 1) };
   });
-  return { duration_sec: clamp(s?.duration_sec, 1, 30, 5), dialogue: String(s?.dialogue ?? '').slice(0, 800), actors };
+  const out = { duration_sec: clamp(s?.duration_sec, 1, 30, 5), dialogue: String(s?.dialogue ?? '').slice(0, 800), actors };
+  if (keepOrigin && s?.origin === ORIGIN_SAMPLE) out.origin = ORIGIN_SAMPLE;
+  return out;
 }
 
 // ---------- backend ----------
@@ -261,6 +265,11 @@ function drawStage(ctx, W, H, o) {
   const bw = Math.min(ctx.measureText(BADGE).width, W * 0.56) + 28;
   ctx.fillStyle = INK.scrim; pill(ctx, 18, 18, bw, 40);
   ctx.fillStyle = INK.accent; ctx.fillText(BADGE, 32, 38.5, W * 0.56);
+  if (sh && sh.origin) {
+    ctx.textAlign = 'left'; ctx.font = `600 19px ${FACE}`;
+    const tw = Math.min(ctx.measureText(ORIGIN_TAG).width, W * 0.5) + 28;
+    ctx.fillStyle = INK.scrim; pill(ctx, 18, 66, tw, 36); ctx.fillStyle = INK.text; ctx.fillText(ORIGIN_TAG, 32, 84.5, W * 0.5);
+  }
   ctx.textAlign = 'right'; ctx.font = `500 19px ${FACE}`;
   const pw = Math.min(ctx.measureText(o.prov).width, W * 0.36) + 28;
   ctx.fillStyle = INK.scrim; pill(ctx, W - 18 - pw, 18, pw, 40);
@@ -298,7 +307,7 @@ function drawCompare(ctx, W, H, sid, t) {
     const ended = t != null && dur != null && t > dur;
     const clock = dur == null ? 'no frame' : t == null ? `${dur}s` : ended ? `ended at ${dur}s, holding last pose` : `${t.toFixed(1)}s / ${dur}s`;
     ctx.font = `600 26px ${FACE}`; ctx.fillStyle = S.variant === v ? INK.accent : INK.text;
-    ctx.fillText(`TAKE ${v}${S.variant === v ? ' (active take)' : ''}`, x + 14, py - 62, pw - 28);
+    ctx.fillText(`TAKE ${v}${S.variant === v ? ' (active take)' : ''}${sh?.origin ? ' · authored sample' : ''}`, x + 14, py - 62, pw - 28);
     ctx.font = `500 22px ${FACE}`; ctx.fillStyle = INK.muted; ctx.fillText(clock, x + 14, py - 28, pw - 28);
   }
   ctx.fillStyle = INK.accent; ctx.fillRect(pw - 1, py, 2, ph);
@@ -488,7 +497,7 @@ function renderTimeline() {
   $('timeline').replaceChildren(...S.scenes.map((s, i) => { const a = assignFor(s.id), sh = a ? shotData(s.id) : null;
     const n = sh ? sh.actors.length : 0;
     return sceneButton(s, i, '', a ? thumb(a.shot_id, 'cut') : noThumb(), el('strong', { text: `${i + 1} · ${sh ? `${sh.duration_sec}s` : 'skipped'}` }), el('span', { text: s.heading }),
-      el('small', { text: sh ? `${n ? `${n} stand-in${n > 1 ? 's' : ''}` : 'No stand-ins'} · take ${S.variant}` : 'no frame; not played' })); }));
+      el('small', { text: sh ? `${n ? `${n} stand-in${n > 1 ? 's' : ''}` : 'No stand-ins'} · take ${S.variant}${sh.origin ? ' · authored sample' : ''}` : 'no frame; not played' })); }));
 }
 function stageLocNodes(sid = S.sceneId) {
   const a = assignFor(sid);
@@ -526,6 +535,8 @@ function renderInspector() {
   sel.value = String(S.actorIdx); const a = shot?.actors[S.actorIdx];
   $('actorForm').disabled = !a || S.compare; $('addActor').disabled = !shot || S.compare || shot.actors.length >= 3; $('delActor').disabled = !a || S.compare;
   syncActor(a);
+  const tag = $('originTag'); tag.hidden = !shot?.origin;
+  tag.textContent = shot?.origin ? `${ORIGIN_TAG}: take ${S.variant} derives from pre-written sample blocking (not AI-generated). Edits you make keep this origin.` : '';
 }
 function renderFrameNotice() {
   const n = $('frameNotice'), fc = S.frameChange[S.sceneId], a = assignFor(S.sceneId); n.replaceChildren();
@@ -585,6 +596,9 @@ function renderCompareStrip() {
   const a = shotData(S.sceneId, 'A'), b = shotData(S.sceneId, 'B');
   const durs = a && b ? `Take A runs ${a.duration_sec}s, take B ${b.duration_sec}s${a.duration_sec === b.duration_sec ? '' : ' (different lengths: scene playback lasts the longer one and the shorter take holds its last pose)'}.`
     : 'This scene has no assigned frame to compare.';
+  const cap = (v, sh) => el('span', { class: 'cap' }, el('strong', { text: `Take ${v}${S.variant === v ? ' (active)' : ''}` }),
+    ` · ${sh ? `${sh.duration_sec}s` : 'no frame'}${sh?.origin ? ` · ${ORIGIN_TAG}` : ''}`);
+  strip.append(el('div', { class: 'caps' }, cap('A', a), cap('B', b)));
   strip.append(el('span', {}, el('strong', { text: 'Read-only A/B comparison' }), ` · same frame, one real-time clock. ${durs}`),
     el('span', { text: `Canvas drag/keys and take fields are locked while comparing. Active take ${S.variant}: PNG and WebM export that take only; Project JSON and Shoot pack include both. Uncalibrated screen-space staging.` }));
 }
@@ -671,7 +685,7 @@ function loadSample() {
     const x1 = moved ? r3(1 - p.x1) : r3(clamp(x0 + (x0 < 0.5 ? 0.2 : -0.2), 0.05, 0.95, x0));
     return { ...p, x0, x1, y1: moved ? p.y1 : p.y0, pose: moved || p.pose !== 'stand' ? p.pose : 'walk' };
   }) : [{ id: 'sample1', name: 'Performer', pose: 'walk', x0: 0.25, y0: 0.85, x1: 0.7, y1: 0.85, scale: 1 }];
-  S.pending = { k, sample: true, shot: sanitizeShot({ duration_sec: src.duration_sec, dialogue: src.dialogue, actors }) };
+  S.pending = { k, sample: true, shot: { ...sanitizeShot({ duration_sec: src.duration_sec, dialogue: src.dialogue, actors }), origin: ORIGIN_SAMPLE } };
   $('pSum').textContent = 'Authored sample alternative (pre-written, not AI-generated)';
   $('pNote').textContent = SAMPLE_NOTE;
   $('pDiff').replaceChildren(...diffLines(b, S.pending.shot).map((t) => el('li', { text: t })));
@@ -731,8 +745,8 @@ function exportSnapshot() {
     source_mode: S.resp?.mode ?? 'unknown', locations: count(p?.locations), company_moves: p?.company_moves ?? null, mean_similarity: p?.mean_similarity ?? null,
     review_needed: S.importReview,
     scenes: S.scenes.map((s) => ({ ...s, evidence: evidenceSummary(s.id),
-      manual_frame: !!assignFor(s.id)?.manual_frame, staging: assignFor(s.id) ? sanitizeShot(shotData(s.id)) : null,
-      variants: assignFor(s.id) ? { A: sanitizeShot(shotData(s.id, 'A')), B: sanitizeShot(shotData(s.id, 'B')) } : null,
+      manual_frame: !!assignFor(s.id)?.manual_frame, staging: assignFor(s.id) ? sanitizeShot(shotData(s.id), true) : null,
+      variants: assignFor(s.id) ? { A: sanitizeShot(shotData(s.id, 'A'), true), B: sanitizeShot(shotData(s.id, 'B'), true) } : null,
       provenance_label: provText(s.id) })) });
 }
 async function exportPack() {
@@ -765,6 +779,7 @@ async function exportPack() {
           sec.append(E('h4', 'Staged frame (uncalibrated screen space)'), staged, E('h4', 'Indexed source frame'), raw);
         } catch (e) { sec.append(E('p', `Indexed image unavailable: ${e.message}`, 'unk')); }
         sec.append(E('h4', `Variant ${snapshot.variant} · ${sh.duration_sec}s`), E('p', sh.dialogue || '(no dialogue)'));
+        if (sh.origin) sec.append(E('p', 'This take is derived from an AUTHORED SAMPLE: pre-written blocking, not AI-generated, not an interpretation of any instruction.', 'unk'));
         sh.actors.forEach((ac) => sec.append(E('p', `${ac.name} (${ac.pose}, scale ${ac.scale}): (${ac.x0.toFixed(2)}, ${ac.y0.toFixed(2)}) → (${ac.x1.toFixed(2)}, ${ac.y1.toFixed(2)})`, 'meta')));
       }
       sec.append(doc.importNode(evidenceNodes(s.id, s.evidence, false), true)); doc.body.append(sec);
@@ -778,7 +793,7 @@ async function exportPack() {
 let reelCtrl = null;
 function reelInput() {
   return { variant: S.variant, scenes: S.scenes.filter((s) => assignFor(s.id)).map((s) => ({ id: s.id, heading: s.heading,
-    shot_id: assignFor(s.id).shot_id, prov: provText(s.id), shot: sanitizeShot(shotData(s.id)) })) };
+    shot_id: assignFor(s.id).shot_id, prov: provText(s.id), shot: sanitizeShot(shotData(s.id), true) })) };
 }
 async function exportReel() {
   if (reelCtrl) return;

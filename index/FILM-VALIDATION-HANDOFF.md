@@ -41,3 +41,9 @@ Do not write this section from imagination; the root coordinator forwards real f
 
 ## Hands-on confidence (state honestly in any write-up)
 Tested hands-on with real controls by the contact? ☐ yes ☐ no (watched only) ☐ not yet. Browser checks so far are mock-fixture runs by engineers (`HANDOFF.md` section 4), not user validation. Live-cache behavior is verified only on the integration captain's laptop.
+
+
+## Reported conversation context (user-paraphrased, UNVERIFIED; added 2026-11-14)
+The user reports that the contact makes short movies and mentioned an unnamed, reportedly Emmy-winning production that searched for a location for about seven months before building the set. This is a paraphrase of a conversation, not a direct quote, and the production, award, company and timeline are unverified. It is **not** a product usability test, endorsement, case study or Peri eligibility, and it is not evidence that Typecast would have saved any of that time. Still pending from the human: name, role, company/film, quote permission, screenshot/photo consent, and specific feedback on Typecast. Do not publish an attributed quote or fill the blanks above from this note; `docs/peri.md` stays Owner 4's.
+
+Design hypothesis to test (not a result): help producers decide earlier whether to adapt an existing room or build a set, using real indexed frames plus clearly labelled imagined dressing (and the offline authored sample is pre-written blocking, not AI). No savings, ROI or cost figure exists.

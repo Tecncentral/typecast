@@ -282,6 +282,9 @@ progress::-moz-progress-bar { background: var(--accent); }
 }
 .compare-strip strong { color: var(--accent); font-weight: 600; }
 canvas.comparing { cursor: default; }
+.origin-tag { margin: 0 0 10px; padding: 6px 10px; border: 1px solid var(--accent); border-radius: 6px; background: var(--accent-tint); color: var(--text); font-size: 13px; line-height: 1.4; }
+.compare-strip .caps { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; width: 100%; color: var(--text); font-size: 14px; }
+.compare-strip .cap strong { color: var(--accent); }
 .sample-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px dashed var(--control-line); border-radius: 6px; }
 .sample-box p { margin-bottom: 8px; }
 

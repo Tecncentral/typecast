@@ -346,7 +346,7 @@ function createEnv({ speech = 'none' } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);
@@ -1617,4 +1617,115 @@ test('a pending sample is dropped when the scene changes or the take is edited, 
   env.api.selectScene('s1'); env.$('loadSample').click();
   env.$('dlg').value = 'typed meanwhile'; env.$('dlg').dispatchEvent({ type: 'input' });       // staging edit invalidates it
   assert.equal(env.api.S.pending, null);
+});
+
+// ---------- authored-sample provenance must travel with the take everywhere ----------
+const TAG = 'AUTHORED SAMPLE · not AI';
+async function sampleOnB() {
+  const env = await twoTakes();
+  env.$('loadSample').click(); env.$('applyB').click();
+  return env;
+}
+const tagDrawn = (env) => painted(env).includes(TAG);
+
+test('origin: a sample-derived B carries a validated origin; A, manual and untouched takes do not', async () => {
+  const env = await sampleOnB();
+  assert.equal(env.api.shotData('s1', 'B').origin, 'authored-sample');
+  assert.equal(env.api.shotData('s1', 'A').origin, undefined);
+  assert.equal(env.api.shotData('s2', 'B').origin, undefined);
+  // card: the inspector tag is shown on B only
+  env.api.setVariant('B');
+  assert.equal(env.$('originTag').hidden, false); assert.match(env.$('originTag').textContent, /AUTHORED SAMPLE · not AI/);
+  env.drawLog.length = 0; env.api.setVariant('B'); assert.ok(tagDrawn(env), 'tag drawn on the stage for take B');
+  env.api.setVariant('A'); assert.equal(env.$('originTag').hidden, true);
+  env.drawLog.length = 0; env.api.setVariant('A'); assert.equal(tagDrawn(env), false);
+  // human edits keep a sample-derived take sample-derived
+  env.api.setVariant('B'); env.$('dlg').value = 'edited by a person'; env.$('dlg').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.shotData('s1', 'B').origin, 'authored-sample');
+  // the user's own dialogue/name text is never used as the label
+  assert.equal(env.api.shotData('s1', 'B').dialogue, 'edited by a person');
+  // undo restores the previous B including its (absent) origin
+  env.$('undo').click(); assert.equal(env.api.shotData('s1', 'B').origin, undefined);
+});
+
+test('origin: a live model proposal is never tagged as the sample, even if the response claims it', async () => {
+  const env = await twoTakes();
+  env.$('instr').value = 'x'; env.$('gen').click();
+  env.take('/api/production/brainstorm').resolve(jsonResponse({ summary: 'model', shot: { duration_sec: 4, dialogue: 'M', origin: 'authored-sample', actors: [] } }));
+  await drain(); env.$('applyB').click();
+  assert.equal(env.api.shotData('s1', 'B').dialogue, 'M'); assert.equal(env.api.shotData('s1', 'B').origin, undefined);
+  // a model proposal applied over a sample-derived B replaces the take, and the old origin goes with it
+  env.$('loadSample').click(); env.$('applyB').click(); assert.equal(env.api.shotData('s1', 'B').origin, 'authored-sample');
+  env.$('instr').value = 'y'; env.$('gen').click();
+  env.take('/api/production/brainstorm').resolve(jsonResponse({ summary: 'model2', shot: { duration_sec: 6, dialogue: 'M2', actors: [] } }));
+  await drain(); env.$('applyB').click();
+  assert.equal(env.api.shotData('s1', 'B').origin, undefined);
+  // a manually staged take is untagged
+  assert.equal(env.api.shotData('s1', 'A').origin, undefined);
+});
+
+test('origin: after a 503 the user can explicitly choose the sample, and it is tagged only then', async () => {
+  const env = await twoTakes();
+  env.$('instr').value = 'z'; env.$('gen').click();
+  env.take('/api/production/brainstorm').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();
+  assert.equal(env.api.shotData('s1', 'B').origin, undefined); assert.equal(env.api.S.pending, null);
+  env.$('loadSample').click(); assert.equal(env.api.S.pending.shot.origin, 'authored-sample');
+  assert.equal(env.api.shotData('s1', 'B').origin, undefined);          // review only: nothing tagged before Apply
+});
+
+test('origin: Project JSON saves it per take, Project JSON import restores it, and bad values are refused', async () => {
+  const env = await sampleOnB();
+  const snap = env.api.exportSnapshot(), v = snap.scenes[0].variants;
+  assert.equal(v.B.origin, 'authored-sample'); assert.equal('origin' in v.A, false);
+  assert.equal(snap.scenes[0].staging.origin, undefined);               // active take A
+  env.api.setVariant('B'); assert.equal(env.api.exportSnapshot().scenes[0].staging.origin, 'authored-sample');
+  env.$('expJson').click(); const file = env.downloads.find((d) => d.name === 'typecast-project.json');
+  const text = await blobText(file.blob);
+  assert.equal(JSON.parse(text).scenes[0].variants.B.origin, 'authored-sample');
+  // import into a fresh app
+  const fresh = boot();
+  await buildScript(fresh, 'INT. KITCHEN | first\nINT. OFFICE | second', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]);
+  const { job, body } = await startImport(fresh, text);
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]))); await drain();
+  assert.equal(fresh.api.shotData('s1', 'B').origin, 'authored-sample');
+  assert.equal(fresh.api.shotData('s1', 'A').origin, undefined);
+  // a hand-edited file may not smuggle a free-text or look-alike origin
+  for (const bad of ['AI', 'ai-generated', 'authored sample', { x: 1 }, 7]) {
+    const tampered = JSON.parse(text); tampered.scenes[0].variants.B.origin = bad;
+    const again = boot();
+    await buildScript(again, 'INT. KITCHEN | first\nINT. OFFICE | second', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]);
+    for (const name of ['Object', 'Array', 'JSON']) delete again.context[name];
+    vm.runInContext(PROJECT_JS, again.context, { filename: 'director-project.js' });
+    assert.throws(() => again.context.TypecastProject.normalizeProject(JSON.stringify(tampered)), /unsupported take origin/);
+  }
+});
+
+test('origin: PNG, shoot pack and reel snapshot of a sample-derived take carry the tag', async () => {
+  const env = await sampleOnB();
+  env.api.setVariant('B');
+  const cv = env.$('stage'), orig = cv.toBlob.bind(cv); let atExport = '';
+  cv.toBlob = (cb, type) => { atExport = painted(env); orig(cb, type); };
+  env.drawLog.length = 0; env.$('expPng').click(); await drain();
+  assert.ok(atExport.includes(TAG), 'PNG pixels were drawn with the tag');
+  env.drawLog.length = 0; env.$('expPack').click(); await drain();
+  const pack = env.downloads.find((d) => d.name.endsWith('.html')); const html = await blobText(pack.blob);
+  assert.match(html, /AUTHORED SAMPLE: pre-written blocking, not AI-generated/); assert.ok(tagDrawn(env), 'pack staged image drawn with the tag');
+  // reel input -> snapshot keeps origin; drawing a reel frame with that shot paints the tag
+  const reel = (await import('../director-reel.js')).default ?? (await import('../director-reel.js'));
+  const R = reel.buildSnapshot ? reel : reel.default;
+  const snap = R.buildSnapshot({ variant: 'B', scenes: [{ id: 's1', heading: 'h', shot_id: 'shot_a', prov: 'p', shot: env.api.shotData('s1', 'B') }] });
+  assert.equal(snap.scenes[0].shot.origin, 'authored-sample');
+  const bogus = R.buildSnapshot({ variant: 'B', scenes: [{ id: 's1', heading: 'h', shot_id: 'shot_a', prov: 'p', shot: { ...env.api.shotData('s1', 'B'), origin: 'AI' } }] });
+  assert.equal(bogus.scenes[0].shot.origin, undefined);
+  env.drawLog.length = 0;
+  env.api.drawStage(env.$('stage').getContext('2d'), 1280, 720, { imgEl: null, missing: '', prov: 'p', shot: snap.scenes[0].shot, t: 1, editing: false, sel: -1 });
+  assert.ok(tagDrawn(env), 'reel frame drawn with the tag');
+});
+
+test('origin: compare strip captions name the sample-derived take in readable HTML text', async () => {
+  const env = await sampleOnB();
+  env.$('cmpAB').click();
+  assert.match(env.$('compareStrip').textContent, /Take B · 5s · AUTHORED SAMPLE · not AI/);
+  assert.doesNotMatch(env.$('compareStrip').textContent, /Take A \(active\) · \d+s · AUTHORED/);
+  assert.ok(painted(env).includes('authored sample'));
 });
