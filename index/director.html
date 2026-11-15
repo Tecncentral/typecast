@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/app/viewfinder.css">
 <link rel="stylesheet" href="/app/viewfinder-compat.css">
 </head>
-<body>
+<body data-mode="film">
 <a class="skip-link" href="#stage">Skip to stage</a>
 <header class="masthead">
   <a class="wordmark" href="/app/" aria-label="Typecast location scouting">TYPECAST</a>
@@ -23,8 +23,15 @@
   </div>
 </header>
 <p id="status" class="status" role="status" aria-live="polite"></p>
+<p id="commBanner" class="comm-banner" data-community-only role="note"><strong>Preparedness planning.</strong> Candidate-site review for volunteer and supply coordination before an incident. Not for real-time evacuation or emergency routing. Nothing here approves a site, shelter or capacity.</p>
 <main class="room">
   <aside class="col col-script" aria-label="Script and plan">
+    <div class="mode-switch">
+      <div class="seg" role="group" aria-label="Planning mode">
+        <button id="modeFilm" type="button" aria-pressed="true">Film production</button><button id="modeComm" type="button" aria-pressed="false">Community planning</button>
+      </div>
+      <p id="modeHint" class="meta">Staging, locations and a shoot pack for a film.</p>
+    </div>
     <section class="block" aria-labelledby="h-script">
       <div class="block-head">
         <h2 id="h-script">Script</h2>
@@ -35,8 +42,8 @@
       <div id="parseSummary" class="parse-summary" aria-live="polite"></div>
       <div class="constraints">
         <label>Locations <select id="maxLoc"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
-        <label>Trucks <input id="trucks" type="number" min="0" max="20" value="0" inputmode="numeric"></label>
-        <label>Crew cars <input id="cars" type="number" min="0" max="50" value="0" inputmode="numeric"></label>
+        <label><span id="lblTrucks">Trucks</span> <input id="trucks" type="number" min="0" max="20" value="0" inputmode="numeric"></label>
+        <label><span id="lblCars">Crew cars</span> <input id="cars" type="number" min="0" max="50" value="0" inputmode="numeric"></label>
       </div>
       <label class="check"><input id="reqAvail" type="checkbox"> Require available listing</label>
       <button id="build" class="primary wide" type="button">Build plan</button>
@@ -61,7 +68,7 @@
         <h1 id="h-stage"><span id="stageTitle">Stage</span></h1>
         <p id="stageLoc" class="stage-loc">Build a plan to put real indexed rooms on the stage.</p>
       </div>
-      <div class="stage-modes">
+      <div class="stage-modes" data-film-only>
         <div class="seg" role="group" aria-label="Staging variant">
           <span class="seg-label" aria-hidden="true">Take</span>
           <button id="varA" type="button" aria-pressed="true">A</button><button id="varB" type="button" aria-pressed="false">B</button>
@@ -71,35 +78,56 @@
     </div>
     <div id="frameNotice" class="notice" hidden></div>
     <div id="swapNotice" class="notice" hidden role="status"></div>
-    <div id="compareStrip" class="compare-strip" role="status" hidden></div>
+    <div id="compareStrip" class="compare-strip" role="status" hidden data-film-only></div>
     <div class="screen"><canvas id="stage" width="1280" height="720" tabindex="0" aria-label="Stage. Drag an actor body to set start, the ring to set end. Arrow keys nudge selected actor start, Shift plus arrows nudge end."></canvas></div>
     <div class="transport">
-      <div class="transport-play">
+      <div class="transport-play" data-film-only>
         <button id="play" type="button" class="primary">Play</button><button id="pause" type="button">Pause</button><button id="reset" type="button">Reset</button>
       </div>
-      <progress id="prog" max="1" value="0" aria-label="Playback progress"></progress><span id="clock" class="mono">0.0s</span>
+      <progress id="prog" max="1" value="0" aria-label="Playback progress" data-film-only></progress><span id="clock" class="mono" data-film-only>0.0s</span>
       <div class="transport-tools">
-        <button id="addActor" type="button">Add stand-in</button>
-        <button id="lookAround" type="button" disabled>Look around 360°</button>
+        <button id="addActor" type="button" data-film-only>Add stand-in</button>
+        <button id="lookAround" type="button" disabled data-film-only>Look around 360°</button>
         <button id="reject" type="button" class="danger" disabled>Reject location</button>
       </div>
     </div>
-    <p class="stage-caption"><span class="caption-label">Uncalibrated screen-space rehearsal</span><span class="caption-label">Geometric fit: unknown</span><span>Drag a stand-in to place it; drag its ring to set where it walks. Positions are on screen, not measured in the room.</span></p>
-    <h2 class="strip-head">Cut</h2>
-    <ol id="timeline" class="timeline" aria-label="Shot timeline"></ol>
+    <p id="stageCaption" class="stage-caption"><span class="caption-label">Uncalibrated screen-space rehearsal</span><span class="caption-label">Geometric fit: unknown</span><span>Drag a stand-in to place it; drag its ring to set where it walks. Positions are on screen, not measured in the room.</span></p>
+    <h2 class="strip-head" data-film-only>Cut</h2>
+    <ol id="timeline" class="timeline" aria-label="Shot timeline" data-film-only></ol>
     <div id="framePicker" class="frames"></div>
     <details id="sceneChecks" class="checks" hidden><summary id="checksSummary">Fit check</summary><div id="checksBody"></div></details>
   </section>
 
   <aside class="col col-inspect" aria-label="Shot tools">
     <div class="tabs" role="tablist" aria-label="Shot tools">
-      <button type="button" role="tab" id="tab-shot" aria-controls="panel-shot" aria-selected="true">Shot</button>
-      <button type="button" role="tab" id="tab-alt" aria-controls="panel-alt" aria-selected="false" tabindex="-1">AI take</button>
+      <button type="button" role="tab" id="tab-site" aria-controls="panel-site" aria-selected="false" tabindex="-1" data-community-only>Site</button>
+      <button type="button" role="tab" id="tab-shot" aria-controls="panel-shot" aria-selected="true" data-film-only>Shot</button>
+      <button type="button" role="tab" id="tab-alt" aria-controls="panel-alt" aria-selected="false" tabindex="-1" data-film-only>AI take</button>
       <button type="button" role="tab" id="tab-evidence" aria-controls="panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
       <button type="button" role="tab" id="tab-export" aria-controls="panel-export" aria-selected="false" tabindex="-1">Export</button>
     </div>
 
-    <section id="panel-shot" class="panel" role="tabpanel" aria-labelledby="tab-shot">
+    <section id="panel-site" class="panel" role="tabpanel" aria-labelledby="tab-site" hidden data-community-only>
+      <h2 id="siteTitle">Site need</h2>
+      <label for="siteReq">Requested participants or volunteers <small>a request, not a capacity</small></label>
+      <input id="siteReq" type="number" min="0" max="100000" inputmode="numeric" placeholder="e.g. 40" disabled>
+      <details class="site-box" open><summary id="siteChecksSummary">Coordinator checks</summary><div id="siteChecks"></div></details>
+      <details class="site-box"><summary>Follow-ups and notes (optional)</summary>
+        <div id="siteTasks"></div>
+        <button id="taskAdd" type="button" class="quiet" disabled>Add follow-up</button>
+        <label for="siteNote">Notes for this need <small>600 characters</small></label>
+        <textarea id="siteNote" rows="3" maxlength="600" disabled></textarea>
+      </details>
+      <details class="site-box"><summary>Independently verified capacity (optional)</summary>
+        <label for="siteCap">Capacity <small>only from an inspection, permit or owner letter you hold</small></label>
+        <input id="siteCap" type="number" min="0" max="100000" inputmode="numeric" disabled>
+        <label for="siteCapSrc">Where it came from <small>required, 80 characters</small></label>
+        <input id="siteCapSrc" maxlength="80" autocomplete="off" disabled>
+        <p class="meta">Shown beside the request in the brief. Typecast never calculates capacity from floor area, photos, listings or parking.</p>
+      </details>
+    </section>
+
+    <section id="panel-shot" class="panel" role="tabpanel" aria-labelledby="tab-shot" data-film-only>
       <h2>Shot · take <span id="varLbl">A</span></h2>
       <p id="originTag" class="origin-tag" hidden></p>
       <details id="prodNotes" class="prod-notes">
@@ -139,7 +167,7 @@
       </fieldset>
     </section>
 
-    <section id="panel-alt" class="panel" role="tabpanel" aria-labelledby="tab-alt" hidden>
+    <section id="panel-alt" class="panel" role="tabpanel" aria-labelledby="tab-alt" hidden data-film-only>
       <h2>Ask for another take</h2>
       <p class="meta">The model proposes a different staging for take B. Nothing changes until you apply it.</p>
       <label for="instr">Direction</label>
@@ -170,12 +198,18 @@
     <section id="panel-export" class="panel" role="tabpanel" aria-labelledby="tab-export" hidden>
       <h2>Export</h2>
       <div class="export-grid">
-        <button id="expReel" type="button" class="primary" disabled>Record reel (WebM)</button><button id="cancelReel" type="button" hidden>Cancel reel</button>
+        <button id="expReel" type="button" class="primary" disabled data-film-only>Record reel (WebM)</button><button id="cancelReel" type="button" hidden data-film-only>Cancel reel</button>
         <button id="expPack" type="button" disabled>Shoot pack</button>
-        <button id="expPng" type="button">Stage PNG</button>
+        <button id="expPng" type="button" data-film-only>Stage PNG</button>
         <button id="expJson" type="button">Project JSON</button>
       </div>
-      <p id="reelNote" class="meta">Silent WebM of the current take, recorded in real time from real indexed frames. Keep this tab visible while it records.</p>
+      <p id="reelNote" class="meta" data-film-only>Silent WebM of the current take, recorded in real time from real indexed frames. Keep this tab visible while it records.</p>
+      <div id="briefFields" data-community-only>
+        <h3>Brief details (optional)</h3>
+        <label for="briefReviewer">Reviewer name</label><input id="briefReviewer" maxlength="40" autocomplete="off">
+        <label for="briefDate">Review date</label><input id="briefDate" maxlength="20" placeholder="e.g. 2026-11-14" autocomplete="off">
+        <label for="briefNotes">Overall notes <small>600 characters</small></label><textarea id="briefNotes" rows="3" maxlength="600"></textarea>
+      </div>
       <h3>Open a saved project</h3>
       <label for="impProject" class="hint">Project JSON. Evidence is rebuilt with the current constraints.</label>
       <input id="impProject" type="file" accept=".json,application/json">

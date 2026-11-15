@@ -74,6 +74,56 @@
       from_shot_id: id(value.from_shot_id, 'original shot id'), from_property_id: id(value.from_property_id, 'original property id'),
       staging_reviewed: value.staging_reviewed };
   }
+  const CHECK_KEYS = ['permission', 'capacity', 'exits', 'access', 'toilets', 'utilities', 'hazards'];
+  const stripCtl = (v) => v.replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ');
+  function count(value, name) {
+    if (value == null) return null;
+    if (!Number.isInteger(value) || value < 0 || value > 100000) fail(`${name} must be a whole number 0..100000`);
+    return value;
+  }
+  function briefOf(value) {
+    record(value, 'brief');
+    return { reviewer: stripCtl(value.reviewer == null ? '' : text(value.reviewer, 'reviewer', 40, true)).trim(),
+      date: stripCtl(value.date == null ? '' : text(value.date, 'review date', 20, true)).trim(),
+      notes: stripCtl(value.notes == null ? '' : text(value.notes, 'brief notes', 600, true)) };
+  }
+  function needOf(value, ids) {
+    record(value, 'need');
+    const sid = id(value.scene_id, 'need scene id', 60);
+    if (!ids.has(sid)) fail('need references a missing scene');
+    return { scene_id: sid, requested_count: count(value.requested_count, 'requested count'), note: stripCtl(value.note == null ? '' : text(value.note, 'need note', 600, true)) };
+  }
+  function siteOf(value, ids) {
+    record(value, 'site');
+    const sid = id(value.scene_id, 'site scene id', 60), pid = id(value.property_id, 'site property id');
+    if (!ids.has(sid)) fail('site references a missing scene');
+    const checks = {};
+    if (value.checks != null) {
+      record(value.checks, 'checks');
+      for (const key of Object.keys(value.checks)) {
+        if (!CHECK_KEYS.includes(key)) fail('unknown check');
+        const c = record(value.checks[key], 'check');
+        if (!['unknown', 'ok', 'issue'].includes(c.state)) fail('check state');
+        checks[key] = { state: c.state, note: stripCtl(c.note == null ? '' : text(c.note, 'check note', 200, true)).trim() };
+      }
+    }
+    let verified = null;
+    if (value.verified != null) {
+      record(value.verified, 'verified capacity');
+      const capacity = count(value.verified.capacity, 'verified capacity');
+      const source = stripCtl(value.verified.source == null ? '' : text(value.verified.source, 'capacity source', 80, true)).trim();
+      if (capacity != null && source) verified = { capacity, source };      // a number without a stated source is not kept
+    }
+    const tasks = [];
+    if (value.tasks != null) {
+      if (!Array.isArray(value.tasks) || value.tasks.length > 6) fail('at most six follow-ups per site');
+      for (const t of value.tasks) {
+        record(t, 'follow-up');
+        tasks.push({ text: stripCtl(text(t.text, 'follow-up text', 120)).trim(), owner: stripCtl(t.owner == null ? '' : text(t.owner, 'follow-up owner', 40, true)).trim() });
+      }
+    }
+    return { scene_id: sid, property_id: pid, checks, verified, tasks };
+  }
   function frame(value) {
     record(value, 'frame identity');
     return { shot_id: id(value.shot_id, 'shot id'), property_id: id(value.property_id, 'property id') };
@@ -105,6 +155,21 @@
       return out;
     });
     if (new Set(scenes.map((scene) => scene.id)).size !== scenes.length) fail('duplicate scene ids');
+    // Optional community-planning state. Absent means a film project; old files import unchanged.
+    let mode = 'film', brief = null, needs = [], sites = [];
+    if (payload.mode != null) { if (payload.mode !== 'community') fail('unsupported mode'); mode = 'community'; }
+    const sceneIds = new Set(scenes.map((scene) => scene.id));
+    if (payload.brief != null) brief = briefOf(payload.brief);
+    if (payload.needs != null) {
+      if (!Array.isArray(payload.needs) || payload.needs.length > 8) fail('at most eight needs');
+      needs = payload.needs.map((n) => needOf(n, sceneIds));
+      if (new Set(needs.map((n) => n.scene_id)).size !== needs.length) fail('duplicate need');
+    }
+    if (payload.sites != null) {
+      if (!Array.isArray(payload.sites) || payload.sites.length > 48) fail('at most 48 saved sites');
+      sites = payload.sites.map((x) => siteOf(x, sceneIds));
+      if (new Set(sites.map((x) => `${x.scene_id}::${x.property_id}`)).size !== sites.length) fail('duplicate site');
+    }
     const pending = payload.review_needed ?? [];
     if (!Array.isArray(pending) || pending.length > 8) fail('at most eight review drafts are allowed');
     const reviewNeeded = pending.map((entry) => {
@@ -115,7 +180,9 @@
     });
     // Every field is explicitly copied. Source metrics, URLs, unknown keys and
     // provider records in an exported file are deliberately not trusted or retained.
-    return { app: 'Typecast Director', variant: payload.variant, scenes, review_needed: reviewNeeded };
+    const out = { app: 'Typecast Director', variant: payload.variant, scenes, review_needed: reviewNeeded };
+    if (mode === 'community') Object.assign(out, { mode, brief, needs, sites });
+    return out;
   }
   function restoreEdits(payload, response, planIndex = 0) {
     const project = normalizeProject(payload);
@@ -153,7 +220,7 @@
       } else reviewNeeded.push({ ...entry, reason: 'Saved frame is unavailable, ineligible, assigned to another property, or another draft is already restored. Review staging before reuse.' });
     }
     if (reviewNeeded.length > 8) fail('too many unresolved drafts; retain the original file');
-    return { edits, frameOverrides, reviewNeeded, restored, swaps, transfers, notes };
+    return { edits, frameOverrides, reviewNeeded, restored, swaps, transfers, notes, mode: project.mode || 'film', brief: project.brief || null, needs: project.needs || [], sites: project.sites || [] };
   }
   const api = { normalizeProject, restoreEdits, MAX_BYTES };
   if (typeof module === 'object' && module.exports) module.exports = api;

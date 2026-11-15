@@ -12,7 +12,7 @@ const DEMO = [
   'INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.',
   'INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.',
 ].join('\n');
-const S = { mode: 'film', swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
+const S = { mode: 'film', comm: Object.create(null), brief: { reviewer: '', date: '', notes: '' }, swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
@@ -38,8 +38,8 @@ function orderPlans(data) {
 }
 function planSummary(p) {
   const covered = S.scenes.length - (p.uncovered_scene_ids || []).length;
-  const base = `${covered}/${S.scenes.length} scenes · ${p.locations} location${p.locations === 1 ? '' : 's'} · ${p.company_moves ?? '?'} move${p.company_moves === 1 ? '' : 's'}`;
-  return p === plan() && anySwap() ? `${covered}/${S.scenes.length} scenes · location swapped by hand, totals not recalculated` : base;
+  const noun = T('scenes', 'needs'), base = `${covered}/${S.scenes.length} ${noun} · ${p.locations} location${p.locations === 1 ? '' : 's'} · ${p.company_moves ?? '?'} move${p.company_moves === 1 ? '' : 's'}`;
+  return p === plan() && anySwap() ? `${covered}/${S.scenes.length} ${noun} · location swapped by hand, totals not recalculated` : base;
 }
 
 // ---------- data access ----------
@@ -178,7 +178,7 @@ async function build(reuse) {
     S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {}; S.swaps = Object.create(null); S.swapUndo = null; S.built = { trucks: body.trucks, cars: body.cars, require_available: body.require_available };
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
-    if (data.plans.length) status(`${modeNote(data)}${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`, data.mode === 'mock');
+    if (data.plans.length) status(`${modeNote(data)}${data.plans.length} candidate plan(s) returned. ${T('Candidates are not verified shootability.', 'Candidates are not verified, approved or available sites.')}`, data.mode === 'mock');
     else status('Backend returned no plan for these constraints. Your staging is kept.', true);
   } catch (e) {
     if (reuse && S.resp && S.forbidden.length) {
@@ -213,6 +213,7 @@ function viewShot(sid, v = S.variant) {
 }
 function provText(sid, v = S.variant) {
   const i = S.scenes.findIndex((s) => s.id === sid), a = assignFor(sid), c = a && candFor(sid, a.shot_id);
+  if (S.mode === 'community') return `Need ${i + 1} · Matterport · property ${a ? safeId(a.property_id).slice(0, 12) : 'none'}`;
   return `Scene ${i + 1} · Variant ${v} · Matterport · property ${a ? safeId(a.property_id).slice(0, 12) : 'none'}`;
 }
 function wrap(ctx, text, max) {
@@ -292,9 +293,9 @@ function drawStage(ctx, W, H, o) {
   frameMarks(ctx, ...marks);
   // Honesty label and provenance travel with every still and reel frame.
   ctx.textBaseline = 'middle'; ctx.textAlign = 'left'; ctx.font = `600 21px ${FACE}`;
-  const bw = Math.min(ctx.measureText(BADGE).width, W * 0.56) + 28;
+  const badge = o.badge || BADGE, bw = Math.min(ctx.measureText(badge).width, W * 0.56) + 28;
   ctx.fillStyle = INK.scrim; pill(ctx, 18, 18, bw, 40);
-  ctx.fillStyle = INK.accent; ctx.fillText(BADGE, 32, 38.5, W * 0.56);
+  ctx.fillStyle = INK.accent; ctx.fillText(badge, 32, 38.5, W * 0.56);
   if (sh && sh.origin) {
     ctx.textAlign = 'left'; ctx.font = `600 19px ${FACE}`;
     const tw = Math.min(ctx.measureText(ORIGIN_TAG).width, W * 0.5) + 28;
@@ -326,7 +327,7 @@ function liveArgs(sid, t, v = S.variant, editing = t == null, sel = S.actorIdx) 
   const a = assignFor(sid), im = a ? img(a.shot_id) : null;
   const missing = !S.resp ? 'Build a plan to load real indexed frames' : !a ? 'Uncovered scene: no location assigned'
     : im.err ? `Indexed image unavailable (${a.shot_id})` : 'Loading indexed frame…';
-  return { imgEl: im && im.ok ? im.el : null, missing, prov: provText(sid, v), shot: a ? viewShot(sid, v) : null, t, editing, sel };
+  return { imgEl: im && im.ok ? im.el : null, missing, prov: provText(sid, v), shot: a && S.mode === 'film' ? viewShot(sid, v) : null, badge: S.mode === 'community' ? COMM_BADGE : undefined, t, editing, sel };
 }
 // Read-only A/B preview of the SAME selected/playing frame: two natively sized panes (no stretching), one real-time clock.
 // A take shorter than the clock holds its last pose and says so; durations are never normalized.
@@ -437,6 +438,7 @@ function evidenceSummary(sid) {
       field: w.field === 'property_id/model_id' ? w.field : safeId(w.field),
       status: ['matched', 'conflict', 'insufficient', 'estimated', 'measured', 'unknown', 'unavailable'].includes(w.status) ? w.status : 'unknown' })) };
 }
+const T = (film, community) => (S.mode === 'community' ? community : film);
 function warningMeaning(w) {
   if (w.field === 'property_id/model_id') return w.status === 'matched'
     ? 'Exact CoStar property-to-Matterport model match. This property identity groups scenes into fewer locations.'
@@ -445,8 +447,8 @@ function warningMeaning(w) {
   if (w.field === 'parking_capacity') return w.status === 'insufficient'
     ? 'Estimated capacity is below the requested vehicles; excluded from candidate plans.'
     : w.status === 'estimated' ? 'Capacity is estimated; verify before the shoot.' : 'Parking capacity is unknown; this is not a parking approval.';
-  if (w.field === 'geometry') return 'Room geometry is incomplete or estimated. Rehearsal positions do not establish physical clearance.';
-  if (w.field === 'property') return 'Property details are unavailable. Listing availability and filming permission are not established.';
+  if (w.field === 'geometry') return T('Room geometry is incomplete or estimated. Rehearsal positions do not establish physical clearance.', 'Room geometry is incomplete or estimated. It does not establish clearance, exits or capacity.');
+  if (w.field === 'property') return T('Property details are unavailable. Listing availability and filming permission are not established.', 'Property details are unavailable. Listing availability and permission to use the site are not established.');
   return 'Review this source field before production.';
 }
 // A plain-language brief built only from the sanitized summary; unknowns stay unknown.
@@ -456,17 +458,17 @@ function evidenceBrief(a) {
   const num = (v, d = 0) => (typeof v === 'number' ? v.toFixed(d) : null);
   const p = a.property || {}, lg = a.logistics || {}, r = a.room || {};
   const av = p.availability_status;
-  item('Listing', av === 'available' ? 'Marketed as available. Not filming permission.'
+  item('Listing', av === 'available' ? T('Marketed as available. Not filming permission.', 'Marketed as available. Not permission to use the site.')
     : av === 'not_available' ? 'Not marketed as available.' : 'Unknown.', av !== 'available' && av !== 'not_available');
   const building = [num(p.year_built) && `built ${num(p.year_built)}`, num(p.size_sqft) && `${Number(p.size_sqft).toLocaleString('en-US')} sq ft`].filter(Boolean);
   item('Building', building.length ? building.join(' · ') : 'Unknown.', !building.length);
   const room = [num(r.room_area_m2) && `${num(r.room_area_m2)} m² floor`, num(r.ceiling_m, 1) && `ceiling ${num(r.ceiling_m, 1)} m`,
     num(r.depth_m, 1) && `depth ${num(r.depth_m, 1)} m`].filter(Boolean);
-  item('Room', room.length ? `${room.join(' · ')} (index estimate)` : 'Unknown. Measure on site.', !room.length);
+  item('Room', room.length ? `${room.join(' · ')} (index estimate, not a capacity)` : 'Unknown. Measure on site.', !room.length);
   if (lg.parking_status === 'unknown') item('Parking', 'Unknown. Not a parking approval.', true);
   else item('Parking', `${num(lg.truck_spaces) ?? '?'} trucks, ${num(lg.car_spaces) ?? '?'} cars, ${lg.parking_status}`
     + (lg.enough_parking === true ? '. Covers the requested vehicles.' : lg.enough_parking === false ? '. Short of the requested vehicles.' : '.'));
-  item('Crew walk', lg.walk_status === 'unknown' ? 'Unknown.' : `${num(lg.walk_m) ?? '?'} m, ${lg.walk_status}.`, lg.walk_status === 'unknown');
+  item(T('Crew walk', 'Walk from parking'), lg.walk_status === 'unknown' ? 'Unknown.' : `${num(lg.walk_m) ?? '?'} m, ${lg.walk_status}.`, lg.walk_status === 'unknown');
   item('Noise', lg.noise_status === 'unknown' ? 'Unknown.' : `Proximity screen, ${lg.noise_status}. Not a sound measurement.`, lg.noise_status === 'unknown');
   return ul;
 }
@@ -474,7 +476,7 @@ function evidenceNodes(sid, summary = evidenceSummary(sid), collapsible = true) 
   const f = document.createDocumentFragment(), a = summary;
   if (!a) { f.append(el('p', { class: 'unk', text: S.resp ? 'Uncovered in this plan: no location assigned.' : 'No plan yet.' })); return f; }
   const fields = [kv('Frame · Matterport index', a.frame),
-    kv('Room metrics · index estimate, not calibrated to stage', a.room),
+    kv(T('Room metrics · index estimate, not calibrated to stage', 'Room metrics · index estimate, not a measurement or a capacity'), a.room),
     kv('Property · CoStar', a.property), kv('Logistics · Vexcel', a.logistics)];
   const w = el('section', { class: 'ev' }, el('h4', { text: 'Source warnings' })), ws = a.warnings;
   if (!ws.length) w.append(el('p', { class: 'meta', text: 'No warnings returned. Absence of a warning is not verification.' }));
@@ -526,7 +528,7 @@ function renderRail() {
   $('rail').replaceChildren(...S.scenes.map((s, i) => { const a = assignFor(s.id);
     return sceneButton(s, i, '', a ? thumb(a.shot_id, 'rail') : noThumb(), el('strong', { class: 'slug', text: `${i + 1}. ${s.heading}` }),
       el('small', { text: s.description || '(no description)' }),
-      el('span', { class: a ? 'loc' : 'loc none', text: a ? `Location ${locLetter(a.property_id)}${a.swapped ? ' · swapped' : a.manual_frame ? ' · your frame' : ''}${(continuityMap()[s.id] || []).some((c) => c.level !== 'unknown') ? ' · continuity note' : ''}` : S.resp ? 'Uncovered: no location' : 'Not planned yet' })); }));
+      el('span', { class: a ? 'loc' : 'loc none', text: a ? `Location ${locLetter(a.property_id)}${a.swapped ? ' · swapped' : a.manual_frame ? ' · your frame' : ''}${S.mode === 'film' && (continuityMap()[s.id] || []).some((c) => c.level !== 'unknown') ? ' · continuity note' : ''}` : S.resp ? 'Uncovered: no location' : 'Not planned yet' })); }));
 }
 function renderTimeline() {
   $('timeline').replaceChildren(...S.scenes.map((s, i) => { const a = assignFor(s.id), sh = a ? shotData(s.id) : null;
@@ -637,9 +639,10 @@ function altChoices(sid) {
 }
 function altLocations(a) {
   const sid = S.sceneId, choices = altChoices(sid);
-  const box = el('details', { class: 'alt-locs' }, el('summary', { text: `Try another location (${choices.length})` }));
+  const box = el('details', { class: 'alt-locs' }, el('summary', { text: `${T('Try another location', 'Try another site')} (${choices.length})` }));
   if (!choices.length) { box.append(el('p', { class: 'meta', text: 'No other eligible location is in this plan\'s candidate pool. Reject or change constraints, then rebuild, to widen it.' })); return box; }
-  box.append(el('p', { class: 'meta', text: 'One click swaps this scene only, and carries your staging over as a draft to review. To remove a property from every plan, use Reject location instead. The plan summary is not recalculated.' }));
+  if (S.mode === 'community') box.append(el('p', { class: 'meta', text: 'One click switches this need to that candidate site. Checks and notes you recorded stay with each site. To rule a site out everywhere, use Rule out site. Nothing here approves a site.' }));
+  else box.append(el('p', { class: 'meta', text: 'One click swaps this scene only, and carries your staging over as a draft to review. To remove a property from every plan, use Reject location instead. The plan summary is not recalculated.' }));
   const strip = el('div', { class: 'frame-strip', role: 'group', 'aria-label': 'Other candidate locations' });
   for (const c of choices) {
     const sim = typeof c.shot.score === 'number' ? c.shot.score.toFixed(2) : 'unknown';
@@ -707,7 +710,7 @@ function renderSwapNotice() {
   const n = $('swapNotice'), sid = S.sceneId, sw = validSwap(sid), t = S.transfer[keyOf(sid)] ;
   n.replaceChildren();
   if (!sw) { n.hidden = true; return; }
-  const unreviewed = !!(t && !t.reviewed);
+  const unreviewed = !!(t && !t.reviewed) && S.mode === 'film';
   const row = el('div', { class: 'row' });
   if (unreviewed) {
     const ok = el('button', { type: 'button', class: 'primary', text: 'Staging looks right on this frame' });
@@ -719,11 +722,11 @@ function renderSwapNotice() {
   if (S.alt[keyOf(sid)]) { const sw2 = el('button', { type: 'button', text: 'Switch to the other saved staging' }); sw2.addEventListener('click', switchStaging); row.append(sw2); }
   const back = el('button', { type: 'button', text: 'Back to planned location' }); back.addEventListener('click', backToPlanned); row.append(back);
   // The main sentence depends on what actually happened to the takes on this frame.
-  const main = sw.dest_kept ? 'This frame already had its own staging, so it was kept; your current takes were not copied. Room fit remains unverified.'
+  const main = S.mode === 'community' ? 'This need now points at another candidate site. Your coordinator checks stay with each site, so re-check this one. Nothing here approves a site.' : sw.dest_kept ? 'This frame already had its own staging, so it was kept; your current takes were not copied. Room fit remains unverified.'
     : unreviewed ? 'Takes copied to this frame for review. Review stand-in placement; room fit remains unverified.'
     : 'The plan summary and company moves were not recalculated for this choice. Reviewing by eye is artistic alignment, not a survey: room fit remains unverified.';
   n.append(el('p', { text: `Location swapped for scene ${sceneNumber(sid)}: ${safeId(sw.from_property_id)} → ${safeId(sw.property_id)}. ${main}` }),
-    el('p', { class: 'meta', text: 'The earlier scan identity does not apply to this frame. Stand-ins are uncalibrated screen space, and source warnings and provenance labels stay as shown.' }),
+    el('p', { class: 'meta', text: T('The earlier scan identity does not apply to this frame. Stand-ins are uncalibrated screen space, and source warnings and provenance labels stay as shown.', 'The earlier site identity does not apply to this frame. Source warnings and provenance labels stay as shown.') }),
     ...(S.alt[keyOf(sid)] ? [el('p', { class: 'meta', text: 'A second saved staging exists for this frame. It lives in this session only; the project file saves the one shown.' })] : []), row);
   n.hidden = false;
 }
@@ -737,7 +740,7 @@ function continuityMap() {
 function fitFor(sid) {
   const a = assignFor(sid), s = S.scenes.find((x) => x.id === sid);
   if (!window.TypecastChecks || !s) return null;
-  return TypecastChecks.fitCheck({ scene: s, cand: a ? candFor(sid, a.shot_id) : null, built: S.built, mode: S.resp?.mode });
+  return TypecastChecks.fitCheck({ scene: s, cand: a ? candFor(sid, a.shot_id) : null, built: S.built, mode: S.resp?.mode, domain: S.mode });
 }
 function checkRow(r) {
   return el('li', { class: `chk chk-${r.kind}` }, el('b', { text: `${TypecastChecks.KIND_LABEL[r.kind] || 'Note'}: ` }), el('span', { text: `${r.label}. ${r.detail}` }),
@@ -746,10 +749,10 @@ function checkRow(r) {
 function renderChecks() {
   const box = $('sceneChecks'), sid = S.sceneId, a = assignFor(sid);
   if (!window.TypecastChecks || !a) { box.hidden = true; return; }
-  const fit = fitFor(sid), cont = (continuityMap()[sid] || []), real = cont.filter((c) => c.level !== 'unknown');
+  const fit = fitFor(sid), cont = S.mode === 'film' ? (continuityMap()[sid] || []) : [], real = cont.filter((c) => c.level !== 'unknown');
   const body = $('checksBody'); body.replaceChildren();
-  $('checksSummary').textContent = `Fit check · ${TypecastChecks.fitSummaryText(fit)}${real.length ? ` · ${real.length} continuity note${real.length === 1 ? '' : 's'}` : ''}`;
-  body.append(el('p', { class: 'meta', text: 'Only fields the sources supplied are compared. Unknown stays unknown, and image similarity is not a fit score. Only simple wording in your script (at least / no more than / more than / less than with m², ft² or a ceiling height) is read; other needs are not extracted.' }),
+  $('checksSummary').textContent = `${S.mode === 'community' ? 'Site fit evidence' : 'Fit check'} · ${TypecastChecks.fitSummaryText(fit)}${real.length ? ` · ${real.length} continuity note${real.length === 1 ? '' : 's'}` : ''}`;
+  body.append(el('p', { class: 'meta', text: `Only fields the sources supplied are compared. Unknown stays unknown, and image similarity is not a fit score. Only simple wording in your ${S.mode === 'community' ? 'needs' : 'script'} (at least / no more than / more than / less than with m², ft² or a ceiling height) is read; other needs are not extracted.` }),
     el('ul', { class: 'chk-list' }, ...fit.rows.map(checkRow)));
   if (cont.length) {
     body.append(el('h4', { text: 'Continuity (from your link)' }), el('ul', { class: 'chk-list' }, ...cont.map((c) => el('li', { class: `chk chk-${c.level === 'verified' ? 'conflict' : c.level === 'potential' ? 'unknown' : 'info'}` },
@@ -791,7 +794,7 @@ function toggleCompare() {
 }
 function renderAll() {
   renderProjectReview();
-  renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames(); renderStageHead(); renderCompareStrip(); renderSwapNotice(); renderChecks(); renderNotes();
+  renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames(); renderStageHead(); renderCompareStrip(); renderSwapNotice(); renderChecks(); renderNotes(); renderSite();
   $('evidence').replaceChildren(evidenceNodes(S.sceneId));
   const a = assignFor(S.sceneId), pl = $('planner');
   $('lookAround').disabled = S.planBusy || !a;
@@ -932,13 +935,14 @@ function sceneProduction(sid) {
 function exportSnapshot() {
   const p = plan();
   return clone({ app: 'Typecast Director', exported_at: new Date().toISOString(), variant: S.variant, plan_index: S.planIdx,
-    honesty: 'Candidate plans only. Uncalibrated screen-space rehearsal; geometric fit unknown. Plan score describes original solver frames; manual frame choices retain the assigned property.',
+    honesty: S.mode === 'community' ? 'Candidate-site planning notes only. Coordinator checks are reported by a person and are not verified. Nothing here approves a site or establishes capacity, safety or availability. Plan score describes original solver frames.' : 'Candidate plans only. Uncalibrated screen-space rehearsal; geometric fit unknown. Plan score describes original solver frames; manual frame choices retain the assigned property.',
     source_mode: S.resp?.mode ?? 'unknown', locations: anySwap() ? null : count(p?.locations), company_moves: anySwap() ? null : p?.company_moves ?? null, mean_similarity: anySwap() ? null : p?.mean_similarity ?? null,
+    ...communityExport(),
     plan_note: anySwap() ? 'A location was swapped by hand; plan locations, moves and similarity were not recalculated.' : undefined,
     review_needed: S.importReview,
     scenes: S.scenes.map((s) => ({ ...s, ...sceneProduction(s.id), evidence: evidenceSummary(s.id),
-      manual_frame: !!assignFor(s.id)?.manual_frame, staging: assignFor(s.id) ? sanitizeShot(shotData(s.id), true) : null,
-      variants: assignFor(s.id) ? { A: sanitizeShot(shotData(s.id, 'A'), true), B: sanitizeShot(shotData(s.id, 'B'), true) } : null,
+      manual_frame: !!assignFor(s.id)?.manual_frame, staging: assignFor(s.id) && S.mode === 'film' ? sanitizeShot(shotData(s.id), true) : null,
+      variants: assignFor(s.id) && S.mode === 'film' ? { A: sanitizeShot(shotData(s.id, 'A'), true), B: sanitizeShot(shotData(s.id, 'B'), true) } : null,
       provenance_label: provText(s.id) })) });
 }
 function decisionFor(sid) {
@@ -1099,7 +1103,7 @@ $('impProject').addEventListener('change', (event) => importProject(event.target
 // ---------- events ----------
 $('build').addEventListener('click', () => build(false));
 $('script').addEventListener('input', () => { S.rev++; renderParse(); });
-$('demo').addEventListener('click', () => { S.rev++; $('script').value = DEMO; renderParse(); status('Demo script loaded. Press Build plan; the plan summary states whether results are live or mock fixtures.'); });
+$('demo').addEventListener('click', () => { S.rev++; $('script').value = S.mode === 'community' ? COMM_DEMO : DEMO; renderParse(); status(S.mode === 'community' ? 'Example needs loaded. Press Find candidate sites; the summary states whether results are live or mock fixtures.' : 'Demo script loaded. Press Build plan; the plan summary states whether results are live or mock fixtures.'); });
 $('planSel').addEventListener('change', (e) => {
   const prev = assignMap(); stopPlay(); cancelGen(); clearPending();
   S.planIdx = clamp(e.target.value, 0, (S.resp?.plans.length || 1) - 1, 0); noteFrameChanges(prev); renderAll();
@@ -1179,6 +1183,7 @@ function hit(p, sh) {
   return null;
 }
 cv.addEventListener('pointerdown', (e) => {
+  if (S.mode === 'community') return;
   if (S.compare) return status('Comparison is read-only. Choose take A or B (or turn Compare off) to move stand-ins.');
   const sh = shotData(S.sceneId); if (!sh) return;
   if (S.play.on || S.play.acc) stopPlay();
@@ -1199,7 +1204,7 @@ const endDrag = () => { if (drag) { const id = drag.pointerId; drag = null; if (
 cv.addEventListener('pointerup', endDrag); cv.addEventListener('pointercancel', endDrag);
 cv.addEventListener('lostpointercapture', endDrag);
 cv.addEventListener('keydown', (e) => {
-  if (S.compare) return;
+  if (S.compare || S.mode === 'community') return;
   const a = curActor(), d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
   if (!a || !d) return;
   e.preventDefault(); const [fx, fy] = e.shiftKey ? ['x1', 'y1'] : ['x0', 'y0'], step = e.altKey ? 0.05 : 0.01;
@@ -1226,13 +1231,246 @@ $('expJson').addEventListener('click', () => {
   download(new Blob([JSON.stringify(proj, null, 2)], { type: 'application/json' }), 'typecast-project.json');
   status('Project JSON downloaded.');
 });
-$('expPack').addEventListener('click', exportPack);
+$('expPack').addEventListener('click', () => (S.mode === 'community' ? exportBrief() : exportPack()));
 $('expReel').addEventListener('click', exportReel);
 $('cancelReel').addEventListener('click', () => reelCtrl && reelCtrl.abort());
 window.addEventListener('pagehide', () => { if (rec) rec.stop(); if (reelCtrl) reelCtrl.abort(); stopPlay(); });
 
+// ================= mode: Film production | Community planning =================
+// Community planning is pre-incident candidate-site review for volunteer and supply coordination. It reuses the same
+// evidence, retrieval and review engine and adds human-reported coordinator checks. It never routes evacuations,
+// approves shelters, or turns floor area, photos, listings or parking into capacity, safety or availability.
+const COMM_BADGE = 'PREPAREDNESS PLANNING · CANDIDATE SITE · NOT AN APPROVED SITE';
+const COMM_DEMO = [
+  'Supply distribution hub', 'Large open indoor floor where volunteers sort and hand out supplies, at least 150 m2, loading access for two supply trucks, away from the main road.', '',
+  'Volunteer check-in and briefing', 'A quiet room for about 30 volunteers to check in and be briefed, an accessible entrance and restrooms nearby.', '',
+  'Cold storage and staging', 'Floor area for pallets and a vehicle bay for refrigerated trucks, no more than 600 m2.',
+].join('\n');
+const MODE_KEYS = ['scenes', 'resp', 'planIdx', 'sceneId', 'variant', 'forbidden', 'edits', 'frameChange', 'frameOverrides', 'importReview', 'actorIdx',
+  'undo', 'swaps', 'transfer', 'alt', 'swapUndo', 'notes', 'built', 'compare', 'comm', 'brief'];
+function freshMode(m) {
+  return { scenes: [], resp: null, planIdx: 0, sceneId: null, variant: 'A', forbidden: [], edits: {}, frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0,
+    undo: null, swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false,
+    comm: Object.create(null), brief: { reviewer: '', date: '', notes: '' },
+    inputs: { script: m === 'film' ? DEMO : '', maxLoc: '3', trucks: '0', cars: '0', reqAvail: false } };
+}
+const MODES = { film: null, community: null };            // the stashed state of the mode that is not showing
+function captureMode() {
+  const o = {}; for (const k of MODE_KEYS) o[k] = S[k];
+  o.inputs = { script: $('script').value, maxLoc: $('maxLoc').value, trucks: $('trucks').value, cars: $('cars').value, reqAvail: $('reqAvail').checked };
+  return o;
+}
+function applyModeState(o) {
+  for (const k of MODE_KEYS) S[k] = o[k];
+  $('script').value = o.inputs.script; $('maxLoc').value = o.inputs.maxLoc; $('trucks').value = o.inputs.trucks; $('cars').value = o.inputs.cars; $('reqAvail').checked = !!o.inputs.reqAvail;
+}
+function applyModeUI() {
+  const comm = S.mode === 'community';
+  document.body.setAttribute('data-mode', S.mode);
+  $('modeFilm').setAttribute('aria-pressed', String(!comm)); $('modeComm').setAttribute('aria-pressed', String(comm));
+  document.title = comm ? 'Typecast — Community planning' : 'Typecast — Director\'s Room';
+  $('h-script').textContent = comm ? 'Site needs' : 'Script';
+  $('demo').textContent = comm ? 'Load example needs' : 'Load demo script';
+  $('scriptHint').textContent = comm ? 'Describe each site you need as a short paragraph: a title line, then what it must offer. Separate needs with a blank line. Up to 8.'
+    : 'Paste a screenplay (scenes start with INT. or EXT.) or write one scene per line: HEADING | description. Up to 8 scenes.';
+  $('script').placeholder = comm ? 'Supply distribution hub\nLarge open indoor floor for volunteers, at least 150 m2, loading access for two trucks.' : '';
+  $('lblTrucks').textContent = comm ? 'Supply trucks' : 'Trucks'; $('lblCars').textContent = comm ? 'Volunteer cars' : 'Crew cars';
+  $('build').textContent = comm ? 'Find candidate sites' : 'Build plan';
+  $('h-plan').textContent = comm ? 'Candidate sites' : 'Plan'; $('h-scenes').textContent = comm ? 'Needs' : 'Scenes';
+  $('reject').textContent = comm ? 'Rule out site' : 'Reject location'; $('clearRej').textContent = comm ? 'Clear ruled-out sites' : 'Clear rejections';
+  $('expPack').textContent = comm ? 'Site brief (printable)' : 'Shoot pack';
+  $('modeHint').textContent = comm ? 'Planning aid for volunteer and supply sites before an incident. Not for evacuation or emergency routing.' : 'Staging, locations and a shoot pack for a film.';
+  $('stageCaption').replaceChildren(...(comm
+    ? [el('span', { class: 'caption-label', text: 'Candidate site review' }), el('span', { class: 'caption-label', text: 'Not an approved site' }), el('span', { text: 'The frame is an indexed scan image, not a current photo. Owner permission, capacity, exits and hazards must be checked on site.' })]
+    : [el('span', { class: 'caption-label', text: 'Uncalibrated screen-space rehearsal' }), el('span', { class: 'caption-label', text: 'Geometric fit: unknown' }), el('span', { text: 'Drag a stand-in to place it; drag its ring to set where it walks. Positions are on screen, not measured in the room.' })]));
+  $('stage').setAttribute('aria-label', comm ? 'Real indexed frame of the selected candidate site.' : 'Stage. Drag an actor body to set start, the ring to set end. Arrow keys nudge selected actor start, Shift plus arrows nudge end.');
+  if (!S.resp && $('stageLoc')) $('stageLoc').textContent = comm ? 'Find candidate sites to put real indexed rooms in front of you.' : 'Build a plan to put real indexed rooms on the stage.';
+  window.TypecastTabs?.select(comm ? 'tab-site' : 'tab-shot');
+  $('undo').disabled = !S.undo;
+  renderBriefFields();
+}
+function setMode(m, opts = {}) {
+  if (m !== 'film' && m !== 'community') return false;
+  if (m === S.mode) return true;
+  if (!opts.force && (S.planBusy || reelCtrl)) { status('Wait for the plan or reel to finish before switching mode.', true); return false; }
+  stopPlay(); cancelGen(); clearPending(); endDrag();
+  MODES[S.mode] = captureMode();                           // film work is stashed whole, never edited by community mode
+  S.mode = m; applyModeState(MODES[m] || freshMode(m)); MODES[m] = null; S.rev++;
+  applyModeUI(); renderAll(); renderParse();
+  status(m === 'community' ? 'Community planning: candidate-site review for volunteer and supply coordination. Your film work is kept separately.' : 'Film production. Your community planning draft is kept separately.');
+  return true;
+}
+$('modeFilm').addEventListener('click', () => setMode('film'));
+$('modeComm').addEventListener('click', () => setMode('community'));
+
+// ---- community records: needs belong to a need, checks belong to one candidate site ----
+const needRec = (sid) => (S.comm[`need:${sid}`] ||= { requested: null, note: '' });
+const siteRec = (sid, pid) => (S.comm[`site:${sid}::${pid}`] ||= { checks: Object.create(null), verified: null, tasks: [] });
+const curSite = () => { const a = S.mode === 'community' && S.sceneId ? assignFor(S.sceneId) : null; return a ? { sid: S.sceneId, pid: a.property_id } : null; };
+function siteChecksSummary(rec) { return TypecastChecks.communityStatusText(rec); }
+function renderSite() {
+  if (S.mode !== 'community') return;
+  const cs = curSite(), sc = S.scenes.find((s) => s.id === S.sceneId);
+  const inputs = ['siteReq', 'siteNote', 'siteCap', 'siteCapSrc', 'taskAdd'];
+  $('siteTitle').textContent = sc ? `Need ${sceneNumber(sc.id)} · ${sc.heading}` : 'Site need';
+  if (!cs) {
+    for (const id of inputs) $(id).disabled = true;
+    $('siteChecks').replaceChildren(el('p', { class: 'meta', text: S.resp ? 'No candidate site is assigned to this need in this plan. Rebuild, or rule out fewer sites.' : 'Find candidate sites first.' }));
+    $('siteTasks').replaceChildren(); $('siteChecksSummary').textContent = 'Coordinator checks'; return;
+  }
+  for (const id of inputs) $(id).disabled = false;
+  const need = needRec(cs.sid), rec = siteRec(cs.sid, cs.pid);
+  $('siteReq').value = need.requested == null ? '' : String(need.requested); $('siteNote').value = need.note;
+  $('siteCap').value = rec.verified ? String(rec.verified.capacity) : ''; $('siteCapSrc').value = rec.verified ? rec.verified.source : '';
+  const rows = TypecastChecks.COMMUNITY_CHECKS.map((c) => {
+    const cur = rec.checks[c.key] || { state: 'unknown', note: '' };
+    const sel = el('select', { id: `chk-${c.key}`, 'aria-label': `${c.label}: status` });
+    for (const [v, t] of Object.entries(TypecastChecks.CHECK_STATE_LABEL)) sel.append(el('option', { value: v, text: t }));
+    sel.value = TypecastChecks.isState(cur.state) ? cur.state : 'unknown';
+    const note = el('input', { id: `chkn-${c.key}`, maxlength: '200', placeholder: 'Note, source or who you asked', 'aria-label': `${c.label}: note`, value: cur.note || '' });
+    const stale = el('small', { class: 'unk', text: cur.stale && cur.state === 'ok' ? ' restored from a file; re-verify' : '' });
+    const upd = () => {
+      S.rev++; const r = siteRec(cs.sid, cs.pid);
+      r.checks[c.key] = { state: sel.value, note: TypecastChecks.textOf(note.value, 200) };            // a change by you clears "restored"
+      stale.textContent = ''; $('siteChecksSummary').textContent = `Coordinator checks · ${siteChecksSummary(r)}`; renderChecks();
+    };
+    sel.addEventListener('change', upd); note.addEventListener('input', upd);
+    return el('div', { class: 'chk-row' }, el('label', { for: sel.id, text: c.label }), stale, sel, note);
+  });
+  $('siteChecks').replaceChildren(el('p', { class: 'meta', text: 'Everything here is reported by you. Typecast cannot verify it, and nothing marks a site approved. Unknown is the default.' }), ...rows);
+  $('siteChecksSummary').textContent = `Coordinator checks · ${siteChecksSummary(rec)}`;
+  renderTasks(cs, rec);
+}
+function renderTasks(cs, rec) {
+  const box = $('siteTasks');
+  box.replaceChildren(...rec.tasks.map((t, i) => {
+    const text = el('input', { maxlength: '120', value: t.text, 'aria-label': `Follow-up ${i + 1}` }), owner = el('input', { maxlength: '40', value: t.owner, placeholder: 'Who', 'aria-label': `Follow-up ${i + 1} owner` });
+    const del = el('button', { type: 'button', class: 'quiet', 'aria-label': `Remove follow-up ${i + 1}`, text: 'Remove' });
+    text.addEventListener('input', () => { S.rev++; t.text = TypecastChecks.textOf(text.value, 120); });
+    owner.addEventListener('input', () => { S.rev++; t.owner = TypecastChecks.textOf(owner.value, 40); });
+    del.addEventListener('click', () => { S.rev++; rec.tasks.splice(i, 1); renderTasks(cs, rec); });
+    return el('div', { class: 'task-row' }, text, owner, del);
+  }));
+  $('taskAdd').disabled = rec.tasks.length >= 6;
+}
+$('taskAdd').addEventListener('click', () => { const cs = curSite(); if (!cs) return; const rec = siteRec(cs.sid, cs.pid); if (rec.tasks.length >= 6) return; S.rev++; rec.tasks.push({ text: '', owner: '' }); renderTasks(cs, rec); });
+$('siteReq').addEventListener('input', (e) => { const cs = curSite(); if (!cs) return; S.rev++; needRec(cs.sid).requested = TypecastChecks.countOf(e.target.value); });
+$('siteNote').addEventListener('input', (e) => { const cs = curSite(); if (!cs) return; S.rev++; needRec(cs.sid).note = TypecastChecks.textOf(e.target.value, 600); });
+function setVerified() {
+  const cs = curSite(); if (!cs) return; S.rev++;
+  const cap = TypecastChecks.countOf($('siteCap').value), src = TypecastChecks.textOf($('siteCapSrc').value, 80);
+  siteRec(cs.sid, cs.pid).verified = cap != null && src ? { capacity: cap, source: src } : null;       // a number without its source is not kept
+}
+$('siteCap').addEventListener('input', setVerified); $('siteCapSrc').addEventListener('input', setVerified);
+function renderBriefFields() {
+  $('briefReviewer').value = S.brief.reviewer; $('briefDate').value = S.brief.date; $('briefNotes').value = S.brief.notes;
+}
+$('briefReviewer').addEventListener('input', (e) => { S.rev++; S.brief.reviewer = TypecastChecks.textOf(e.target.value, 40); });
+$('briefDate').addEventListener('input', (e) => { S.rev++; S.brief.date = TypecastChecks.textOf(e.target.value, 20); });
+$('briefNotes').addEventListener('input', (e) => { S.rev++; S.brief.notes = TypecastChecks.textOf(e.target.value, 600); });
+
+// ---- project file: additive community fields (see docs/team/CONTRACT-CHANGES.md) ----
+function communityExport() {
+  if (S.mode !== 'community') return {};
+  const needs = [], sites = [];
+  for (const s of S.scenes) {
+    const n = S.comm[`need:${s.id}`]; if (n && (n.requested != null || n.note)) needs.push({ scene_id: s.id, requested_count: n.requested, note: n.note });
+  }
+  for (const key of Object.keys(S.comm)) {
+    if (!key.startsWith('site:')) continue;
+    const [sid, pid] = key.slice(5).split('::'), r = S.comm[key];
+    if (!S.scenes.some((s) => s.id === sid) || !pid || sites.length >= 48) continue;
+    const checks = {};
+    for (const c of TypecastChecks.COMMUNITY_CHECKS) { const x = r.checks[c.key]; if (x && TypecastChecks.isState(x.state) && (x.state !== 'unknown' || x.note)) checks[c.key] = { state: x.state, note: TypecastChecks.textOf(x.note, 200) }; }
+    const tasks = r.tasks.filter((t) => t.text).slice(0, 6).map((t) => ({ text: t.text, owner: t.owner || '' }));
+    if (Object.keys(checks).length || r.verified || tasks.length) sites.push({ scene_id: sid, property_id: safeId(pid), checks, verified: r.verified ? { capacity: r.verified.capacity, source: r.verified.source } : null, tasks });
+  }
+  return { mode: 'community', brief: { reviewer: S.brief.reviewer, date: S.brief.date, notes: S.brief.notes }, needs, sites };
+}
+function communityRestore(restored) {
+  S.comm = Object.create(null); S.brief = restored.brief ? { ...restored.brief } : { reviewer: '', date: '', notes: '' };
+  for (const n of restored.needs) { const r = needRec(n.scene_id); r.requested = n.requested_count; r.note = n.note; }
+  for (const x of restored.sites) {
+    const r = siteRec(x.scene_id, x.property_id);
+    for (const [k, c] of Object.entries(x.checks)) r.checks[k] = { state: c.state, note: c.note, stale: c.state === 'ok' };      // restored "OK" must be re-verified
+    r.verified = x.verified ? { ...x.verified } : null; r.tasks = x.tasks.map((t) => ({ ...t }));
+  }
+}
+const orphanSites = () => Object.keys(S.comm).filter((k) => {
+  if (!k.startsWith('site:')) return false;
+  const [sid, pid] = k.slice(5).split('::'), sc = S.resp?.scenes?.find((s) => s.id === sid);
+  return !sc || !(sc.candidates || []).some((c) => c.shot?.property_id === pid);
+}).length;
+
+// ---- Site Brief: the printable export for community mode ----
+function briefModel(s, i) {
+  const a = assignFor(s.id); if (!a) return { s, i, a: null };
+  const need = S.comm[`need:${s.id}`] || { requested: null, note: '' }, rec = S.comm[`site:${s.id}::${a.property_id}`] || { checks: {}, verified: null, tasks: [] };
+  const fit = fitFor(s.id), counts = TypecastChecks.communityCounts(rec), summary = evidenceSummary(s.id);
+  const cand = (S.resp?.scenes?.find((x) => x.id === s.id)?.candidates || []);
+  const alts = altChoices(s.id).map((c) => ({ pid: safeId(c.shot.property_id), sim: typeof c.shot.score === 'number' ? c.shot.score.toFixed(2) : 'unknown',
+    avail: ['available', 'not_available'].includes(c.property?.availability_status) ? c.property.availability_status : 'unknown' }));
+  const items = [];
+  for (const c of TypecastChecks.COMMUNITY_CHECKS) {
+    const x = rec.checks[c.key] || { state: 'unknown', note: '' };
+    if (x.state === 'unknown') items.push(`Establish: ${c.label}.`); else if (x.state === 'issue') items.push(`Resolve: ${c.label}${x.note ? ` (${x.note})` : ''}.`);
+    else items.push(`Re-verify before relying on it: ${c.label} (reported OK by the coordinator${x.stale ? ', restored from a file' : ''}).`);
+  }
+  for (const r of fit.rows) if (r.kind === 'conflict') items.push(`Resolve conflict: ${r.label}. ${r.detail}`); else if (r.kind === 'unknown') items.push(`Establish: ${r.label}. ${r.detail}`);
+  items.push('Get the owner\'s permission and agree access before any use.', 'Inspect the site in person; the frame is an indexed scan image, not a current photo.');
+  return { s, i, a, need, rec, fit, counts, summary, alts, items, cand: cand.length };
+}
+async function exportBrief() {
+  const p = plan(); if (!p) return status('Find candidate sites first.', true);
+  const models = S.scenes.map((s, i) => briefModel(s, i)), snapshot = { at: new Date().toISOString(), mode: S.resp?.mode ?? 'unknown' };
+  stopPlay(); $('expPack').disabled = true; status('Building the site brief from real indexed images…');
+  try {
+    const doc = document.implementation.createHTMLDocument('Typecast site brief');
+    const E = (tag, text, cls) => { const n = doc.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; };
+    const cs = doc.createElement('meta'); cs.setAttribute('charset', 'utf-8');
+    const csp = doc.createElement('meta'); csp.setAttribute('http-equiv', 'Content-Security-Policy');
+    csp.setAttribute('content', "default-src 'none'; img-src data:; style-src 'unsafe-inline'");
+    const st = doc.createElement('style'); st.textContent = PACK_CSS; doc.head.prepend(cs, csp); doc.head.append(st);
+    const ul = (items) => { const u = E('ul'); items.forEach((x) => u.append(E('li', x))); return u; };
+    const totalUnknown = models.filter((m) => m.a).reduce((n, m) => n + m.counts.unknown, 0);
+    doc.body.append(E('h1', 'Typecast site brief · preparedness planning'),
+      E('p', 'Candidate-site review for volunteer and supply coordination planning. This is a prototype planning aid. It is not an approval of any site, not an emergency or evacuation plan, and nothing was sent to anyone.', 'unk'),
+      E('p', `NEEDS VERIFICATION · ${totalUnknown} coordinator check${totalUnknown === 1 ? '' : 's'} still unknown across the selected sites.`, 'strong'),
+      E('p', `Generated ${snapshot.at} · source data ${snapshot.mode}${S.brief.reviewer ? ` · Reviewer: ${S.brief.reviewer}` : ''}${S.brief.date ? ` · Review date: ${S.brief.date}` : ''}`, 'meta'));
+    if (S.brief.notes) doc.body.append(E('p', `Brief notes: ${S.brief.notes}`));
+    for (const m of models) {
+      const sec = E('section', null, 'scene');
+      sec.append(E('h2', `${m.i + 1}. ${m.s.heading}`), E('p', m.s.description || '(no description)'));
+      if (!m.a) { sec.append(E('p', 'No candidate site is assigned to this need in the current plan.', 'unk')); doc.body.append(sec); continue; }
+      sec.append(E('p', `Requested participants or volunteers: ${m.need.requested == null ? 'not entered' : m.need.requested}. This is a request, not a capacity.`));
+      sec.append(E('h3', 'Selected candidate site'), E('p', `Property ${safeId(m.a.property_id)}, frame ${safeId(m.a.shot_id)}${m.a.swapped ? ' (chosen by hand from the candidate pool)' : ''}. ${m.cand} candidate frame${m.cand === 1 ? '' : 's'} in the pool for this need.`));
+      try {
+        const url = await dataUrl(`/image/${encodeURIComponent(m.a.shot_id)}`), img = E('img'); img.src = url; img.alt = `Indexed frame of the candidate site for need ${m.i + 1}`;
+        sec.append(img, E('p', 'Indexed scan image from the source index. It is not a current photo of the site.', 'meta'));
+      } catch (e) { sec.append(E('p', `Indexed image unavailable: ${e.message}`, 'unk')); }
+      sec.append(E('h4', 'Source-reported facts (unknown stays unknown)'), doc.importNode(evidenceBrief(m.summary), true));
+      const sheet = E('div', null, 'sheet');
+      sheet.append(E('h3', 'Requested count and capacity'),
+        E('p', `Requested: ${m.need.requested == null ? 'not entered' : m.need.requested} participants or volunteers (a request).`),
+        E('p', m.rec.verified ? `Independently verified capacity: ${m.rec.verified.capacity}, as reported by the coordinator. Source given: ${m.rec.verified.source}. Typecast did not verify this.` : 'Independently verified capacity: none provided. Typecast does not calculate capacity from floor area, photos, listings or parking.'),
+        E('h4', 'Fit evidence (sources, not a score; only simple wording in your needs is read)'), ul(m.fit.rows.map((r) => `${TypecastChecks.KIND_LABEL[r.kind]}: ${r.label}. ${r.detail}${r.source ? ` Source: ${r.source}.` : ''}`)),
+        E('h4', 'Coordinator checks (reported by the coordinator, not verified by Typecast)'),
+        ul(TypecastChecks.COMMUNITY_CHECKS.map((c) => { const x = m.rec.checks[c.key] || { state: 'unknown', note: '' }; return `${c.label}: ${TypecastChecks.CHECK_STATE_LABEL[x.state]}${x.state === 'ok' && x.stale ? ' (restored from a file; re-verify)' : ''}${x.note ? ` — ${x.note}` : ''}`; })),
+        E('h4', 'Follow-ups'), m.rec.tasks.filter((t) => t.text).length ? ul(m.rec.tasks.filter((t) => t.text).map((t) => `${t.text}${t.owner ? ` (${t.owner})` : ''}`)) : E('p', '(none entered)', 'meta'),
+        E('h4', 'Notes'), E('p', m.need.note || '(none entered)', m.need.note ? '' : 'meta'),
+        E('h4', 'Other candidate sites in the pool (not assessed)'), m.alts.length ? ul(m.alts.map((x) => `Property ${x.pid} · image similarity ${x.sim} · listing ${x.avail}`)) : E('p', 'No other eligible candidate in the pool.', 'meta'),
+        E('h4', 'Verification checklist'), ul(m.items));
+      sec.append(sheet, doc.importNode(evidenceNodes(m.s.id, m.summary, false), true)); doc.body.append(sec);
+    }
+    const orphan = orphanSites();
+    if (orphan) doc.body.append(E('p', `${orphan} saved site record${orphan === 1 ? '' : 's'} belong to properties no longer in the candidate pool; they are kept in the Project JSON and not shown here.`, 'meta'));
+    download(new Blob([`<!doctype html>\n${doc.documentElement.outerHTML}`], { type: 'text/html' }), 'typecast-site-brief.html');
+    status('Site brief downloaded. Open it and use Print to save a PDF. It is a planning aid, not an approval.');
+  } catch (e) { status(`Site brief export failed: ${e.message}`, true); } finally { $('expPack').disabled = !plan(); }
+}
+
 $('script').value = DEMO;
-renderAll(); renderParse();
+renderAll(); renderParse(); applyModeUI();
 // Canvas text uses the app's faces once they load; until then the system fallback draws.
 if (document.fonts?.load) {
   Promise.all(['600 21px Barlow', '500 19px Barlow', '500 30px Barlow', '600 34px Barlow'].map((f) => document.fonts.load(f)))

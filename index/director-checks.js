@@ -26,7 +26,8 @@
   const opOf = (q) => { const k = q.toLowerCase().replace(/\s+/g, ' '); return Object.prototype.hasOwnProperty.call(QUALS, k) ? QUALS[k] : null; };
   const toM2 = (v, unit) => (/ft|feet|foot/i.test(unit) ? v * M2_PER_SQFT : v);
   const toM = (v, unit) => (/^(ft|feet|foot)$/i.test(unit) ? v * M_PER_FT : v);
-  function sceneNeeds(text) {
+  const COMMUNITY_WORDS = ['toilet', 'restroom', 'power', 'water', 'generator', 'ramp', 'accessible', 'wheelchair', 'parking', 'loading'];
+  function sceneNeeds(text, domain) {
     const t = String(text || '').slice(0, 2000);
     const area = [], ceiling = [];
     for (const m of t.matchAll(new RegExp(`\\b(${QUAL_RE})\\s+(\\d{1,5}(?:\\.\\d+)?)\\s*${AREA_UNIT}`, 'gi'))) {
@@ -39,7 +40,7 @@
     }
     const words = ['window', 'door', 'entrance', 'stair', 'island', 'balcony', 'garden', 'yard', 'fireplace', 'skylight', 'elevator', 'quiet'];
     const lower = t.toLowerCase();
-    const mentions = words.filter((w) => new RegExp(`\\b${w}s?\\b`).test(lower));
+    const mentions = words.concat(domain === 'community' ? COMMUNITY_WORDS : []).filter((w) => new RegExp(`\\b${w}s?\\b`).test(lower));
     return { area, ceiling, mentions };
   }
   const satisfies = (op, have, need) => (op === 'ge' ? have >= need : op === 'gt' ? have > need : op === 'le' ? have <= need : have < need);
@@ -75,7 +76,8 @@
       else rows.push({ kind: pst === 'measured' ? 'match' : 'estimate', label: 'Parking for your vehicles', detail: `You asked for ${want}; the source says capacity covers that (${pst}).${pst === 'estimated' ? ' Verify on site.' : ''}`, source: `Vexcel parking ${pst}` });
     }
     // numeric needs the user wrote (lower bounds), compared with index room estimates only
-    const needs = sceneNeeds(`${scene && scene.heading || ''}. ${scene && scene.description || ''}`);
+    const community = input.domain === 'community';
+    const needs = sceneNeeds(`${scene && scene.heading || ''}. ${scene && scene.description || ''}`, input.domain);
     const room = (value, need, what, unitOut, mine) => {
       if (need.op == null) return rows.push({ kind: 'unknown', label: what, detail: `Your text says "${need.text}", which Typecast does not read as a minimum or maximum. No comparison was made.`, source: 'Not read from script' });
       if (value == null) return rows.push({ kind: 'unknown', label: what, detail: `Your text says "${need.text}", but the index has no ${what.toLowerCase()} for this frame. Measure on site.`, source: 'Matterport index: not supplied' });
@@ -91,7 +93,7 @@
       else rows.push({ kind: 'unknown', label: 'Quiet', detail: 'You asked for quiet. There is no sound measurement, and an empty noise screen does not mean quiet. Listen on site.', source: 'Noise unknown' });
     }
     const visual = needs.mentions.filter((w) => w !== 'quiet');
-    if (visual.length) rows.push({ kind: 'unknown', label: 'Details in your script', detail: `Your text mentions ${visual.join(', ')}. Typecast has no data for these; they are judged only through image similarity. Check the frame by eye. There is no criterion-level analysis.`, source: 'Not in the data' });
+    if (visual.length) rows.push({ kind: 'unknown', label: community ? 'Details in your needs' : 'Details in your script', detail: `Your text mentions ${visual.join(', ')}. Typecast has no data for these${community ? ' (toilets, power, water, ramps and similar are not in any source it uses)' : ''}; they are judged only through image similarity. Check the frame by eye. There is no criterion-level analysis.`, source: 'Not in the data' });
     const summary = { conflicts: 0, unknowns: 0, estimates: 0, matches: 0 };
     for (const r of rows) { if (r.kind === 'conflict') summary.conflicts++; else if (r.kind === 'unknown') summary.unknowns++; else if (r.kind === 'estimate') summary.estimates++; else if (r.kind === 'match') summary.matches++; }
     return { rows, summary, similarity: sim };
@@ -233,7 +235,33 @@
     return finish({ scenes });
   }
 
-  const api = { parseScript, LIMITS, sceneNeeds, fitCheck, fitSummaryText, continuity, checklist, timeOfDay, KIND_LABEL };
+  // ---- community planning: coordinator checks are human-reported, unknown by default, never source facts ----
+  const COMMUNITY_CHECKS = [
+    { key: 'permission', label: 'Owner permission and access' },
+    { key: 'capacity', label: 'Verified occupancy and capacity' },
+    { key: 'exits', label: 'Exits and fire inspection' },
+    { key: 'access', label: 'Accessibility' },
+    { key: 'toilets', label: 'Toilets' },
+    { key: 'utilities', label: 'Power and water' },
+    { key: 'hazards', label: 'Current hazards and site condition' },
+  ];
+  const CHECK_STATE_LABEL = { unknown: 'Not checked (unknown)', ok: 'Reported OK by the coordinator', issue: 'Reported problem' };
+  const isState = (v) => v === 'unknown' || v === 'ok' || v === 'issue';
+  const textOf = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
+  const countOf = (v) => { if (v == null || v === '') return null; const n = Number(v); return Number.isInteger(n) && n >= 0 && n <= 100000 ? n : null; };
+  function checkState(site, key) { const c = site && site.checks && site.checks[key]; return c && isState(c.state) ? c.state : 'unknown'; }
+  // How many of the seven mandatory checks are still unknown. "Reported OK" never means verified or approved.
+  function communityCounts(site) {
+    let unknown = 0, ok = 0, issue = 0;
+    for (const c of COMMUNITY_CHECKS) { const s = checkState(site, c.key); if (s === 'ok') ok++; else if (s === 'issue') issue++; else unknown++; }
+    return { unknown, ok, issue, total: COMMUNITY_CHECKS.length };
+  }
+  function communityStatusText(site) {
+    const k = communityCounts(site);
+    return `Needs verification · ${k.unknown} of ${k.total} checks unknown${k.issue ? ` · ${k.issue} reported problem${k.issue === 1 ? '' : 's'}` : ''}${k.ok ? ` · ${k.ok} reported OK by you (not verified)` : ''}`;
+  }
+
+  const api = { COMMUNITY_CHECKS, CHECK_STATE_LABEL, isState, textOf, countOf, checkState, communityCounts, communityStatusText, parseScript, LIMITS, sceneNeeds, fitCheck, fitSummaryText, continuity, checklist, timeOfDay, KIND_LABEL };
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.TypecastChecks = api;
 })(typeof window !== 'undefined' ? window : globalThis);
