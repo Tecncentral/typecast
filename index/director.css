@@ -399,3 +399,13 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
 }
+.commute-controls { margin: 12px 0; }
+.commute-controls summary, #imageCustomize summary { cursor: pointer; padding: 8px 0; }
+#commuteMap { border-radius: 8px; margin-top: 10px; color: #182120; }
+#driveLimit { width: 100%; accent-color: #edbd69; }
+.cost-inputs { display: grid; gap: 10px; margin: 12px 0; }
+.cost-inputs label { display: grid; gap: 4px; }
+#costResult h3 { color: #edbd69; font-size: 22px; }
+#costResult p { font-size: 13px; line-height: 1.5; }
+#customImagePreview figure { margin: 12px 0; }
+#customImagePreview figcaption { font-size: 12px; font-weight: 700; padding: 6px 0; }

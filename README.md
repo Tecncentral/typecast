@@ -1,5 +1,7 @@
 # Typecast
 
+**Business/Enterprise · production location decisions.** Compare real spaces before committing scouting days: `/director` adds a home/base pin, one-way commute limit, editable USD cost comparison, and opt-in imagined scene previews. See the [business case and sourced savings scenarios](docs/BUSINESS-CASE.md). Savings are calculated scenarios; no studio savings have been measured.
+
 Typecast turns a screenplay scene into a shortlist of real Los Angeles and Houston buildings, with interior views and evidence for availability, crew parking and shot-fit uncertainty. A location scout or student filmmaker can ask for more truck parking, see the shortlist change, and approve a local inquiry draft that is never sent automatically.
 
 Built at HackPrinceton Fall 2026 on CoStar property data, Matterport 3D scans and Vexcel aerial imagery.

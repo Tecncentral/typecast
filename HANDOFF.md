@@ -1,5 +1,7 @@
 # HANDOFF (coordinated, current)
 
+**November 15 business update:** the team chose **Business/Enterprise**. See `docs/BUSINESS-CASE.md`, `docs/TRACK-SELECTION.md` and `index/AI-CONTINUATION.md` before the historical notes below. PR #43 now includes real road-time constraint plumbing, an editable cost scenario with a sourced commercial day-rate example, broader scene direction and explicit imagined-image previews. Quoted filmmaker feedback and permission are user-reported, not measured savings. Local acceptance: 693 Python pass/7 skip, 233 Node pass/1 skip, 19 browser checks (SYNTHETIC proposal/image responses, no paid calls). Real cache/route rehearsal and live image-provider preview remain for the demo laptop. Human Devpost track selection/submission is still needed.
+
 ## Current Status — Save the scene (`39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3`)
 
 - **Branch / PR:** Open draft PR #43 on `ai/director-production-decisions` (includes frozen `origin/dev` `4b4f92c`; prepared for publication from code head `39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3`; PR #43 remote head and CI are authoritative once published; no `dev`/`main` merge).

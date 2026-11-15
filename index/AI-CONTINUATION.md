@@ -1,5 +1,7 @@
 # Continue Typecast with Gemini, Claude or another coding agent
 
+**Current November 15 handoff:** user switched the one main track to Business/Enterprise after judge feedback. Read `docs/BUSINESS-CASE.md` first. New commute filtering, realtime scenario calculator, sourced commercial day-rate preset, approved scene notes and explicit single-frame image customization are in this branch. Latest dev `dd9a603` merged as `4963076`. Local gate: 693 Python pass/7 skip; 233 Node pass/1 skip; 19 browser checks, including explicitly SYNTHETIC model/image transport (no paid calls). One public-coordinate OSRM table request returned HTTP 200; private-data end-to-end routing and actual image-provider generation remain unverified. Filmmaker quote and permission are user-supplied; affiliation/original Peri evidence pending. Home pin is intentionally session-only. Latest `index/RELEASE-CHECKPOINT.json` and PR #43 remote head supersede the historical hashes below. Do not promise measured studio savings: the published commercial rate is $957.58/day, and days avoided are assumptions. User still needs to select Business/Enterprise in Devpost.
+
 Copy the prompt below into the next AI. The public repository holds code and documentation; it deliberately contains no licensed source cache, joins, embeddings, images or credentials.
 
 ---

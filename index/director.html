@@ -7,6 +7,7 @@
 <title>Typecast — Director's Room</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="director.css">
+<link rel="stylesheet" href="/app/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/app/viewfinder.css">
 <link rel="stylesheet" href="/app/viewfinder-compat.css">
 </head>
@@ -49,6 +50,19 @@
         <label><span id="lblCars">Crew cars</span> <input id="cars" type="number" min="0" max="50" value="0" inputmode="numeric"></label>
       </div>
       <label class="check"><input id="reqAvail" type="checkbox"> Require available listing</label>
+      <details id="commuteSection" class="commute-controls" data-film-only>
+        <summary>Employee commute / production base</summary>
+        <p class="meta">Click the employee’s home or production base on the map; drag the pin to adjust. One starting point per comparison.</p>
+        <div class="row"><button id="originLA" type="button">Los Angeles</button><button id="originHouston" type="button">Houston</button><button id="useMyLocation" type="button">Use my location</button></div>
+        <div id="commuteMap" style="height:220px" aria-label="Choose a home or production base on the map"></div>
+        <p id="originText" class="meta">No starting pin selected.</p>
+        <details><summary>Enter coordinates instead</summary><label>Latitude<input id="originLat" type="number" min="-90" max="90" step="any"></label><label>Longitude<input id="originLon" type="number" min="-180" max="180" step="any"></label><button id="setCoordinates" type="button">Set starting point</button></details>
+        <label class="check"><input id="commuteOn" type="checkbox"> Only locations within this drive time</label>
+        <label for="driveLimit">Maximum drive <output id="driveLabel">45 min one way</output></label>
+        <input id="driveLimit" type="range" min="5" max="180" step="5" value="45">
+        <p id="commuteNote" class="meta" role="status"></p><p id="drivePreview" class="meta"></p>
+        <p class="meta">Road-time estimates use OSRM / OpenStreetMap, without live traffic. The circle is illustrative, not a drive-time boundary. Coordinates go to the routing service when you build a filtered plan. This starting pin is not saved in project exports or browser drafts.</p>
+      </details>
       <button id="build" class="primary wide" type="button">Build plan</button>
     </section>
     <section class="block" aria-labelledby="h-plan">
@@ -61,6 +75,19 @@
     <section class="block block-scenes" aria-labelledby="h-scenes">
       <h2 id="h-scenes">Scenes</h2>
       <ol id="rail" class="rail"></ol>
+    </section>
+    <section class="block" data-film-only aria-labelledby="h-cost">
+      <h2 id="h-cost">Production cost comparison</h2>
+      <div id="costResult" aria-live="polite">Build a complete plan to compare costs.</div>
+      <details><summary>Edit cost assumptions (USD)</summary>
+        <p class="meta">Starter values are illustrative, not industry benchmarks. Replace with your production’s actual costs. Scouting travel inputs are round trip; crew drive times are one way.</p>
+        <label>Scouting billing basis <select id="scoutBilling"><option value="hourly">Hourly / per visit</option><option value="daily">Billable scouting days</option></select></label>
+        <label>Day rate per scout ($)<input id="dailyScoutRate" type="number" min="0" max="1000000" step="0.01" value="957.58"></label>
+        <button id="commercialRatePreset" type="button">Example: 5 → 2 commercial scout days</button>
+        <p class="meta">Reference: <a href="https://www.ht399.org/app/uploads/2026/06/APPENDIX-A-Wage-Chart-Drivers-and-Locations-final-6.24.26.pdf" target="_blank" rel="noopener">Local 399 / AICP 2026 minimum: $957.58 per day</a> for covered location scout managers, effective June 28, 2026. This is a commercial agreement reference, not a universal studio or indie rate. Days eliminated are assumptions. No fringes or overtime included.</p>
+        <div id="costInputs" class="cost-inputs"></div>
+        <label class="check"><input id="paidTravel" type="checkbox"> Include paid crew travel from this starting point</label>
+      </details>
     </section>
   </aside>
 
@@ -137,7 +164,7 @@
       <p id="originTag" class="origin-tag" hidden></p>
       <details id="prodNotes" class="prod-notes">
         <summary>Production notes for this scene (optional)</summary>
-        <label for="noteDressing">Dressing notes <small>your own words, 600 characters</small></label>
+        <label for="noteDressing">Dressing notes <small>your edits and approved AI suggestions, 600 characters</small></label>
         <textarea id="noteDressing" rows="3" maxlength="600" placeholder="e.g. clear the counter, add a calendar"></textarea>
         <label for="noteGroup">Continuity link <small>scenes with the same tag are one continuous setting</small></label>
         <input id="noteGroup" maxlength="12" placeholder="e.g. A" autocomplete="off">
@@ -173,15 +200,23 @@
     </section>
 
     <section id="panel-alt" class="panel" role="tabpanel" aria-labelledby="tab-alt" hidden data-film-only>
-      <h2>Ask for another take</h2>
+      <h2>Customize this scene</h2>
       <p class="meta">The model proposes a different staging for take B. Nothing changes until you apply it.</p>
       <label for="instr">Direction</label>
-      <textarea id="instr" rows="3" maxlength="600" placeholder="Have Mara enter from the window side and stop at the table."></textarea>
+      <textarea id="instr" rows="5" maxlength="2000" placeholder="Turn this into a tense reunion. Add two characters, have Mara enter from the window, change the dialogue and pace it over 12 seconds. Suggest props, lighting and set dressing as production notes."></textarea>
+      <p class="meta">Ask for characters, movement, dialogue, mood, props, lighting or set changes. Applied take B renders up to 3 generic stand-ins and 30 seconds. Props, lighting and set changes are creative suggestions here; use Look around 360° → AI dressing for image edits on a supported real scan.</p>
       <div class="row">
         <button id="micStart" type="button" class="quiet">Dictate</button><button id="micStop" type="button" class="quiet" disabled>Stop</button>
       </div>
       <p id="micNote" class="meta">Mic is off by default. If you start it, your browser's speech service may process the audio.</p>
       <div class="row"><button id="gen" type="button" class="primary">Generate alternative</button><button id="undo" type="button" disabled>Undo apply</button></div>
+      <details id="imageCustomize"><summary>Visualize props, lighting or characters</summary>
+        <p class="meta">Uses the direction above to make a single imagined image of the selected real frame. This does not modify the scan, take A/B, room geometry or source evidence. Provider usage is billed to your configured API account.</p>
+        <label class="check"><input id="imageConsent" type="checkbox"> Send this real frame and my direction to the configured OpenAI image provider</label>
+        <button id="customizeImage" type="button">Generate imagined image</button>
+        <p id="customImageStatus" class="meta" role="status"></p>
+        <div id="customImagePreview" hidden></div>
+      </details>
       <div class="sample-box">
         <p class="meta"><strong>No model?</strong> Load a fixed, pre-written sample alternative. It is not AI-generated and does not read the direction above.</p>
         <button id="loadSample" type="button">Load authored sample alternative</button>
@@ -229,6 +264,8 @@
 <script src="director-reel.js"></script>
 <script src="director-checks.js"></script>
 <script src="director-project.js"></script>
+<script src="production-costs.js"></script>
+<script src="director-planning.js"></script>
 <script src="director.js"></script>
 <script src="director-ui.js"></script>
 </body>

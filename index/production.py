@@ -101,6 +101,17 @@ class SceneInput(_StrictModel):
         return _nonblank_str(v, 1000)
 
 
+class CommuteConstraint(_StrictModel):
+    lat: float = Field(ge=-90, le=90, allow_inf_nan=False)
+    lon: float = Field(ge=-180, le=180, allow_inf_nan=False)
+    max_minutes: float = Field(ge=5, le=180, allow_inf_nan=False)
+
+    @field_validator("lat", "lon", "max_minutes", mode="before")
+    @classmethod
+    def _v_number(cls, v):
+        return _finite_float(v)
+
+
 class PlanRequest(_StrictModel):
     scenes: list[SceneInput]
     max_locations: StrictInt = 3
@@ -108,6 +119,7 @@ class PlanRequest(_StrictModel):
     require_available: bool = False
     trucks: StrictInt = 0
     cars: StrictInt = 0
+    commute: CommuteConstraint | None = None
 
     @field_validator("scenes")
     @classmethod
@@ -255,6 +267,24 @@ class BrainstormProposal(_StrictModel):
         return _nonblank_str(v, 800)
 
 
+class SceneCustomizationRequest(_StrictModel):
+    shot_id: str = Field(min_length=1, max_length=120, pattern=r"^[A-Za-z0-9_.-]+$")
+    instruction: str = Field(min_length=1, max_length=2000)
+    confirm_image_upload: Literal[True]
+
+    @field_validator("confirm_image_upload", mode="before")
+    @classmethod
+    def _v_consent(cls, v):
+        if v is not True:
+            raise ValueError("Explicit image upload consent required")
+        return v
+
+    @field_validator("instruction")
+    @classmethod
+    def _v_instruction(cls, v):
+        return _nonblank_str(v, 2000)
+
+
 def _as_dict(obj: Any) -> dict[str, Any] | None:
     if obj is None:
         return None
@@ -356,6 +386,16 @@ def get_director_css() -> FileResponse:
     return FileResponse(_STATIC_DIR / "director.css", media_type="text/css")
 
 
+@router.get("/director-planning.js")
+def get_director_planning_js() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "director-planning.js", media_type="application/javascript")
+
+
+@router.get("/production-costs.js")
+def get_production_costs_js() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "production-costs.js", media_type="application/javascript")
+
+
 @router.post("/api/production/plan")
 def post_production_plan(req: PlanRequest) -> dict[str, Any]:
     try:
@@ -390,7 +430,7 @@ def post_production_plan(req: PlanRequest) -> dict[str, Any]:
     # Deterministic union round-robin up to top-3 properties per scene, capped at 24.
     pool: list[str] = []
     pool_set: set[str] = set()
-    for rank in range(3):
+    for rank in range(24 if req.commute is not None else 3):
         for scene in req.scenes:
             plist = ranked_props_by_scene[scene.id]
             if rank < len(plist) and plist[rank] not in pool_set and len(pool) < 24:
@@ -399,6 +439,14 @@ def post_production_plan(req: PlanRequest) -> dict[str, Any]:
 
     prop_cache: dict[str, tuple[dict[str, Any] | None, list[dict[str, str]]]] = {}
     logi_cache: dict[str, tuple[dict[str, Any] | None, list[dict[str, str]]]] = {}
+
+    commutes = {}
+    if req.commute is not None:
+        from index.commute import route_commutes
+        for pid in pool:
+            prop_cache[pid] = _lookup_property(pid)
+        commutes = route_commutes(req.commute.model_dump(),
+                                  {pid: prop_cache[pid][0] for pid in pool}, mock=mode == "mock")
 
     scenes_out: list[dict[str, Any]] = []
     solver_candidates: list[dict[str, Any]] = []
@@ -423,6 +471,16 @@ def post_production_plan(req: PlanRequest) -> dict[str, Any]:
             # Eligibility means no explicit requested constraint is contradicted.
             # Unknown evidence remains visible for creative scouting, never certified.
             eligible = True
+            commute = commutes.get(pid)
+            if req.commute is not None:
+                commute_ok = (commute is not None and commute.get("status") == "estimated"
+                              and commute.get("minutes") is not None
+                              and commute["minutes"] <= req.commute.max_minutes)
+                if not commute_ok:
+                    eligible = False
+                warnings.append({"source": "OSRM", "field": "commute", "status": "estimated" if commute_ok else "excluded",
+                                 "message": "Within requested one-way road-time limit (no live traffic)" if commute_ok
+                                 else "Outside requested drive time, unreachable or route unknown; excluded"})
             pair = (pid, shot.model_id)
             if mode == 'live':
                 if verified_pairs is None:
@@ -454,6 +512,7 @@ def post_production_plan(req: PlanRequest) -> dict[str, Any]:
                 "logistics": logi_data,
                 "warnings": warnings,
                 "eligible": eligible,
+                "commute": commute,
             })
             if eligible:
                 solver_candidates.append({
@@ -477,12 +536,13 @@ def post_production_plan(req: PlanRequest) -> dict[str, Any]:
     )
     return {
         "mode": mode,
+        "commute_limit_minutes": req.commute.max_minutes if req.commute else None,
         "scenes": scenes_out,
         "plans": solved["plans"],
         "evaluated_subsets": solved["evaluated_subsets"],
         "optimal_within_pool": solved["optimal_within_pool"],
         "pool_properties": pool,
-        "pool_note": "Plans consider at most the first three retrieved properties per scene, up to 24 total; excluded evidence may leave scenes uncovered. Company moves assumes one visit per selected property.",
+        "pool_note": ("Commute-constrained plans consider up to 24 retrieved properties total, round-robin across scenes; this is not an exhaustive area search. " if req.commute else "Plans consider at most the first three retrieved properties per scene, up to 24 total; ") + "Excluded evidence may leave scenes uncovered. Company moves assumes one visit per selected property.",
     }
 
 
@@ -502,6 +562,11 @@ def post_production_brainstorm(req: BrainstormRequest) -> dict[str, Any]:
         "Respect the user's instruction and scene context while offering a genuinely different, plausible "
         "staging and camera-blocking alternative (different actor trajectories, poses, pacing, or dialogue). "
         "Keep coordinates normalized in [0, 1], actors <= 3, and preserve actor IDs when modifying existing actors."
+        " Treat the instruction as a free-form scene customization request: names, character blocking, dialogue, "
+        "pacing and mood can change in the shot. Describe requested props, lighting, wardrobe or environmental "
+        "changes in creative_note as suggestions requiring set design or a separate image edit, never claim "
+        "they were rendered or applied to the source photo. State any request beyond this 3-stand-in, 30-second "
+        "2D editor honestly. Do not invent verified physical fit, ownership permission, costs or availability."
     )
     user_payload = {
         "instruction": req.instruction,
@@ -519,3 +584,15 @@ def post_production_brainstorm(req: BrainstormRequest) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail="Model provider returned invalid brainstorm proposal") from exc
 
     return proposal.model_dump()
+
+
+@router.post("/api/production/customize-image")
+def post_customization(req: SceneCustomizationRequest):
+    from index.scene_customization import render_scene
+    return render_scene(req.shot_id, req.instruction)
+
+
+@router.get("/api/production/customization/{token}.png")
+def get_customization(token: str):
+    from index.scene_customization import image_path
+    return FileResponse(image_path(token), media_type="image/png", headers={"Cache-Control":"private, no-store"})

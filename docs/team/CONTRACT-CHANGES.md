@@ -1,5 +1,14 @@
 # Contract changes
 
+## Production planning / business decision additions — November 15, 2026
+
+Coordinated in PR #43, additive to the shared production router; existing agent tools reuse `PlanRequest` and old clients omit new fields unchanged. No change to Property/Shot/Logistics or dependency locks.
+
+- `POST /api/production/plan`: optional `commute: {lat:number -90..90, lon:number -180..180, max_minutes:number 5..180}`. Degrees and one-way minutes; finite, booleans rejected. Present enables a hard road-time filter; unknown/unreachable routes exclude candidates. Response adds `commute_limit_minutes:number|null` and candidate `commute: {status,minutes:number|null,miles:number|null,source,traffic:false,checked_at?,note?}|null`. No origin is returned or persisted in project exports/drafts. A filtered request considers up to 24 retrieved properties total. Old top-three-per-scene behavior remains without it.
+- `POST /api/production/customize-image`: `{shot_id, instruction (1..2000 nonblank chars), confirm_image_upload:true}`. Existing upload env opt-in, real index and configured image provider required. Returns `{image_url, source_shot_id, label, kind:'imagined-single-frame', geometry_verified:false}`. Private no-store image route is UUID-token scoped. Source and project takes remain unchanged; cache ignored. No automatic regeneration or fake fallback.
+- Brainstorm UI now uses its existing 2000-character backend limit; output schema unchanged. Approved creative notes are saved as unrendered suggestions. Undo restores prior notes unless subsequently edited by the user.
+- Cost arithmetic is browser-local USD scenario math, not a factual savings API. Day-rate preset cites the applicable commercial reference; assumed eliminated days remain editable. No dependency added. `web/index.html` receives only an additive production-planner link.
+
 Baseline: contracts/schemas.py and schemas.ts at 6928661. Accepted additive changes are recorded below.
 
 For each proposal record owner, timestamp, fields/signatures, null semantics, producer/consumer lanes, fixture updates and migration. Integrator coordinates all affected consumers before merging. Prefer additive fields with defaults; never change coordinate order or units silently.

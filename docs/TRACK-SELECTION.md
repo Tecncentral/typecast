@@ -1,5 +1,7 @@
 # Track selection (planning notes, not an eligibility ruling)
 
+**Current team choice, November 15: Business/Enterprise is the single main track**, replacing Entertainment/Media after judge feedback. See [business case, sourced cost scenarios and quote provenance](BUSINESS-CASE.md). Human Devpost selection is still required. Earlier creative-demo wording below is historical where it conflicts with this decision. CoStar, LangChain and Amazon remain intended sponsor entries. The user has supplied a filmmaker quote and reported permission to quote; affiliation and original evidence remain pending for Peri.
+
 Organizers decide eligibility. Nothing here promises a prize, submits anything, or claims past benefit. Adapted from a read-only audit of the onsite packet against the repo (`../manager-drafts/track-selection-audit.md`, not committed); the audit read the packet and the repo but ran no app, server or test, so repo-evidence statements below are quoted from handoffs and recorded checks, and all gate numbers are mock/fixture results.
 
 Sources, kept separate:
@@ -15,7 +17,7 @@ Sources, kept separate:
 ## Recommended
 | Track | Why, with exact requirement | Repo evidence | Human step still needed |
 | --- | --- | --- | --- |
-| **Entertainment and Media** (the one main track) | Creative media tool; official main track (p.11). | `index/DIRECTORS-ROOM.md`, `index/DEMO-SCRIPT.md`: real-location retrieval, script (plain screenplay) to location plan, A/B takes, Compare, location swap, decision sheet, PNG/WebM/JSON exports, provenance labels. | Select it as the single main track on Devpost. |
+| **Business/Enterprise** (the one main track) | Production planning workflow with an identifiable business buyer and transparent cost assumptions. | Real-location retrieval, commute-constrained production plans, reviewed scene concepts, cost comparison and shoot-pack handoff; see `docs/BUSINESS-CASE.md`. | Select Business/Enterprise as the single main track on Devpost; replace any earlier Entertainment selection. |
 | **CoStar: Inside and Out** | At least two of CoStar/Matterport/Vexcel combined meaningfully; agentic; spatial and visual understanding (p.13-14). | All three wired (`data/build_join.py`, `index/production_join.py`, `data/vexcel_tools.py`, `agent/deep.py`); Vexcel logistics are precomputed estimates and most availability is unknown. | Live proof is on the integration captain's laptop with the private cache; rehearse there. Confirm current sponsor criteria. |
 | **LangChain: best use of deepagents** | "Build a deepagent" (p.16). | `agent/deep.py` constructs a real deep agent with four subagents and a human-approval step (`create_deep_agent`). The `plan_production_shoot` tool had only a fake-model dispatch check; no live trace of it exists. | Show a real completed run or trace, narrate only visible calls, set `TYPECAST_ENGINE=deep` for that demo. Never call the solver or UI notices an agent trace. |
 | **Amazon: Best Practical AI Innovation** | The packet allows any combination of open-source tools, APIs, models and frameworks; **AWS is not required** (p.15). Needs a working prototype, clear user and use case, basic documentation and a pitch. Do not claim AWS use. | The scout/rehearsal workflow, `README.md`, `docs/devpost.md`, `docs/pitch.md`. | Opt in on Devpost; confirm current criteria. |
