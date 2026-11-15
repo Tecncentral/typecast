@@ -262,7 +262,99 @@
     return `Needs verification · ${k.unknown} of ${k.total} checks unknown${k.issue ? ` · ${k.issue} reported problem${k.issue === 1 ? '' : 's'}` : ''}${k.ok ? ` · ${k.ok} reported OK by you (not verified)` : ''}`;
   }
 
-  const api = { COMMUNITY_CHECKS, CHECK_STATE_LABEL, isState, textOf, countOf, checkState, communityCounts, communityStatusText, parseScript, LIMITS, sceneNeeds, fitCheck, fitSummaryText, continuity, checklist, timeOfDay, KIND_LABEL };
+  // ---- Save the scene: compare the current candidate with an alternative under a revised real constraint ----
+  // Everything is derived from the planner's own response for the revised request. "Satisfied" needs KNOWN capacity
+  // (measured or estimated); unknown capacity against a positive requirement is unresolved, never satisfied.
+  const id120 = (v) => String(v == null ? '' : v).replace(/[^\w.:-]/g, '').slice(0, 120);
+  function candidateFacts(c) {
+    if (!c) return null;
+    const sh = c.shot || {}, p = c.property || {}, l = c.logistics || {};
+    const pst = known(l.parking_status) ? l.parking_status : 'unknown';
+    return { shot_id: id120(sh.shot_id), property_id: id120(sh.property_id), similarity: num(sh.score), parking_status: pst,
+      enough_parking: pst === 'unknown' ? null : l.enough_parking === true ? true : l.enough_parking === false ? false : null,
+      availability: ['available', 'not_available'].includes(p.availability_status) ? p.availability_status : 'unknown',
+      area_m2: num(sh.room_area_m2), ceiling_m: num(sh.ceiling_m) };
+  }
+  function satisfaction(f, req) {
+    const veh = (num(req.trucks) || 0) + (num(req.cars) || 0) > 0;
+    const parking = !veh ? 'none' : !f ? 'unknown' : f.enough_parking === true ? 'met' : f.enough_parking === false ? 'unmet' : 'unknown';
+    const availability = !req.require_available ? 'none' : !f ? 'unknown' : f.availability === 'available' ? 'met' : f.availability === 'not_available' ? 'unmet' : 'unknown';
+    const asked = parking !== 'none' || availability !== 'none';
+    return { parking, availability, satisfied: asked && parking !== 'unmet' && parking !== 'unknown' && availability !== 'unmet' && availability !== 'unknown' };
+  }
+  const noReq = (r) => !((num(r.trucks) || 0) + (num(r.cars) || 0) > 0 || r.require_available);
+  const parkWord = (f, req) => {
+    const veh = `${num(req.trucks) || 0} truck${(num(req.trucks) || 0) === 1 ? '' : 's'} and ${num(req.cars) || 0} car${(num(req.cars) || 0) === 1 ? '' : 's'}`;
+    if (!f) return `not in the revised pool for ${veh}`;
+    if (f.enough_parking === true) return `${f.parking_status} capacity covers ${veh} (approval unknown)`;
+    if (f.enough_parking === false) return `${f.parking_status} capacity is below ${veh}`;
+    return `capacity unknown for ${veh}`;
+  };
+  // input: { sid, req, oldReq, before:{shot_id, property_id}, oldCand, newResp, forbidden:[], oldAssign:{sceneId:{shot_id,property_id}}, oldTotals:{locations,company_moves}|null }
+  function saveSceneOutcome(input) {
+    const { sid, req, before, newResp } = input, forbidden = input.forbidden || [];
+    const out = { kind: 'none', reasons: [], before: null, after: null, differences: [], unresolved: [], planChanges: [], scope: 'whole_plan', totalsRecalculated: false, counts: null, afterCand: null };
+    if (noReq(req)) { out.reasons.push('No requirement was entered: add trucks, cars or the available-listing requirement.'); return out; }
+    const sc = newResp && Array.isArray(newResp.scenes) ? newResp.scenes.find((x) => x.id === sid) : null;
+    const plan0 = newResp && Array.isArray(newResp.plans) ? newResp.plans[0] : null;
+    const oldFacts = candidateFacts(input.oldCand);
+    if (!sc || !plan0) { out.reasons.push('The planner returned no plan for these requirements.'); out.before = oldFacts; return out; }
+    const all = sc.candidates || [], beforeNew = all.find((c) => c.shot && c.shot.shot_id === before.shot_id) || null;
+    const beforeFacts = candidateFacts(beforeNew) || oldFacts;
+    const beforeExcluded = !beforeNew || beforeNew.eligible === false || forbidden.includes(before.property_id);
+    const beforeSat = beforeExcluded ? { parking: 'unmet', availability: 'none', satisfied: false } : satisfaction(beforeFacts, req);
+    out.before = { ...beforeFacts, excluded: beforeExcluded, sat: beforeSat };
+    const eligible = all.filter((c) => c.shot && c.eligible !== false && !forbidden.includes(c.shot.property_id));
+    out.counts = { total: all.length, eligible: eligible.length, excluded: all.length - eligible.length,
+      unknown: eligible.filter((c) => satisfaction(candidateFacts(c), req).parking === 'unknown' || satisfaction(candidateFacts(c), req).availability === 'unknown').length };
+    if (!beforeExcluded && beforeSat.satisfied) { out.kind = 'already'; return out; }
+    const sats = eligible.filter((c) => c.shot.shot_id !== before.shot_id && satisfaction(candidateFacts(c), req).satisfied);
+    if (!sats.length) {
+      out.reasons.push(out.counts.eligible === 0 ? 'Every candidate for this scene is ruled out by these requirements.'
+        : `No candidate has known capacity or availability that satisfies the requirement. ${out.counts.unknown} still have unknown data, which Typecast cannot treat as met.`);
+      return out;
+    }
+    const planned = (plan0.assignments || []).find((a) => a.scene_id === sid);
+    const byScore = [...sats].sort((a, b) => (num(b.shot.score) ?? -Infinity) - (num(a.shot.score) ?? -Infinity) || String(a.shot.shot_id).localeCompare(String(b.shot.shot_id)));
+    const pick = (planned && sats.find((c) => c.shot.shot_id === planned.shot_id)) || byScore[0];
+    const after = candidateFacts(pick);
+    out.kind = 'alternative'; out.afterCand = pick; out.after = { ...after, sat: satisfaction(after, req) };
+    out.fromPlan = !!(planned && planned.shot_id === pick.shot.shot_id);
+    out.totalsRecalculated = out.fromPlan;
+    // differences: deterministic, each only when both sides actually have the data
+    const d = out.differences, bf = out.before, af = out.after;
+    d.push(`Requirement: ${bf.excluded ? 'the current candidate is ruled out by the revised request' : parkWord(beforeFacts, req)} → ${parkWord(after, req)}.`);
+    if (bf.property_id === af.property_id) d.push(`Same property (${bf.property_id}), different frame.`); else d.push(`Different property: ${bf.property_id} → ${af.property_id}.`);
+    if (req.require_available && bf.availability !== af.availability) d.push(`Listing availability: ${bf.availability} → ${af.availability}.`);
+    if (bf.area_m2 != null && af.area_m2 != null && bf.area_m2 !== af.area_m2) d.push(`Floor area (index estimates, not measurements): ${bf.area_m2} m² → ${af.area_m2} m².`);
+    if (bf.ceiling_m != null && af.ceiling_m != null && bf.ceiling_m !== af.ceiling_m) d.push(`Ceiling (index estimates): ${bf.ceiling_m} m → ${af.ceiling_m} m.`);
+    if (bf.similarity != null && af.similarity != null && !beforeExcluded) d.push(`Image similarity (a ranking from the same query, not shootability): ${bf.similarity.toFixed(2)} → ${af.similarity.toFixed(2)}.`);
+    if (out.totalsRecalculated) d.push(`Plan from the revised request: ${num(plan0.locations) ?? '?'} location(s), ${num(plan0.company_moves) ?? '?'} move(s).`);
+    else d.push('Location count and company moves are not recalculated for this hand choice from the revised pool.');
+    // other scenes that move because the whole plan is re-planned
+    for (const a of plan0.assignments || []) {
+      if (a.scene_id === sid) continue;
+      const old = input.oldAssign && input.oldAssign[a.scene_id];
+      if (old && (old.shot_id !== a.shot_id || old.property_id !== a.property_id)) out.planChanges.push({ scene_id: a.scene_id, from: id120(old.property_id), to: id120(a.property_id) });
+    }
+    if (out.planChanges.length) d.push(`Re-planning the whole script also moves ${out.planChanges.length} other scene${out.planChanges.length === 1 ? '' : 's'}; their takes stay with their old frames for you to copy or restart.`);
+    const u = out.unresolved;
+    if (af.parking_status === 'estimated') u.push('Parking capacity is an estimate; approval is unknown. Verify on site.');
+    if (af.availability === 'unknown') u.push('Listing availability is unknown.');
+    u.push('Room dimensions are index estimates; measure on site.', 'The takes are copied as unreviewed drafts; geometric fit is unknown.');
+    if (!out.totalsRecalculated) u.push('Plan totals describe the revised plan, not this hand choice.');
+    return out;
+  }
+  // The compact record that is saved and exported: identities, constraints and source statuses, never raw provider rows.
+  function decisionRecord(outcome, oldReq, req, when) {
+    const f = (x) => (x ? { shot_id: x.shot_id, property_id: x.property_id, parking_status: x.parking_status, enough_parking: x.enough_parking, availability: x.availability, area_m2: x.area_m2, ceiling_m: x.ceiling_m, similarity: x.similarity } : null);
+    const q = (r) => ({ trucks: Math.max(0, Math.min(20, num(r.trucks) || 0)), cars: Math.max(0, Math.min(200, num(r.cars) || 0)), require_available: !!r.require_available });
+    return { v: 1, decided_at: String(when).slice(0, 30), original: q(oldReq), revised: q(req), before: f(outcome.before), after: f(outcome.after),
+      scope: 'whole_plan', totals_recalculated: !!outcome.totalsRecalculated, moved_scenes: Math.min(8, outcome.planChanges.length),
+      differences: outcome.differences.slice(0, 8).map((x) => String(x).slice(0, 240)), unresolved: outcome.unresolved.slice(0, 8).map((x) => String(x).slice(0, 200)) };
+  }
+
+  const api = { candidateFacts, satisfaction, saveSceneOutcome, decisionRecord, COMMUNITY_CHECKS, CHECK_STATE_LABEL, isState, textOf, countOf, checkState, communityCounts, communityStatusText, parseScript, LIMITS, sceneNeeds, fitCheck, fitSummaryText, continuity, checklist, timeOfDay, KIND_LABEL };
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.TypecastChecks = api;
 })(typeof window !== 'undefined' ? window : globalThis);
