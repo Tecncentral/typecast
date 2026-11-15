@@ -77,6 +77,10 @@ def await_live(page, expected):
     }""", arg=expected, timeout=15000)
     page.wait_for_timeout(650)
     require(page.locator("dialog.vf.no-webgl").count() == 0, "Unexpected image-only fallback")
+    # A room opens clean; these checks are about the camera frame, so bring it on.
+    if page.locator("dialog.vf.is-clean").count():
+        page.keyboard.press("f")
+        page.wait_for_timeout(200)
     result = page.evaluate("""() => {
       const c=window.__checkedViewfinder.canvas, gl=c.getContext('webgl2');
       const p=new Uint8Array(4); gl.readPixels(c.width/2,c.height/2,1,1,gl.RGBA,gl.UNSIGNED_BYTE,p);

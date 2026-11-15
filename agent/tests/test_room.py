@@ -141,3 +141,53 @@ def test_dress_room_uses_scan_cameras_asks_for_rebuilt_depth_and_reaches_the_vie
     assert served["room"] == {"scan_points": 2, "views": count}
     assert served["splat"]["units_per_m"] == pytest.approx(0.8) and served["splat"]["floor_y"] == 0.0
     assert len(served["splat"]["scan_points"]) == 2 and served["splat"]["eye"] == pytest.approx([0.0, 1.04, 0.0])
+
+
+def test_estimate_report_reads_the_unit_from_nearest_neighbours_in_a_sparsely_scanned_hall():
+    manifest = _manifest([("a", (0.0, 0.0, 1.3), IDENTITY), ("b", (7.0, 0.0, 1.3), IDENTITY), ("c", (14.5, 0.0, 1.3), QUARTER)])
+    estimate = [_turned(camera, 10.0, 0.8) for camera in room.scan_cameras(manifest, 1.0)]
+    report = room.estimate_report(manifest, estimate)
+    assert report["unit_samples"] == 3 and report["units_per_m"] == pytest.approx(0.8, rel=1e-6)
+
+
+def test_dress_room_hands_approved_2d_faces_to_atlas_as_context_and_keeps_them_for_the_comparison(room_client, tmp_path):
+    from PIL import Image
+    manifest = _manifest([("a", (0.0, 0.0, 1.3), IDENTITY), ("b", (0.0, 7.0, 1.3), QUARTER)])
+    count = len(manifest["views"])
+    base = tmp_path / "m1" / "a"
+    (base / "room").mkdir(parents=True)
+    (base / "dressed").mkdir()
+    for view in manifest["views"]:
+        (base / "room" / view["file"]).write_bytes(b"real")
+    approved = [{"dressed": f"dressed_{h:03d}.jpg", "real": None, "yaw_deg": float(h), "pitch_deg": 0.0, "tan_h": 1.0,
+                 "tan_v": 1.0, "source_heading_deg": h} for h in (0, 90, 180, 270)]
+    for face in approved:
+        Image.new("RGB", (64, 64), (200, 40, 160)).save(base / "dressed" / face["dressed"])
+    old = {"scene_id": "disco", "scene": "INT. ROLLER DISCO - NIGHT.", "model_id": "m1", "sweep_id": "a",  # no shot id
+           "faces": approved, "splat": None, "source": "image edit"}
+    (base / "dressed" / "dressed.json").write_text(json.dumps(old))
+    posed = {"views_digest": room.views_digest(manifest), "frames": [
+        {"estimated_camera": camera, "depth_asset_id": f"depth_{i}", "image_asset_id": f"real_{i}"}
+        for i, camera in enumerate(_turned(c, 20.0, 0.8) for c in room.scan_cameras(manifest, 1.0))]}
+    frames = [{"imageAsset": {"assetId": f"new_{i}", "url": f"https://x/{i}.jpg"},
+               "depth": {"depthAsset": {"assetId": f"rebuilt_{i}"}}} for i in range(count - 4)]
+    session = _Session([_Resp(200, {"id": f"ctx_{i}"}) for i in range(4)]
+                       + [_Resp(201, {"id": "op_c", "done": True, "response": {"frames": frames}})]
+                       + [_Resp(200, chunks=[b"new"]) for _ in range(count - 4)])
+    client = atlas.AtlasClient(api_key=KEY, session=session, sleep=lambda s: None)
+    record = room.dress_room(record=old, manifest=manifest, posed=posed, scene=old["scene"], brief="Mirror ball, neon.",
+                             use_context=True, client=client, log=lambda m: None)
+    body = json.loads(session.calls[4][2]["data"])
+    assert [c["imageAsset"]["assetId"] for c in body["contextFrames"]] == [f"ctx_{i}" for i in range(4)]
+    assert body["contextFrames"][1]["camera"] == room.scan_cameras(manifest, 0.8)[1]
+    assert len(body["targetFrames"]) == count - 4 and 4 * len(body["targetFrames"]) + 4 <= 128
+    assert [f["depth"]["depthAsset"]["assetId"] for f in body["targetFrames"]][:2] == ["depth_4", "depth_5"]
+    assert "Mirror ball, neon." in body["prompt"] and record["scene"] == "INT. ROLLER DISCO - NIGHT."
+    with Image.open(base / "dressed" / "room-context_00.jpg") as photo:
+        assert photo.size == (1280, 720)
+    assert len(record["faces"]) == count - 4 and record["wipe_faces"] == approved
+    assert all(f["scan_point"] and f["depth_asset_id"].startswith("rebuilt_") for f in record["faces"])
+    # The viewer's 360° comparison still gets the approved faces; the room record rides along.
+    served = room_client.get("/api/dressed/p1-m1-a-0.000-abc").json()
+    assert [f["dressed_url"].rsplit("/", 1)[1] for f in served["faces"]] == [f["dressed"] for f in approved]
+    assert served["room"] == {"scan_points": 2, "views": count - 4}

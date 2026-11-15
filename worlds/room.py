@@ -282,13 +282,19 @@ def estimate_report(manifest: dict, estimated: list[dict]) -> dict:
             centres[point] = [float(np.median([estimated[i]["extrinsics"]["position"][k] for i in agree])) for k in range(3)]
         rigs.append({"scan_point": point, "views": len(members), "views_agreeing": len(agree), "consistent": consistent,
                      "estimated_turn_deg": turn, "max_turn_error_deg": max(_angle(t, turn) for t in turns)})
-    ratios = []
-    for a in centres:
-        for b in centres:
-            if a < b:
-                metres = math.dist([truth[a]["position_m"][k] for k in "xy"], [truth[b]["position_m"][k] for k in "xy"])
-                if 0.5 < metres <= 4.0:
-                    ratios.append(math.dist([centres[a][0], centres[a][2]], [centres[b][0], centres[b][2]]) / metres)
+    def metres(a, b):
+        return math.dist([truth[a]["position_m"][k] for k in "xy"], [truth[b]["position_m"][k] for k in "xy"])
+
+    def units(a, b):
+        return math.dist([centres[a][0], centres[a][2]], [centres[b][0], centres[b][2]])
+
+    ratios = [units(a, b) / metres(a, b) for a in centres for b in centres if a < b and 0.5 < metres(a, b) <= 4.0]
+    if not ratios:
+        # A hall scanned every 6 to 8 m has no pair that close: each scan point's nearest neighbour then.
+        for a in centres:
+            near = min((b for b in centres if b != a and metres(a, b) > 0.5), key=lambda b: metres(a, b), default=None)
+            if near:
+                ratios.append(units(a, near) / metres(a, near))
     # Turn check: between consistent scan points, Atlas's turns and Matterport's must differ by one constant.
     offsets = [(r["estimated_turn_deg"] - scan_azimuth(truth[r["scan_point"]]["rotation"])) % 360 for r in rigs if r["consistent"]]
     spread = max((_angle(a, b) for a in offsets for b in offsets), default=None)
@@ -361,9 +367,47 @@ def views_digest(manifest: dict) -> str:
     return hashlib.sha1(json.dumps(manifest["views"], sort_keys=True).encode()).hexdigest()[:10]
 
 
+def approved_faces(record: dict, manifest: dict, out: pathlib.Path) -> dict[int, dict]:
+    """{view index: face} for 2D dressed cube faces that look exactly along one of the anchor's level views.
+
+    A scan point dressed face by face (a square 90° cube face per heading) already has an approved
+    look. Each such face covers the same direction as one level view of the anchor, so it can be
+    handed to Atlas as a context photograph and the walk then carries that look.
+    """
+    found: dict[int, dict] = {}
+    for face in record.get("faces") or []:
+        if face.get("tan_h") != 1.0 or face.get("tan_v") != 1.0 or face.get("pitch_deg") != 0.0:
+            continue
+        if not isinstance(face.get("dressed"), str) or not (out / face["dressed"]).is_file():
+            continue
+        for index, view in enumerate(manifest["views"]):
+            if (view["scan_point"] == record["sweep_id"] and view["view_pitch_deg"] == 0.0
+                    and view["view_yaw_deg"] == float(face.get("source_heading_deg", -1)) % 360):
+                found.setdefault(index, face)
+    return found
+
+
+def context_photograph(face_path: pathlib.Path, target: pathlib.Path) -> pathlib.Path:
+    """The 16:9 band of a square 90° cube face: the same pixels a level 1280x720 view of 90° sees."""
+    from PIL import Image
+    with Image.open(face_path) as image:
+        image = image.convert("RGB")
+        width, height = image.size
+        band = round(width * VIEW_SIZE[1] / VIEW_SIZE[0])
+        top = (height - band) // 2
+        image.crop((0, top, width, top + band)).resize(VIEW_SIZE, Image.LANCZOS).save(target, quality=95)
+    return target
+
+
 def dress_room(*, record: dict, manifest: dict, posed: dict, scene: str, client: AtlasClient,
+               brief: Optional[str] = None, use_context: bool = False,
                log: Callable[[str], None] = print) -> dict:
-    """Dress every view in one request, at the scan's own cameras, so the set agrees from every side."""
+    """Dress every view in one request, at the scan's own cameras, so the set agrees from every side.
+
+    With `use_context`, the scan point's existing 2D dressed faces are sent as context photographs
+    and their four views are not regenerated: the walk takes its look from them, and the 360°
+    comparison keeps showing them. `brief` is the art direction when it says more than the scene.
+    """
     frames = posed["frames"]
     if len(frames) > MAX_VIEWS or len(frames) != len(manifest["views"]):
         raise AtlasError(f"atlasChisel holds {MAX_VIEWS} depth-guided views per request")
@@ -376,26 +420,43 @@ def dress_room(*, record: dict, manifest: dict, posed: dict, scene: str, client:
     base = scan_point_dir(record["model_id"], record["sweep_id"])
     out = base / "dressed"
     tag = f"tc-room-{_safe(record['model_id'])}-{_safe(record['sweep_id'])}"[:80]
-    prompt = dressing_prompt(scene)
-    look = hashlib.sha1((prompt + posed["views_digest"] + "scan-cameras").encode()).hexdigest()[:10]
+    prompt = dressing_prompt(brief or scene)
+    approved = approved_faces(record, manifest, out) if use_context else {}
+    if use_context and not approved:
+        raise AtlasError("This scan point has no 2D dressed faces along the anchor's level views to use as context")
+    targets = [i for i in range(len(frames)) if i not in approved]
+    # One request holds 128 model views: 4 per depth-guided target, 1 per context photograph.
+    if 4 * len(targets) + len(approved) > 4 * MAX_VIEWS:
+        raise AtlasError("Too many views for one atlasChisel request")
+    context = []
+    for i, face in sorted(approved.items()):
+        photo = context_photograph(out / face["dressed"], out / f"room-context_{i:02d}.jpg")
+        context.append({"imageAsset": {"assetId": client.upload_image(photo)}, "camera": cameras[i]})
+    if context:
+        log(f"context photographs: {len(context)} approved faces; generating the other {len(targets)} views")
+    look = hashlib.sha1((prompt + posed["views_digest"] + "scan-cameras"
+                         + ("".join(c["imageAsset"]["assetId"] for c in context))).encode()).hexdigest()[:10]
     op = client.submit("atlasChisel", {
-        "targetFrames": [{"camera": camera, "depth": {"depthAsset": {"assetId": f["depth_asset_id"]}}}
-                         for camera, f in zip(cameras, frames)],
+        "targetFrames": [{"camera": cameras[i], "depth": {"depthAsset": {"assetId": frames[i]["depth_asset_id"]}}}
+                         for i in targets],
+        **({"contextFrames": context} if context else {}),
         "prompt": prompt,
         "enhancePrompt": True,
         # The generated views come back with depth rebuilt in these cameras' own frame and scale.
         "returnDepth": True,
     }, idempotency_key=f"{tag}-chisel-{look}")
-    ledger({"task": "atlasChisel", "operation": op.get("id"), "scene_id": record["scene_id"], "views": len(frames)})
+    ledger({"task": "atlasChisel", "operation": op.get("id"), "scene_id": record["scene_id"], "views": len(targets),
+            "context": len(context)})
     done = client.wait(op)
     dressed = done["response"]["frames"]
-    if len(dressed) != len(frames):
+    if len(dressed) != len(targets):
         raise AtlasError("Atlas returned a different number of frames than were asked for")
     log(f"dressed frames ready: {len(dressed)}")
 
     archive_look(out, record)
     faces = []
-    for i, (view, camera, real, new) in enumerate(zip(manifest["views"], cameras, frames, dressed)):
+    for i, new in zip(targets, dressed):
+        view, camera, real = manifest["views"][i], cameras[i], frames[i]
         ext = "png" if ".png" in str(new["imageAsset"].get("url", "")).split("?")[0] else "jpg"
         name = f"room_{i:02d}-{look}.{ext}"
         client.download(new["imageAsset"]["url"], out / name)
@@ -409,8 +470,12 @@ def dress_room(*, record: dict, manifest: dict, posed: dict, scene: str, client:
     new_record = {
         "scene_id": record["scene_id"], "scene": scene, "prompt": prompt, "prompt_used": done["response"].get("promptUsed"),
         "created_at": datetime.now(timezone.utc).isoformat(), "label": LABEL,
-        "shot_id": record["shot_id"], "model_id": record["model_id"], "sweep_id": record["sweep_id"],
+        "shot_id": record.get("shot_id"), "model_id": record["model_id"], "sweep_id": record["sweep_id"],
         "faces": faces, "splat": None,
+        # The 360° comparison keeps the approved 2D faces; `faces` are the frames of the walkable set.
+        **({"wipe_faces": [face for _, face in sorted(approved.items())],
+            "source": f"{record.get('source') or '2D dressed faces'}; walk: Atlas depth-guided views with those faces as context"}
+           if approved else {}),
         "room": {"scan_points": len(manifest["scan_points"]), "views": len(faces),
                  "cameras": "Matterport scan positions and rotations", "units_per_m": report["units_per_m"],
                  "atlas_estimate": {k: v for k, v in report.items() if k != "rigs"},
@@ -426,6 +491,9 @@ def main(argv=None) -> int:
     parser.add_argument("--scene-id", help="scene id of an already dressed scan point")
     parser.add_argument("--shot")
     parser.add_argument("--scene", help="the look; defaults to the scan point's current scene")
+    parser.add_argument("--brief", help="art direction for the dressing prompt, when it says more than the scene")
+    parser.add_argument("--context-faces", action="store_true",
+                        help="keep the scan point's 2D dressed faces and hand them to Atlas as context photographs")
     parser.add_argument("--radius", type=float, default=8.0, help="metres around the scan point")
     parser.add_argument("--points", help="comma-separated scan point id prefixes to use instead of the radius")
     parser.add_argument("--fetch-only", action="store_true", help="download and render the views; no Atlas call")
@@ -451,7 +519,8 @@ def main(argv=None) -> int:
             report = estimate_report(manifest, [f["estimated_camera"] for f in posed["frames"]])
             print(json.dumps({k: v for k, v in report.items() if k != "rigs"}))
             return 0
-        new = dress_room(record=record, manifest=manifest, posed=posed, scene=args.scene or record["scene"], client=client)
+        new = dress_room(record=record, manifest=manifest, posed=posed, scene=args.scene or record["scene"],
+                         brief=args.brief, use_context=args.context_faces, client=client)
         print(f"room dressed: {new['room']['views']} views from {new['room']['scan_points']} scan points")
     except Exception as error:  # sanitized: no URLs, keys or source rows
         print(f"FAILED: {type(error).__name__}: {str(error)[:300]}")
