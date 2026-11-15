@@ -1,6 +1,6 @@
 # Photon iMessage line (branch `photon-imessage`)
 
-Updated 2026-11-15 06:25 ET, after the real-phone test. Stage 1 only: "Text your location scout" (conversational intake). Stages 2 and 3 are not started.
+Updated 2026-11-15, branch `photon-v2` (v1 was verified on a phone; v2 is offline only). Stage 1 only: "Text your location scout" (conversational intake). Stages 2 and 3 are not started.
 
 **Platform: Photon 2.0 Beta.** The project is on Photon Beta, so the runner is **`bridge/watch-beta.mjs`**: `@photon-ai/api` 0.6.0, Bearer auth, `projects.listMessages` polling and `projects.sendMessage`, following the [Beta iMessage guide](https://photon.codes/docs/beta/get-started/imessage.md). `bridge/watch.mjs` was my first runner and uses the **Stable** SDK `spectrum-ts`; Photon rejected the Beta project ID with it (HTTP 422). It, and the older `bridge/photon.mjs`, do not work with a Beta project and are **kept only as history**. Beta iMessage supports text and images only, and the runner sends plain text only.
 
@@ -13,6 +13,51 @@ Updated 2026-11-15 06:25 ET, after the real-phone test. Stage 1 only: "Text your
 
 **Still UNVERIFIED** (not tested on a phone): the "See them in 3D" link, images (the runner sends plain text only), a text from a non-allowlisted sender getting no reply, no message answered twice after a restart, and long unattended runs. Real CoStar or Vexcel data has never gone through Photon.
 
+## Photon v2 (branch `photon-v2`): offline only, real-phone run NOT DONE
+v2 adds compact results, a local simulator and a dry-run mode on top of the verified runner. **It has not been run against a real phone and no Photon message was sent while building it.** The three passed phone tests above were v1. Everything below is tested offline only (fakes and the simulator) until someone says "go real".
+
+### Credit model (what the Photon docs say)
+- Photon Beta [Plans and billing](https://docs.photon.codes/docs/beta/plans-and-billing.md): "Photon does not charge per-message usage fees for iMessage, WhatsApp, or Telegram sends." Per-message rates are listed only for SMS, MMS, voice and email.
+- The [Billing](https://docs.photon.codes/docs/beta/billing.md) page's "How usage is counted" covers SMS parts, MMS, voice minutes and email recipients; it does not list iMessage.
+- The Free plan includes up to 25 shared iMessage assignments. That limits seats (identities assigned to the shared line), not messages.
+- **Not documented:** any per-message allowance, quota or credit for iMessage, and a numeric send rate limit. The API can answer 429, and the SDK has a `message_rate_limited` failure; the runner already honours `Retry-After`.
+- So there is no documented per-send cost, and the cap below is a safety and readability limit, not a billing control. Delivery is still unconfirmed by the API (it confirms acceptance only).
+
+### Send budget: at most 8 outbound messages per search
+Counted per conversation across questions, the confirmation, the results bubble, the exterior line and the link. Anything past 8 is dropped and counted in the log (`conversation 1: 6 of 8 outbound in this search`; the log shows an ordinal, never an id).
+
+| Flow | Outbound messages |
+| --- | --- |
+| Cop-station example (city, exterior and look, parking, search) | 6: 3 questions, confirmation, results, link |
+| Interior plus exterior in one brief, with a link | 4: confirmation, results, exterior line, link |
+| One detailed `INT.` message, with a link | 3: confirmation, results, link |
+| Worst case | 7 (3 questions, confirmation, results, exterior line, link), plus at most 1 non-text notice = 8 |
+| Re-rank, `draft N`, YES or NO | 1 each |
+
+### What v2 does
+- **Intake** (`bridge/scout-v2.mjs`, keyword and regex only): interior slots (place, era, time, mood), an optional exterior, and shared city (LA or Houston, required), trucks and crew cars. Every message is parsed for all slots. `INT.` and `EXT.` headings route text; the words outside, street, alley, rooftop, exterior, parking lot, establishing go to the exterior. At most **3 questions**, each asked once: (A) place and/or city if missing, (B) an exterior plus era or mood, (C) trucks and crew cars. "skip", "any" and "no" are accepted. A message with an `INT.`/`EXT.` heading asks nothing.
+- **Corrections** ("actually Houston", "make it day") overwrite the slot and add a one-line `Updated: ...` note; after results they search again. "start over" resets.
+- **Rapid messages** that arrive together are merged into one input after a 2 s window (`bridge/conversations.mjs`). Replies are queued per conversation and awaited in order. Duplicate message ids, the agent's own echoes, tapbacks, read receipts and typing updates are ignored. A photo or voice note from an allowlisted person gets "I can only read text for now: describe the scene in words." once (until their next text); a stranger's photo gets nothing.
+- **Before searching:** one confirmation bubble (Interior / Exterior / city, trucks, crew cars), then the search runs at once.
+- **Results:** the interior scene string goes to `POST /scout` exactly as echoed. The exterior is **never searched** from the phone: the reply says "Exterior search ready on the site: <query> (runs live when you open it)." Order: (a) one bubble `MOCK · 3 interior picks` with picks 1, 2, 3 in rank order, two lines each, keeping `(FAKE)`, `est.` and `unknown` wording and dropping internal wording; (b) the exterior line if requested; (c) the link alone, last, only if `PHOTON_VIEWER_URL` is set. A failed send is retried once with the same idempotency key, then "Pick list couldn't be sent, open the link instead." If there are no picks or something was relaxed, one line says what, and the link is still sent.
+- **After results:** "need parking for 5 trucks" goes to `/refine` with one compact bubble; "draft 1" then YES gives "Saved as a local draft, not sent"; anything unclear gets a one-line help message.
+- **Images:** none are sent. Beta iMessage accepts an `attachment` content type, but it needs a prior upload (`uploadAttachment`, a two-part body with an exact JSON header plus the file bytes) that the Beta guide does not document, so it is skipped rather than guessed. A mock image would also cost an extra send.
+
+### Link contract
+`PHOTON_VIEWER_URL` + `/app/?scene=<interior>&ext=<exterior>&city=<LA|HOU>&trucks=<n>&cars=<n>&autorun=1`, every value URL-encoded, empty parameters omitted. `PHOTON_VIEWER_URL` may or may not end in `/app/`; the bridge normalises it. `autorun=1` is added only when `scene` is present and means "run the free mock interior search"; **an exterior never autoruns** because it is a billable Vexcel search. The viewer reads `scene` and `autorun` today (`web/deeplink.js`); `ext`, `city`, `trucks` and `cars` are accepted for the hand-off proposed below and are otherwise ignored.
+
+### Web changes: proposed, NOT applied
+The exact diffs for `web/deeplink.js` (an exterior hand-off note with a link to the outdoors page), `web/oblique.js` (pre-fill `?q=&city=`, never submit) and `web/index.html` (Open Graph tags) were shown to Udit for a yes. Nothing under `web/` changed on this branch. Owner 4 allows only one-line hooks in `index.html`; the proposal is one added line.
+
+### Simulator and dry run
+- `node bridge/sim.mjs` (interactive) or `node bridge/sim.mjs --script bridge/fixtures/<name>.txt`. It runs the **same runner** (allowlist, message filter, merge window, intake, formatting, ordering, retry) against a fake Photon client that sends nothing, and prints every outbound bubble with a counter. The fake backend serves `mocks/pick.json`, so no API needs to be running. It uses synthetic numbers. Script commands are listed at the top of `bridge/sim.mjs` (`@other`, `@photo`, `@tapback`, `@dup`, `@burst a | b`, `@fail N`, `@failresults`, `@nomatch`, `@viewer URL`).
+- `PHOTON_DRY_RUN=1 node bridge/watch-beta.mjs` reads real messages and sends nothing. It still calls the mock API. It logs only a running count and a length (`dry run: would send reply 3 (214 characters); nothing was sent`), never the text, because real inbound text must not be printed.
+
+### v2 tests (offline, mock data only)
+- Bridge: 67 pass (6 core, 15 intake v1, 22 `watch-beta`, 24 golden). Web: 29 pass (no web file changed).
+- Golden transcripts through the simulator: the four-message cop-station example; interior plus exterior; one detailed `INT.` message (0 questions); corrections; start over; rapid double-send merge; duplicate message id; photo and tapback; no matches; refine; draft YES and NO; unclear text; a failed send (retried once) and a failed results bubble (fallback line); an unallowlisted sender (no reply, no search); junk answers (at most 3 questions); no viewer URL. Every flow asserts at most 8 outbound, picks in order, a `MOCK` label, no "Blocked alternative" or "delivered", plain text only, unique idempotency keys, and correct link parameters.
+- **Real-phone run of v2: NOT DONE.** To do it, someone must say "go real", then run the checklist below with v2 on the allowlisted phone.
+
 ## What is new (new files, plus one added line in `web/index.html`, one added dependency in `bridge/package.json` and three empty names in `.env.example`; no other existing file is edited)
 | File | What |
 | --- | --- |
@@ -24,6 +69,9 @@ Updated 2026-11-15 06:25 ET, after the real-phone test. Stage 1 only: "Text your
 | `bridge/watch.mjs` | **History.** Stable SDK runner; does not work with a Beta project. |
 | `web/deeplink.js` + `web/tests/deeplink.test.mjs` | Fallback link hook, loaded by the one script line in `web/index.html` (see below). 5 tests. |
 | `web/index.html` | One added line, approved and applied: `<script type="module" src="./deeplink.js"></script>`, after `strike.js`. Nothing else in the file changes. |
+| `bridge/scout-v2.mjs`, `bridge/conversations.mjs` (v2) | The v2 conversation engine and the per-conversation delivery (merge, order, budget). New files. |
+| `bridge/sim.mjs`, `bridge/fixtures/*.txt`, `bridge/golden.test.mjs` (v2) | Simulator, scripted conversations and 24 golden tests. New files. |
+| `bridge/watch-beta.mjs`, `bridge/watch-beta.test.mjs` (v2 edits) | Small edits: uses the v2 engine and manager, accepts non-text for the one-time notice, retries a failed send once, adds `PHOTON_DRY_RUN`. Five tests updated for the new wording. |
 | `.env.example` | Adds the names `PHOTON_ALLOWED_SENDERS`, `PHOTON_AGENT_HANDLE` and `PHOTON_VIEWER_URL` (empty). `PHOTON_PROJECT_ID` and `PHOTON_PROJECT_SECRET` were already there. |
 
 ## How the Beta runner works
@@ -36,7 +84,7 @@ Updated 2026-11-15 06:25 ET, after the real-phone test. Stage 1 only: "Text your
 - **Rate limits and errors:** a 429 waits for `Retry-After` (or 5 seconds, doubling up to 2 minutes) and never polls faster than every 2 seconds. Server and network errors back off the same way. 400, 401, 403, 404 and 422 on polling stop the runner. A failed send is logged and the runner carries on.
 - **Output:** it never prints a key, project id, phone number, space id, message id or message text. An API error prints only `Photon API error <status> (request <id>).` Counts of ignored messages are printed, nothing else.
 
-## How the intake works
+## How the v1 intake works (verified on a phone; replaced on `photon-v2` by the section above)
 - No LLM call in the bridge: keyword and regex rules only. The backend parser still reads the final scene text.
 - Slots: setting (required), city LA or Houston (required), time of day, era, trucks, cars. Mood words such as "grimy" become "Gritty".
 - Every slot the director already gave is filled. Only missing ones are asked, one question per message, at most 4, in this order: setting, city, time, era, trucks and cars. Each question offers short options and accepts "skip" or "any". An answer that fills other slots too ("LA, 80s") fills them all.
