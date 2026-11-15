@@ -22,6 +22,13 @@ OPEN = """async (id) => {
   img.src = '/cache/views/' + id + '.jpg'; img.style.cssText = 'position:fixed;left:20px;top:20px;width:200px';
   document.body.append(img); await img.decode(); await vf.open(id, img);
 }"""
+CARD = """async (id) => {
+  const stage = document.createElement('div'); stage.className = 'shot-stage';
+  stage.style.cssText = 'position:fixed;left:20px;top:20px;width:640px;height:360px;z-index:5';
+  const img = new Image(); img.className = 'shot-image'; img.alt = 'Frame at Check St';
+  img.src = '/cache/views/' + id + '.jpg'; img.style.cssText = 'width:100%;height:100%;object-fit:cover';
+  stage.append(img); document.body.append(stage); await img.decode();
+}"""
 STATE = """async () => {
   const {walkState} = await import('/app/viewfinder-walk.js');
   const w = walkState(window.__vf), free = Array.from(w.free || []), g = w.grid;
@@ -59,8 +66,9 @@ def main():
                                              args=["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"])
         page = browser.new_page(viewport={"width": 1440, "height": 900})
         page.on("pageerror", lambda error: errors.append(f"pageerror: {str(error)[:300]}"))
+        # A frame with no emptied plate answers 404 to the card's Strike lookup; that is not this check's subject.
         page.on("console", lambda m: errors.append(f"console: {m.text[:300]} @ {m.location.get('url', '')[-80:]}")
-                if m.type == "error" else None)
+                if m.type == "error" and "/api/strike/" not in m.location.get("url", "") else None)
         page.add_init_script("addEventListener('unhandledrejection', (e) => console.error('unhandled rejection: '"
                              " + String(e.reason && (e.reason.stack || e.reason.message || e.reason))))")
         # Only the local server may be reached. Spark starts its sort worker from a blob: URL.
@@ -144,6 +152,27 @@ def main():
         page.wait_for_selector("dialog.vf.is-walking", timeout=60000)
         page.wait_for_timeout(800)
         page.screenshot(path=str(args.screens_dir / "linked.png"))
+        # On a card, the frame offers the walk itself: one press opens the room and steps inside.
+        page.goto(args.base_url + "/app/", wait_until="networkidle")
+        page.reload(wait_until="networkidle")
+        page.evaluate(CARD, args.shot)
+        page.wait_for_selector(".shot-stage > .vf-walk-open", timeout=10000)
+        page.wait_for_selector(".shot-stage > .vf-open", timeout=10000)
+        page.screenshot(path=str(args.screens_dir / "card.png"))
+        page.click(".shot-stage > .vf-walk-open")
+        page.wait_for_selector("dialog.vf.is-walking", timeout=60000)
+        if start["room"]:
+            page.wait_for_selector(".vf-cast.is-active", timeout=20000)
+        page.wait_for_timeout(1500)
+        page.screenshot(path=str(args.screens_dir / "card-walk.png"))
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(900)
+        # Look around on the same frame afterwards opens the 360° view, not the walk.
+        page.click(".shot-stage > .vf-open")
+        page.wait_for_selector(".vf-walk:not([hidden])", timeout=15000)
+        page.wait_for_timeout(1200)
+        require(not page.evaluate("document.querySelector('dialog.vf').classList.contains('is-walking')"),
+                "Look around stepped into the set without being asked")
         require(not errors, f"browser errors: {errors[:3]}")
         report.update(walked_m=round(walked / k, 2), world_units_per_m=round(k, 3), chromium_version=browser.version)
         if start["room"]:

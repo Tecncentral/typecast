@@ -1,6 +1,6 @@
 # AI-dressed sets (World Labs Atlas)
 
-Updated 2026-11-15 ~00:15 UTC. PRs #41 (walkable sets, whole rooms) and #42 (stand-ins, longer walk) are merged into `dev`. Branch `dressed-set`.
+Updated 2026-11-15 01:10 UTC. PRs #41 (walkable sets, whole rooms) and #42 (stand-ins, longer walk) are merged into `dev`; #44 (animated people, card entry) is open. Branch `dressed-set`.
 
 Shot ids, Matterport model ids and scan point ids are licensed identifiers and are not written here; they are in the git-ignored `cache/worlds/` records.
 
@@ -21,8 +21,9 @@ Shot ids, Matterport model ids and scan point ids are licensed identifiers and a
 - The room walk now reaches 6 m from a scan point for a refined splat and requires floor splats under every walkable cell, which keeps it inside the walls. Walkable floor: 76 m², including the aisles round the desk rows.
 - Cameras come from the scan, not from Atlas. Atlas's own camera estimate was unreliable here: 2 of 6 scan points were posed inconsistently on both attempts (the ones beside glass partitions), with a layout error of 0.8 m and then 1.9 m RMS against Matterport. Where Atlas was consistent, its turns matched Matterport's scan rotations within 2.4°, and neighbouring distances gave one unit (0.869 world units per metre). So every camera is built from Matterport's measured positions and rotations, scaled by that unit; Atlas supplies depth only. `room/posed.json` and the record's `room.atlas_estimate` keep the comparison.
 - Walking a room: `/api/dressed` adds `splat.units_per_m`, `splat.floor_y` and `splat.scan_points`. The viewer builds a 10 cm floor grid from the splat (solid at body height, within 2.2 m of a scan point for a draft, reachable from the start), shows it as a floor plan with the scan points and your position, slides along obstacles, and Shift doubles the pace. The solid-surface threshold scales with splat count.
+- Card entry (new): `GET /api/walkable` lists the frames whose scan point has a walkable set (validated by `load_dressed`; empty when `TYPECAST_ENABLE_DRESSED=0`). A card frame on that list shows a filled "Walk the set" button; one press opens the room and steps into the set, facing the middle of the walkable floor, with the people on for a whole-room set. Look around on the same frame still opens the 360° view. In the cached demo runs the precinct scan point is the first frame of a top-three card for the "Glass office confrontation" scene. Verified by `web/tests/check_walk.py` on both sets.
 - `/cache` serves `.spz` only under `cache/worlds/`. All world outputs stay in git-ignored `cache/worlds/`.
-- Tests: `agent/tests/test_worlds.py`, `agent/tests/test_room.py` (5), `web/tests/cast.test.mjs` (3). `python scripts/verify.py`: 673 passed on the tree merged with `dev`.
+- Tests: `agent/tests/test_worlds.py`, `agent/tests/test_room.py` (5), `web/tests/cast.test.mjs` (3). `python scripts/verify.py`: 679 passed on the tree merged with `dev` (including Strike).
 
 ## Spend
 20 Atlas operations, listed in `cache/worlds/atlas-operations.jsonl`: 7 images2PosedRGBD (2 of them on 32 views), 9 atlasChisel (3 on 32 views), 3 draft posedImages2Splats at 500 credits each (empty shop, one-point precinct, whole-room precinct) and 1 refined posedImages2Splats at 5,000 credits (the bright whole-room precinct). Splats total 6,500 credits, all approved by Zukhriddin on Nov 14. One further splat submission was refused with HTTP 409 for a reused idempotency key and cost nothing. Atlas publishes no price for the first two tasks; check the balance at https://atlas.worldlabs.ai/settings/credits/developer (it was 9,960 credits before any run, so at most about 3,400 remain).

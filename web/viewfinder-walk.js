@@ -3,7 +3,7 @@
 // mode: the same look, lens and grab controls, plus W A S D to move through the set.
 // three.js and Spark are imported on first use, so the rest of the viewer never pays for them.
 // The original viewfinder stays intact: this module only wraps three of its methods.
-import { Viewfinder } from "./viewfinder.js";
+import { Viewfinder, shotIdFromSrc } from "./viewfinder.js";
 import { createCast } from "./viewfinder-cast.js";
 
 const WALK_RADIUS_M = { draft: 1.5, refined: 2.5 }; // how far from the scan point the views hold up
@@ -182,6 +182,25 @@ function reach(w, dx, dz) {
 }
 
 // The heading with the most floor around it: the natural establishing view of the set.
+// The heading from the scan point toward the middle of the floor that can be walked.
+function roomHeading(w) {
+  const g = w.grid;
+  let sumX = 0, sumZ = 0, count = 0;
+  for (let iz = 0; iz < g.nz; iz += 1) {
+    for (let ix = 0; ix < g.nx; ix += 1) {
+      if (!g.walk[iz * g.nx + ix]) continue;
+      sumX += ix;
+      sumZ += iz;
+      count += 1;
+    }
+  }
+  if (!count) return null;
+  const dx = g.minX + (sumX / count + 0.5) * g.cell - w.eye[0];
+  const dz = g.minZ + (sumZ / count + 0.5) * g.cell - w.eye[2];
+  if (Math.hypot(dx, dz) < 0.5 * w.scale) return null; // already in the middle: any heading will do
+  return ((Math.atan2(dx, -dz) * 180) / Math.PI + 360) % 360;
+}
+
 function openHeading(w) {
   let best = 0;
   let most = -1;
@@ -662,17 +681,21 @@ function dispose(w) {
 
 const loadDressed = Viewfinder.prototype.loadDressed;
 Viewfinder.prototype.loadDressed = async function (shotId, generation, renderer) {
+  // A card's Walk the set button applies to this one opening, whether or not the set arrives.
+  const asked = entry?.shotId === shotId ? entry : null;
+  entry = null;
   await loadDressed.call(this, shotId, generation, renderer);
   if (!isCurrent(this, generation) || !this.dressed?.splat?.url) return;
   const w = stateFor(this);
   w.button.hidden = false;
+  if (asked) Object.assign(w, { autoWalk: true, autoCast: asked.cast, linkYaw: null });
   this.$(".vf-status").textContent = "An AI-dressed version of this room is ready: press D to compare it, or E to walk through it.";
   if (w.autoWalk) {
     w.autoWalk = false;
     await toggle(this);
-    // A one-point set opens on its most open side. A whole room keeps the frame's own heading:
-    // there is no single best view of a room, and a demo link can name one.
-    const yaw = w.linkYaw ?? (w.grid ? null : openHeading(w));
+    // A one-point set opens on its most open side. A whole room keeps the frame's own heading
+    // (a demo link can name another), except from a card, where it opens facing into the room.
+    const yaw = w.linkYaw ?? (w.grid ? (asked ? roomHeading(w) : null) : openHeading(w));
     if (w.active && yaw != null) {
       this.state.yaw = yaw;
       this.animateTo({ yaw }, reducedMotion() ? 1 : 900);
@@ -708,6 +731,63 @@ Viewfinder.prototype.grab = function () {
     this.canvas = panorama;
   }
 };
+
+/* ---------------- Card entry ---------------- */
+
+// A frame whose scan point has a walkable set says so on its card: one press opens the room
+// and steps into the set, with the stand-ins on when the set is a whole room.
+let entry = null; // the frame a card asked to walk, consumed when its dressed set loads
+let listed = null;
+const walkableFrames = () =>
+  (listed ||= fetch("/api/walkable")
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      const frames = new Map();
+      for (const set of Array.isArray(d?.sets) ? d.sets : []) {
+        for (const id of Array.isArray(set.shot_ids) ? set.shot_ids : []) frames.set(String(id), { room: set.room === true });
+      }
+      return frames;
+    })
+    .catch(() => new Map()));
+
+async function offerWalk(stage) {
+  const image = stage.querySelector("img.shot-image");
+  const id = image && shotIdFromSrc(image.getAttribute("src") || "");
+  if (id && stage.dataset.walkFor === id) return;
+  stage.querySelector(":scope > .vf-walk-open")?.remove();
+  if (!id) return void delete stage.dataset.walkFor;
+  stage.dataset.walkFor = id;
+  const set = (await walkableFrames()).get(id);
+  if (!set || stage.dataset.walkFor !== id || stage.querySelector(":scope > .vf-walk-open")) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "vf-walk-open";
+  button.innerHTML = `${ICON_WALK}<span>Walk the set</span>`;
+  button.title = "An AI-dressed version of this room, rebuilt in 3D. Not the real room.";
+  button.setAttribute("aria-label", "Walk through an AI-dressed 3D version of this room");
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    entry = { shotId: id, cast: set.room };
+    // The card's own Look around button opens the shared viewfinder on this frame.
+    const look = stage.querySelector(":scope > .vf-open");
+    if (look) look.click();
+    else new Viewfinder().open(id, stage.querySelector("img.shot-image"));
+  });
+  stage.append(button);
+}
+
+let offering = false;
+function offerAll() {
+  offering = false;
+  document.querySelectorAll(".shot-stage").forEach((stage) => { offerWalk(stage); });
+}
+new MutationObserver(() => {
+  if (offering) return;
+  offering = true;
+  setTimeout(offerAll, 30); // a timer, not a frame callback: background tabs still decorate
+}).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["src"] });
+offerAll();
 
 /* ---------------- Direct link ---------------- */
 
