@@ -30,6 +30,6 @@ if (ext) {
   const link = document.createElement("a");
   link.href = `./oblique.html?${next}`;
   link.textContent = "Open the exterior search";
-  handoff.append(`Exterior search ready: ${ext}. It does not run until you open it and press Search (a live Vexcel call). `, link);
+  handoff.append(`Exterior search ready: ${ext.replace(/\.+$/, "")}. It does not run until you open it and press Search (a live Vexcel call). `, link);
   document.getElementById("scene-form")?.after(handoff);
 }
