@@ -111,3 +111,9 @@ Recommendation: safe to demo on mocks. Not run against live data or the private 
 - web/tests/check_viewer.py now opens /app/#interior (the landing no longer shows the scene box first).
 - Verified on mocks: verify.py 1082 passed / 1 xfailed; web tests 24/24; check_viewer.py --mobile --failure-states 7/7; walkthrough at 1280x720 (landing, hover, interior, scout, cards, script plan, Director's Room sheet with the pasted script, exteriors, Back, home) with no JavaScript errors. Screenshots: cache/screens/ui-simplify/v2-*.png.
 - Not checked: live data, real exterior results, Director's Room behaviour beyond opening with the script.
+
+### UI simplify v3: filters on top, costs on click (11:28 UTC)
+
+- The Travel and budget section under the results is gone. Its four controls (production base, max drive, scene size, shoot days) now sit in a filter bar above the cards. They are the same budget.js elements, moved in web/costs.js, so changing one still re-queries drive times and costs. The drive-time caveat is one line; hovering shows the full text.
+- Clicking a card (not its buttons or links) slides in a "Cost savings · estimate" panel for that pick. Headline figures count up from $0 to their exact values, and the range bars grow in. The "Scenario estimate… not verified savings" line stays at the top. Esc, Close or the backdrop closes it.
+- Verified on mocks: check_viewer.py --mobile --failure-states 7/7 (fixed a 29 px horizontal overflow at 1440 found by it); verify.py 1082 passed / 1 xfailed; web tests 24/24. Manual: the panel opens per card with the right figures; scene size 2,000 → 5,000 sq ft changes "Build the set" from $34,500 to $79,500. Screenshots: cache/screens/ui-simplify/v3-*.png.

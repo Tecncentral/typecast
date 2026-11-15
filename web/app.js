@@ -3,6 +3,7 @@ import { SCENES } from "./scenes.js";
 import { renderCards } from "./cards.js";
 import { renderMap, focusMapPick } from "./map.js";
 import { renderBudget } from "./budget.js";
+import { arrangeBudget } from "./costs.js";
 import {
   parkingBar,
   parkingSummary,
@@ -467,6 +468,7 @@ function showResult(data, previous, message) {
     : null;
   $("#budget-section").hidden = !data.picks.length;
   renderBudget($("#budget"), $("#location-map"), data.picks);
+  arrangeBudget();
   const trace = $("#trace-link");
   trace.hidden = true;
   trace.removeAttribute("href");
