@@ -349,7 +349,8 @@ def load_dressed(model_id: str, sweep_id: str) -> Optional[dict]:
     # The record must claim this exact scan point (genuine records always carry both ids).
     if not isinstance(record, dict) or record.get("model_id") != model_id or record.get("sweep_id") != sweep_id:
         return None
-    raw_faces = record.get("faces")
+    # A walkable set built round approved 2D faces keeps those for the 360° comparison.
+    raw_faces = record.get("wipe_faces") if isinstance(record.get("wipe_faces"), list) else record.get("faces")
     if not isinstance(raw_faces, list):
         return None
     faces = []
