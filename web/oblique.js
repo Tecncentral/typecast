@@ -30,6 +30,52 @@ let direction = "north";
 let map = null;
 let markers = [];
 let busy = false;
+let city = null; // open 3D view
+let cityToken = 0;
+
+function closeCity() {
+  cityToken += 1;
+  city?.dispose();
+  city = null;
+  $("#ob-3d").hidden = true;
+  $("#ob-3d").replaceChildren();
+  $("#ob-image").hidden = false;
+  $("#ob-credit").textContent = "Vexcel oblique imagery · 45° · capture date in the image corner";
+  $("#ob-chat-send").disabled = false;
+}
+
+async function openCity() {
+  closeCity();
+  const token = ++cityToken;
+  for (const b of document.querySelectorAll("#ob-dirs button"))
+    b.setAttribute("aria-pressed", String(b.dataset.dir === "3d"));
+  $("#ob-image").hidden = true;
+  $("#ob-ai-label").hidden = true;
+  $("#ob-compare").hidden = true;
+  $("#ob-3d").hidden = false;
+  $("#ob-chat-send").disabled = true;
+  $("#ob-chat-note").textContent = "Reimagine works on the oblique photos; pick a direction to edit.";
+  const loading = $("#ob-loading");
+  loading.hidden = false;
+  loading.textContent = "Finding Vexcel 3D Cities tiles…";
+  try {
+    const { mountCity3D } = await import("./city3d.js");
+    if (token !== cityToken) return;
+    const view = await mountCity3D($("#ob-3d"), place.lat, place.lon, {
+      onStatus: (text) => {
+        if (token !== cityToken) return;
+        loading.hidden = !text;
+        loading.textContent = text;
+      },
+    });
+    if (token !== cityToken) return view.dispose();
+    city = view;
+    const [from, to] = view.place.capture || [];
+    $("#ob-credit").textContent = `Vexcel 3D Cities · textured city mesh${from ? ` · captured ${from} – ${to}` : ""} · drag to orbit, scroll to zoom · the pin marks the place`;
+  } catch (error) {
+    if (token === cityToken) loading.textContent = error.message;
+  }
+}
 
 async function post(path, body, timeout = 180000) {
   const controller = new AbortController();
@@ -247,6 +293,7 @@ function paint() {
 }
 
 async function loadView(dir) {
+  closeCity();
   direction = dir;
   for (const b of document.querySelectorAll("#ob-dirs button"))
     b.setAttribute("aria-pressed", String(b.dataset.dir === dir));
@@ -287,6 +334,12 @@ function open(r) {
     b.addEventListener("click", () => loadView(dir));
     dirs.append(b);
   }
+  const three = el("button", "3D");
+  three.type = "button";
+  three.dataset.dir = "3d";
+  three.title = "Vexcel 3D Cities: the textured city mesh around this place";
+  three.addEventListener("click", openCity);
+  dirs.append(three);
   const suggest = $("#ob-chat-suggest");
   suggest.replaceChildren();
   for (const idea of CHAT_IDEAS) {
@@ -339,6 +392,7 @@ async function init() {
   $("#ob-form").addEventListener("submit", run);
   $("#ob-chat-form").addEventListener("submit", send);
   $("#ob-close").addEventListener("click", () => $("#ob-place").close());
+  $("#ob-place").addEventListener("close", closeCity);
   for (const b of document.querySelectorAll("#ob-compare button"))
     b.addEventListener("click", () => {
       showing = b.dataset.show;

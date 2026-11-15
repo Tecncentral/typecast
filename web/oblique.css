@@ -295,6 +295,20 @@
   height: 100%;
   object-fit: cover;
 }
+.ob-3d {
+  position: absolute;
+  inset: 0;
+}
+.ob-3d-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  cursor: grab;
+  touch-action: none;
+}
+.ob-3d-canvas:active {
+  cursor: grabbing;
+}
 .ob-ai-label {
   position: absolute;
   top: 12px;

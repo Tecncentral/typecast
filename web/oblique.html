@@ -9,6 +9,10 @@
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
     <link rel="stylesheet" href="./oblique.css" />
+    <!-- three.js and its decoders load only when a 3D city view opens (city3d.js). -->
+    <script type="importmap">
+      { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
+    </script>
   </head>
   <body>
     <header class="masthead">
@@ -67,6 +71,7 @@
           <div class="ob-viewer">
             <div class="ob-stage">
               <img id="ob-image" alt="" />
+              <div id="ob-3d" class="ob-3d" hidden></div>
               <p id="ob-ai-label" class="ob-ai-label" hidden></p>
               <p id="ob-loading" class="ob-loading" hidden>Loading the oblique…</p>
             </div>
@@ -77,7 +82,7 @@
                 <button type="button" data-show="imagined" aria-pressed="true">Imagined</button>
               </div>
             </div>
-            <p class="ob-credit">Vexcel oblique imagery · 45° · capture date in the image corner</p>
+            <p class="ob-credit" id="ob-credit">Vexcel oblique imagery · 45° · capture date in the image corner</p>
           </div>
           <aside class="ob-side">
             <section class="ob-facts" id="ob-facts" aria-label="Evidence"></section>

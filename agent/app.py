@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv(pathlib.Path(__file__).resolve().parents[1] / ".env", override=False)
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -96,6 +96,37 @@ def oblique_reimagine(req: ObliqueReimagineRequest):
         return oblique.reimagine(req.search_id, req.index, req.direction, req.message)
     except Exception as error:  # noqa: BLE001
         raise _oblique_error(error) from None
+
+
+@app.get("/api/vexcel3d/place")
+def vexcel3d_place(lat: float, lon: float):
+    """Vexcel 3D Cities tiles around a point; tile URLs point at this server's proxy."""
+    from urllib.parse import urlencode
+    from data.vexcel_3d import City3D
+    from data.vexcel_client import ProviderError
+    if not (-85 <= lat <= 85 and -180 <= lon <= 180):
+        raise HTTPException(400, "Invalid coordinates.")
+    try:
+        place = City3D().place(lat, lon)
+    except ProviderError as error:
+        raise HTTPException(502, str(error)) from None
+    place["tiles"] = [f"/api/vexcel3d/tile?{urlencode(t)}" for t in place["tiles"]]
+    return {**place, "center": [lat, lon]}
+
+
+@app.get("/api/vexcel3d/tile")
+def vexcel3d_tile(zoom: int, x: int = Query(alias="tile-x"), y: int = Query(alias="tile-y"),
+                  child_aoi: str = Query(alias="childAOI")):
+    from fastapi.responses import Response
+    from data.vexcel_3d import City3D, tile_params
+    from data.vexcel_client import ProviderError
+    try:
+        content = City3D().tile(tile_params(zoom, x, y, child_aoi))
+    except ValueError:
+        raise HTTPException(400, "Invalid 3D tile reference.") from None
+    except ProviderError as error:
+        raise HTTPException(502, str(error)) from None
+    return Response(content, media_type="model/gltf-binary", headers={"Cache-Control": "private, max-age=86400"})
 
 
 class RefineRequest(BaseModel):
