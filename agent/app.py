@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 
 load_dotenv(pathlib.Path(__file__).resolve().parents[1] / ".env", override=False)
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import StreamingResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -34,6 +34,126 @@ def aerial_metadata(property_id: str):
         raise HTTPException(404, "Aerial metadata unavailable.",
                             headers={"Cache-Control": "no-store"}) from None
     return JSONResponse(metadata, headers={"Cache-Control": "no-store"})
+
+
+class ObliqueSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=300)
+    area: str = Field(pattern=r"^[a-z-]{1,40}$")
+
+
+class ObliqueViewRequest(BaseModel):
+    search_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    index: int = Field(ge=0, le=31)
+    direction: Literal["north", "east", "south", "west"]
+
+
+class ObliqueReimagineRequest(ObliqueViewRequest):
+    message: str = Field(min_length=1, max_length=600)
+
+
+@app.get("/api/oblique/areas")
+def oblique_areas():
+    from agent.oblique_search import AREAS, image_model
+    model, quality = image_model()
+    return {"areas": [{"id": key, "label": label, "city": city} for key, (label, city, *_rest) in AREAS.items()],
+            "image_model": model, "image_quality": quality}
+
+
+def _oblique_error(error: Exception) -> HTTPException:
+    from data.vexcel_client import ProviderError
+    if isinstance(error, (KeyError,)):
+        return HTTPException(404, "Search not found. Run the search again.")
+    if isinstance(error, ValueError):
+        return HTTPException(400, str(error))
+    if isinstance(error, ProviderError):
+        return HTTPException(502, str(error))
+    return HTTPException(500, "Oblique search failed.")
+
+
+@app.post("/api/oblique/search")
+def oblique_search(req: ObliqueSearchRequest):
+    from agent import oblique_search as oblique
+    try:
+        return oblique.search(req.query, req.area)
+    except Exception as error:  # noqa: BLE001 - sanitized below
+        raise _oblique_error(error) from None
+
+
+@app.post("/api/oblique/view")
+def oblique_view(req: ObliqueViewRequest):
+    from agent import oblique_search as oblique
+    try:
+        return {**oblique.view(req.search_id, req.index, req.direction),
+                "chat": oblique.chat(req.search_id, req.index, req.direction)}
+    except Exception as error:  # noqa: BLE001
+        raise _oblique_error(error) from None
+
+
+class ObliqueAskRequest(BaseModel):
+    search_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    index: int = Field(ge=0, le=31)
+    question: str = Field(min_length=1, max_length=500)
+
+
+@app.post("/api/oblique/ask")
+def oblique_ask(req: ObliqueAskRequest):
+    """Answer a question about one found place with live Vexcel data via Vexcel's MCP server."""
+    from agent import oblique_search as oblique
+    from agent.vexcel_assistant import AssistantError, ask
+    try:
+        record = oblique._load(req.search_id)
+        place = next(r for r in record["results"] if r["index"] == req.index)
+        return ask(req.question, place, record["city"])
+    except (KeyError, StopIteration):
+        raise HTTPException(404, "Place not found. Run the search again.") from None
+    except AssistantError as error:
+        raise HTTPException(502, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    except Exception:  # noqa: BLE001 - model or network failures are reported generically
+        raise HTTPException(502, "The assistant could not answer right now.") from None
+
+
+@app.post("/api/oblique/reimagine")
+def oblique_reimagine(req: ObliqueReimagineRequest):
+    from agent import oblique_search as oblique
+    try:
+        return oblique.reimagine(req.search_id, req.index, req.direction, req.message)
+    except Exception as error:  # noqa: BLE001
+        raise _oblique_error(error) from None
+
+
+@app.get("/api/vexcel3d/place")
+def vexcel3d_place(lat: float, lon: float):
+    """Vexcel 3D Cities tiles around a point; tile URLs point at this server's proxy."""
+    from urllib.parse import urlencode
+    from data.vexcel_3d import City3D
+    from data.vexcel_client import ProviderError
+    if not (-85 <= lat <= 85 and -180 <= lon <= 180):
+        raise HTTPException(400, "Invalid coordinates.")
+    try:
+        place = City3D().place(lat, lon)
+    except ProviderError as error:
+        raise HTTPException(502, str(error)) from None
+    place["tiles"] = [f"/api/vexcel3d/tile?{urlencode(t)}" for t in place["tiles"]]
+    return {**place, "center": [lat, lon]}
+
+
+@app.get("/api/vexcel3d/tile")
+def vexcel3d_tile(zoom: int, x: int = Query(alias="tile-x"), y: int = Query(alias="tile-y"),
+                  child_aoi: str = Query(alias="childAOI")):
+    from fastapi.responses import Response
+    from data.vexcel_3d import City3D, tile_params
+    from data.vexcel_client import ProviderError
+    try:
+        params = tile_params(zoom, x, y, child_aoi)  # validate before any client or key is touched
+    except ValueError:
+        raise HTTPException(400, "Invalid 3D tile reference.") from None
+    try:
+        content = City3D().tile(params)
+    except ProviderError as error:
+        raise HTTPException(502, str(error)) from None
+    return Response(content, media_type="model/gltf-binary", headers={"Cache-Control": "private, max-age=86400"})
 
 
 class RefineRequest(BaseModel):

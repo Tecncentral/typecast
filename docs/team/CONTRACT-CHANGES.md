@@ -155,3 +155,28 @@ Additive, optional; consumer: viewer map and change summary.
   caveat that is not a blocker.
 No existing field or endpoint behavior changes.
 
+## Oblique search (exteriors and outdoors) — 2026-11-15
+
+New, additive endpoints; consumer: `web/oblique.html`.
+- `GET /api/oblique/areas` lists metro presets (LA, Houston) and the configured image model.
+- `POST /api/oblique/search {query, area}` runs Vexcel semantic search over ortho-tile embeddings in the
+  preset (capped at 16 records; oblique embeddings are not indexed for these collections), merges hits
+  within 140 m, fetches one Vexcel oblique per place, reads Vexcel DTM along a 200 m cross and DSM at the
+  centre (estimated terrain; never access or permission), and scores each oblique with one batched vision
+  call. Cached privately under `cache/oblique/<search id>/`; a repeat query makes no provider calls.
+- `POST /api/oblique/view {search_id, index, direction}` fetches one cardinal oblique once.
+- `POST /api/oblique/reimagine {..., message}` edits the latest version with
+  `TYPECAST_OBLIQUE_IMAGE_MODEL` (default `gpt-image-1-mini`) at `TYPECAST_OBLIQUE_IMAGE_QUALITY`
+  (default `low`); every result is labelled "AI-imagined, not the real place".
+No existing endpoint or response changes.
+
+## Vexcel 3D Cities and the MCP place assistant — 2026-11-15
+
+Additive; consumer: `web/oblique.html` place view.
+- `GET /api/vexcel3d/place?lat&lon` returns the 3D collection, capture dates and tile URLs (zoom 19, ~280 m box)
+  that point at `GET /api/vexcel3d/tile?zoom&tile-x&tile-y&childAOI`, a validated proxy to Vexcel `3d/tile`.
+  Tilesets and tiles are cached under `cache/vexcel3d/`. The key never reaches the browser.
+- `POST /api/oblique/ask {search_id, index, question}` answers with `TYPECAST_LLM_MODEL` calling Vexcel MCP
+  tools (`https://api.vexcelgroup.com/v2/mcp`, key only to Vexcel). Read-only allowlist, trimmed parameters,
+  geometry within ~2 km of the place, clamped buffers/records, at most 5 calls; the answer lists the tools used.
+
