@@ -284,7 +284,16 @@
   }
   const noReq = (r) => !((num(r.trucks) || 0) + (num(r.cars) || 0) > 0 || r.require_available);
   const parkWord = (f, req) => {
-    const veh = `${num(req.trucks) || 0} truck${(num(req.trucks) || 0) === 1 ? '' : 's'} and ${num(req.cars) || 0} car${(num(req.cars) || 0) === 1 ? '' : 's'}`;
+    const t = num(req.trucks) || 0, c = num(req.cars) || 0;
+    if (t + c === 0 && req.require_available) {
+      if (!f) return 'not in the revised pool';
+      return f.availability === 'available' ? 'marketed as available (approval unknown)'
+        : f.availability === 'not_available' ? 'not marketed as available'
+        : 'listing availability unknown';
+    }
+    const veh = t > 0 && c > 0 ? `${t} truck${t === 1 ? '' : 's'} and ${c} car${c === 1 ? '' : 's'}`
+      : t > 0 ? `${t} truck${t === 1 ? '' : 's'}`
+      : `${c} car${c === 1 ? '' : 's'}`;
     if (!f) return `not in the revised pool for ${veh}`;
     if (f.enough_parking === true) return `${f.parking_status} capacity covers ${veh} (approval unknown)`;
     if (f.enough_parking === false) return `${f.parking_status} capacity is below ${veh}`;
@@ -300,6 +309,8 @@
     const oldFacts = candidateFacts(input.oldCand);
     if (!sc || !plan0) { out.reasons.push('The planner returned no plan for these requirements.'); out.before = oldFacts; return out; }
     const all = sc.candidates || [], beforeNew = all.find((c) => c.shot && c.shot.shot_id === before.shot_id) || null;
+    const maxLocRaw = num(input.maxLocations);
+    const maxLoc = maxLocRaw != null ? Math.min(4, Math.max(1, Math.floor(maxLocRaw))) : null;
     const beforeFacts = candidateFacts(beforeNew) || oldFacts;
     const beforeExcluded = !beforeNew || beforeNew.eligible === false || forbidden.includes(before.property_id);
     const beforeSat = beforeExcluded ? { parking: 'unmet', availability: 'none', satisfied: false } : satisfaction(beforeFacts, req);
@@ -315,11 +326,30 @@
       return out;
     }
     const planned = (plan0.assignments || []).find((a) => a.scene_id === sid);
-    const byScore = [...sats].sort((a, b) => (num(b.shot.score) ?? -Infinity) - (num(a.shot.score) ?? -Infinity) || String(a.shot.shot_id).localeCompare(String(b.shot.shot_id)));
-    const pick = (planned && sats.find((c) => c.shot.shot_id === planned.shot_id)) || byScore[0];
+    const pick = planned ? sats.find((c) => c.shot.shot_id === planned.shot_id && c.shot.property_id === planned.property_id) || null : null;
+    const uncovered = new Set(Array.isArray(plan0.uncovered_scene_ids) ? plan0.uncovered_scene_ids : []);
+    const assignedIds = new Set((plan0.assignments || []).map((a) => a.scene_id));
+    const expectedIds = input.oldAssign ? Object.keys(input.oldAssign) : (newResp.scenes || []).map((s) => s.id);
+    const allScenesCovered = expectedIds.every((id) => assignedIds.has(id) && !uncovered.has(id));
+    const props = new Set((plan0.assignments || []).map((a) => a.property_id));
+    const withinMax = maxLoc == null || props.size <= maxLoc;
+    const allAssignValid = (plan0.assignments || []).every((a) => {
+      if (forbidden.includes(a.property_id)) return false;
+      const sObj = (newResp.scenes || []).find((x) => x.id === a.scene_id);
+      const cObj = sObj?.candidates?.find((c) => c.shot && c.shot.shot_id === a.shot_id && c.shot.property_id === a.property_id && c.eligible !== false);
+      if (!cObj) return false;
+      return satisfaction(candidateFacts(cObj), req).satisfied;
+    });
+    if (!pick || !allScenesCovered || !withinMax || !allAssignValid) {
+      out.reasons.push(!pick ? 'No complete revised solver plan assigns a candidate with known data that satisfies this requirement.'
+        : !allScenesCovered ? 'Satisfying this requirement leaves other scenes uncovered in the revised plan.'
+        : !withinMax ? `Revised plan exceeds the ${maxLoc}-location limit.`
+        : 'Revised plan includes an assignment that does not satisfy the requirement.');
+      return out;
+    }
     const after = candidateFacts(pick);
     out.kind = 'alternative'; out.afterCand = pick; out.after = { ...after, sat: satisfaction(after, req) };
-    out.fromPlan = !!(planned && planned.shot_id === pick.shot.shot_id);
+    out.fromPlan = true;
     out.totalsRecalculated = out.fromPlan;
     // differences: deterministic, each only when both sides actually have the data
     const d = out.differences, bf = out.before, af = out.after;
@@ -331,11 +361,14 @@
     if (bf.similarity != null && af.similarity != null && !beforeExcluded) d.push(`Image similarity (a ranking from the same query, not shootability): ${bf.similarity.toFixed(2)} → ${af.similarity.toFixed(2)}.`);
     if (out.totalsRecalculated) d.push(`Plan from the revised request: ${num(plan0.locations) ?? '?'} location(s), ${num(plan0.company_moves) ?? '?'} move(s).`);
     else d.push('Location count and company moves are not recalculated for this hand choice from the revised pool.');
-    // other scenes that move because the whole plan is re-planned
+    // other scenes that move or become uncovered because the whole plan is re-planned
     for (const a of plan0.assignments || []) {
       if (a.scene_id === sid) continue;
       const old = input.oldAssign && input.oldAssign[a.scene_id];
       if (old && (old.shot_id !== a.shot_id || old.property_id !== a.property_id)) out.planChanges.push({ scene_id: a.scene_id, from: id120(old.property_id), to: id120(a.property_id) });
+    }
+    for (const [id, old] of Object.entries(input.oldAssign || {})) {
+      if (id !== sid && !assignedIds.has(id)) out.planChanges.push({ scene_id: id, from: id120(old.property_id), to: 'uncovered' });
     }
     if (out.planChanges.length) d.push(`Re-planning the whole script also moves ${out.planChanges.length} other scene${out.planChanges.length === 1 ? '' : 's'}; their takes stay with their old frames for you to copy or restart.`);
     const u = out.unresolved;

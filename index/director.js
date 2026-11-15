@@ -60,7 +60,7 @@ const assignFor = (sid) => {
   return chosen ? { ...a, shot_id: chosen, manual_frame: true } : a;
 };
 // A swap chosen by Save the scene that equals the revised plan's own assignment does not make the plan totals stale.
-const swapStale = (s) => { const sw = validSwap(s.id); if (!sw) return false; if (sw.via !== 'save') return true; return (plan()?.assignments || []).find((x) => x.scene_id === s.id)?.shot_id !== sw.shot_id; };
+const swapStale = (s) => { const sw = validSwap(s.id); if (!sw) return false; if (sw.via !== 'save') return true; const a = (plan()?.assignments || []).find((x) => x.scene_id === s.id); return !a || a.shot_id !== sw.shot_id || a.property_id !== sw.property_id; };
 const anySwap = () => S.scenes.some(swapStale);
 function candFor(sid, shotId) {
   const sc = S.resp?.scenes?.find((s) => s.id === sid);
@@ -134,6 +134,7 @@ function busy(on) {
   const frameSelect = $('framePicker').querySelector('select'); if (frameSelect) frameSelect.disabled = on;
   for (const b of $('framePicker').querySelectorAll('button')) b.disabled = on;   // strips rendered mid-build must not stay disabled
   $('gen').disabled = on || !!S.gen.ctrl;
+  if ($('saveBtn')) $('saveBtn').disabled = on || S.mode !== 'film' || !S.sceneId || !assignFor(S.sceneId);
 }
 // Rejections remain authoritative even if a stale or faulty backend returns them (or no backend answers).
 function applyForbidden(data) {
@@ -1317,8 +1318,9 @@ async function runSave() {
     if (!saveCtxValid(sv.ctx)) { sv.phase = 'review'; sv.stale = true; sv.ctrl = null; return renderSavePanel(); }
     applyForbidden(data); orderPlans(data);
     const a = assignFor(sv.sid), old = S.built || constraints();
+    const maxLoc = clamp($('maxLoc').value, 1, 4, 3);
     sv.outcome = TypecastChecks.saveSceneOutcome({ sid: sv.sid, req, oldReq: { trucks: old.trucks, cars: old.cars, require_available: old.require_available }, before: { shot_id: a.shot_id, property_id: a.property_id },
-      oldCand: candFor(sv.sid, a.shot_id), newResp: data, forbidden: [...S.forbidden], oldAssign: Object.fromEntries(S.scenes.map((s) => { const x = assignFor(s.id); return [s.id, x ? { shot_id: x.shot_id, property_id: x.property_id } : null]; }).filter(([, v]) => v)) });
+      oldCand: candFor(sv.sid, a.shot_id), newResp: data, forbidden: [...S.forbidden], maxLocations: maxLoc, oldAssign: Object.fromEntries(S.scenes.map((s) => { const x = assignFor(s.id); return [s.id, x ? { shot_id: x.shot_id, property_id: x.property_id } : null]; }).filter(([, v]) => v)) });
     sv.resp = data; sv.phase = 'review'; sv.ctrl = null;
   } catch (e) {
     if (e.name === 'AbortError' || S.save !== sv || tok !== saveTok) return;
@@ -1346,9 +1348,19 @@ function applySave() {
   if (!sv || sv.phase !== 'review' || !o || o.kind !== 'alternative' || !o.afterCand || !sv.resp) return;
   if (!saveCtxValid(sv.ctx)) { sv.stale = true; return renderSavePanel(); }
   const sid = sv.sid, cand = o.afterCand;
-  // The chosen candidate must be an eligible member of the revised response itself, never an id from an older pool.
+  // The chosen candidate must be assigned in a complete, valid revised plan, never an id from an older pool.
   const inPool = (sv.resp.scenes.find((x) => x.id === sid)?.candidates || []).some((c) => c === cand && c.eligible !== false && !S.forbidden.includes(c.shot.property_id));
-  if (!inPool) { sv.stale = true; return renderSavePanel(); }
+  const plan0 = sv.resp.plans?.[0], assigned = (plan0?.assignments || []).find((a) => a.scene_id === sid);
+  const sat = TypecastChecks.satisfaction(TypecastChecks.candidateFacts(cand), sv.req);
+  const allCovered = S.scenes.every((s) => (plan0?.assignments || []).some((a) => a.scene_id === s.id) && !(plan0?.uncovered_scene_ids || []).includes(s.id));
+  const withinMax = new Set((plan0?.assignments || []).map((a) => a.property_id)).size <= clamp($('maxLoc').value, 1, 4, 3);
+  const allAssignValid = (plan0?.assignments || []).every((a) => {
+    if (S.forbidden.includes(a.property_id)) return false;
+    const cObj = sv.resp.scenes?.find((x) => x.id === a.scene_id)?.candidates?.find((c) => c.shot && c.shot.shot_id === a.shot_id && c.shot.property_id === a.property_id && c.eligible !== false);
+    if (!cObj) return false;
+    return TypecastChecks.satisfaction(TypecastChecks.candidateFacts(cObj), sv.req).satisfied;
+  });
+  if (!inPool || !assigned || assigned.shot_id !== cand.shot.shot_id || assigned.property_id !== cand.shot.property_id || !sat.satisfied || !allCovered || !withinMax || !allAssignValid) { sv.stale = true; return renderSavePanel(); }
   const tx = snapshotAll(), before = assignFor(sid), prev = assignMap(), oldKey = keyOf(sid), oldReq = S.built || constraints();
   stopPlay(); cancelGen(); clearPending();
   // 1. the request controls and the plan change together, so what you see is what was planned
@@ -1366,7 +1378,12 @@ function applySave() {
   S.decisions[sid] = TypecastChecks.decisionRecord(o, { trucks: oldReq.trucks, cars: oldReq.cars, require_available: oldReq.require_available }, sv.req, new Date().toISOString());
   S.rev++; S.save = null; saveTok++; renderAll();
   S.saveTx = { sid, tx, rev: S.rev };
-  status(`Applied: scene ${sceneNumber(sid)} now uses ${safeId(cand.shot.property_id)} for ${sv.req.trucks} truck${sv.req.trucks === 1 ? '' : 's'}. Both takes were copied as unreviewed drafts; the previous frame and its takes are kept. Undo restores everything.`);
+  const reqDesc = sv.req.trucks > 0 && sv.req.cars > 0 ? `${sv.req.trucks} truck${sv.req.trucks === 1 ? '' : 's'} and ${sv.req.cars} car${sv.req.cars === 1 ? '' : 's'}`
+    : sv.req.trucks > 0 ? `${sv.req.trucks} truck${sv.req.trucks === 1 ? '' : 's'}`
+    : sv.req.cars > 0 ? `${sv.req.cars} car${sv.req.cars === 1 ? '' : 's'}`
+    : 'an available listing';
+  const takeMsg = S.swaps[k].dest_kept ? 'Existing staging on this frame was kept.' : 'Both takes were copied as unreviewed drafts; the previous frame and its takes are kept.';
+  status(`Applied: scene ${sceneNumber(sid)} now uses ${safeId(cand.shot.property_id)} for ${reqDesc}. ${takeMsg} Undo restores everything.`);
   renderSwapNotice();
 }
 function undoSave() {

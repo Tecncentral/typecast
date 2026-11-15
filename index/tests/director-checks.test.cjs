@@ -276,11 +276,11 @@ test('satisfaction: unknown capacity against a positive truck requirement is nev
 });
 
 test('outcome: an estimated alternative is proposed, with the differences stated from real fields and approval left unknown', () => {
-  const cands = [mkCand('A', 'a1', { pst: 'estimated', enough: false, score: 0.9 }), mkCand('B', 'b1', { pst: 'estimated', enough: true, score: 0.83, area: 100 }), mkCand('A', 'a2', { score: 0.7 })];
+  const cands = [mkCand('A', 'a1', { pst: 'estimated', enough: false, score: 0.9 }), mkCand('B', 'b1', { pst: 'estimated', enough: true, score: 0.83, area: 100 }), mkCand('B', 'b2', { pst: 'estimated', enough: true }), mkCand('A', 'a2', { score: 0.7 })];
   const r = run({ newResp: mkResp(cands, [{ scene_id: 's1', property_id: 'B', shot_id: 'b1' }, { scene_id: 's2', property_id: 'B', shot_id: 'b2' }]) });
   assert.equal(r.kind, 'alternative'); assert.equal(r.after.shot_id, 'b1'); assert.equal(r.fromPlan, true); assert.equal(r.totalsRecalculated, true);
   const d = r.differences.join('\n');
-  assert.match(d, /Requirement: estimated capacity is below 5 trucks and 0 cars → estimated capacity covers 5 trucks and 0 cars \(approval unknown\)/);
+  assert.match(d, /Requirement: estimated capacity is below 5 trucks → estimated capacity covers 5 trucks \(approval unknown\)/);
   assert.match(d, /Different property: A → B/); assert.match(d, /Floor area \(index estimates, not measurements\): 60 m² → 100 m²/);
   assert.match(d, /Image similarity \(a ranking from the same query, not shootability\): 0\.90 → 0\.83/);
   assert.match(d, /Plan from the revised request: 1 location\(s\), 0 move\(s\)/); assert.equal(/%/.test(d), false);
@@ -303,22 +303,40 @@ test('outcome: no alternative, unknown-only data, no requirement, empty plan and
 });
 
 test('outcome: rejected properties and stale-looking pool members are never proposed; only the revised response counts', () => {
-  const cands = [mkCand('A', 'a1', { pst: 'estimated', enough: false }), mkCand('B', 'b1', { pst: 'estimated', enough: true }), mkCand('C', 'c1', { pst: 'measured', enough: true, score: 0.5 })];
-  let r = run({ forbidden: ['B'], newResp: mkResp(cands, [{ scene_id: 's1', property_id: 'C', shot_id: 'c1' }]) });
+  const cands = [mkCand('A', 'a1', { pst: 'estimated', enough: false }), mkCand('B', 'b1', { pst: 'estimated', enough: true }), mkCand('C', 'c1', { pst: 'measured', enough: true, score: 0.5 }), mkCand('C', 'c2', { pst: 'measured', enough: true, score: 0.5 })];
+  let r = run({ forbidden: ['B'], newResp: mkResp(cands, [{ scene_id: 's1', property_id: 'C', shot_id: 'c1' }, { scene_id: 's2', property_id: 'C', shot_id: 'c2' }]) });
   assert.equal(r.kind, 'alternative'); assert.equal(r.after.property_id, 'C');
   r = run({ forbidden: ['B', 'C'], newResp: mkResp(cands, [{ scene_id: 's1', property_id: 'A', shot_id: 'a1' }]) }); assert.equal(r.kind, 'none');
   // an ineligible candidate that looks satisfied is not proposed
   r = run({ newResp: mkResp([mkCand('A', 'a1'), mkCand('B', 'b1', { eligible: false, pst: 'estimated', enough: true })], [{ scene_id: 's1', property_id: 'A', shot_id: 'a1' }]) }); assert.equal(r.kind, 'none');
-  // when the solver's own choice is not satisfied, the best satisfied candidate is a hand choice and totals are stated as not recalculated
+  // when no complete revised solver plan assigns a satisfied candidate, no off-plan hand pick is proposed
   r = run({ newResp: mkResp([mkCand('A', 'a1'), mkCand('B', 'b1', { pst: 'estimated', enough: true, score: 0.6 }), mkCand('C', 'c1', { pst: 'estimated', enough: true, score: 0.9 })], [{ scene_id: 's1', property_id: 'A', shot_id: 'a1' }]) });
-  assert.equal(r.after.shot_id, 'c1'); assert.equal(r.fromPlan, false); assert.equal(r.totalsRecalculated, false); assert.match(r.differences.join('\n'), /not recalculated for this hand choice/);
-  // identical results are deterministic
-  assert.deepEqual(run({ newResp: mkResp([mkCand('B', 'z', { pst: 'estimated', enough: true }), mkCand('C', 'y', { pst: 'estimated', enough: true })], []) }).after?.shot_id, 'y');
+  assert.equal(r.kind, 'none'); assert.equal(r.after, null); assert.match(r.reasons[0], /No complete revised solver plan assigns a candidate/);
+  // empty assignments, uncovered scenes, unknown other-scene assignments, or exceeding maxLocations are rejected
+  assert.equal(run({ newResp: mkResp([mkCand('B', 'z', { pst: 'estimated', enough: true }), mkCand('C', 'y', { pst: 'estimated', enough: true })], []) }).kind, 'none');
+  const partial = mkResp(cands, [{ scene_id: 's1', property_id: 'B', shot_id: 'b1' }], { uncovered_scene_ids: ['s2'] });
+  assert.equal(run({ newResp: partial }).kind, 'none'); assert.match(run({ newResp: partial }).reasons[0], /leaves other scenes uncovered/);
+  const unkOther = mkResp([mkCand('A', 'a1'), mkCand('B', 'b1', { pst: 'estimated', enough: true }), mkCand('B', 'b2', { pst: 'unknown' })], [{ scene_id: 's1', property_id: 'B', shot_id: 'b1' }, { scene_id: 's2', property_id: 'B', shot_id: 'b2' }]);
+  assert.equal(run({ newResp: unkOther }).kind, 'none'); assert.match(run({ newResp: unkOther }).reasons[0], /does not satisfy the requirement/);
+  const overMax = mkResp([mkCand('A', 'a1'), mkCand('B', 'b1', { pst: 'estimated', enough: true }), mkCand('C', 'c1', { pst: 'estimated', enough: true })], [{ scene_id: 's1', property_id: 'B', shot_id: 'b1' }, { scene_id: 's2', property_id: 'C', shot_id: 'c1' }], { locations: 2 });
+  assert.equal(run({ maxLocations: 1, newResp: overMax }).kind, 'none'); assert.match(run({ maxLocations: 1, newResp: overMax }).reasons[0], /exceeds the 1-location limit/);
+});
+
+test('outcome: availability-only and car-only requirements state the actual requirement instead of 0 trucks', () => {
+  const avCands = [mkCand('A', 'a1', { avail: null }), mkCand('B', 'b1', { avail: 'available' }), mkCand('B', 'b2', { avail: 'available' })];
+  const rAv = run({ req: { trucks: 0, cars: 0, require_available: true }, newResp: mkResp(avCands, [{ scene_id: 's1', property_id: 'B', shot_id: 'b1' }, { scene_id: 's2', property_id: 'B', shot_id: 'b2' }]) });
+  assert.equal(rAv.kind, 'alternative');
+  assert.match(rAv.differences[0], /Requirement: listing availability unknown → marketed as available/);
+  assert.doesNotMatch(rAv.differences[0], /0 trucks/);
+  const carCands = [mkCand('A', 'a1', { pst: 'unknown' }), mkCand('B', 'b1', { pst: 'estimated', enough: true }), mkCand('B', 'b2', { pst: 'estimated', enough: true })];
+  const rCar = run({ req: { trucks: 0, cars: 8, require_available: false }, newResp: mkResp(carCands, [{ scene_id: 's1', property_id: 'B', shot_id: 'b1' }, { scene_id: 's2', property_id: 'B', shot_id: 'b2' }]) });
+  assert.match(rCar.differences[0], /8 cars/);
+  assert.doesNotMatch(rCar.differences[0], /0 trucks/);
 });
 
 test('decision record is compact, bounded, whitelisted and free of provider rows', () => {
-  const cands = [mkCand('A', 'a1', { pst: 'estimated', enough: false }), mkCand('B', 'b1', { pst: 'estimated', enough: true })];
-  const o = run({ newResp: mkResp(cands, [{ scene_id: 's1', property_id: 'B', shot_id: 'b1' }]) });
+  const cands = [mkCand('A', 'a1', { pst: 'estimated', enough: false }), mkCand('B', 'b1', { pst: 'estimated', enough: true }), mkCand('B', 'b2', { pst: 'estimated', enough: true })];
+  const o = run({ newResp: mkResp(cands, [{ scene_id: 's1', property_id: 'B', shot_id: 'b1' }, { scene_id: 's2', property_id: 'B', shot_id: 'b2' }]) });
   const rec = C.decisionRecord(o, { trucks: 0, cars: 0, require_available: false }, { trucks: 99, cars: 999, require_available: true }, '2026-11-14T10:00:00.000Z');
   assert.deepEqual(Object.keys(rec).sort(), ['after', 'before', 'decided_at', 'differences', 'moved_scenes', 'original', 'revised', 'scope', 'totals_recalculated', 'unresolved', 'v']);
   assert.deepEqual(rec.revised, { trucks: 20, cars: 200, require_available: true });

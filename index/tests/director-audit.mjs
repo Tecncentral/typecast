@@ -2673,7 +2673,7 @@ function svEvidence(pid) {
       : { eligible: false, logistics: { parking_status: 'estimated', enough_parking: false } };
 }
 const svReply = (body, over = {}) => { const five = body.trucks >= 5;
-  return planFor(body, five ? [assignment('s1', 'B', 'b1'), assignment('s2', over.s2 || 'A', over.s2 === 'B' ? 'b2' : 'a2')] : SV_OLD(), { candidates: SV_POOL(), evidenceFor: five ? svEvidence : () => ({}), ...(over.extra || {}) }); };
+  return planFor(body, five ? [assignment('s1', 'B', 'b1'), assignment('s2', over.s2 || 'B', (over.s2 || 'B') === 'B' ? 'b2' : 'a2')] : SV_OLD(), { candidates: SV_POOL(), evidenceFor: five ? svEvidence : () => ({}), ...(over.extra || {}) }); };
 async function saveEnv() {
   const env = boot();
   await buildScript(env, SCRIPT2, SV_OLD(), { candidates: SV_POOL(), evidence: { shot: { room_area_m2: 60 } } });
@@ -2710,7 +2710,7 @@ test('save the scene: constraints reach the real planner request; an estimated a
   const body = await svFind(env, 5);
   assert.equal(body.trucks, 5); assert.equal(body.max_locations, 3); assert.deepEqual(copied(body.forbidden_property_ids), ['Z']); assert.equal(body.require_available, false); assert.equal(body.scenes.length, 2);
   assert.match(svText(env), /Requirement: 5 trucks, 0 cars/); assert.match(svText(env), /Before: A/); assert.match(svText(env), /Proposed after: B/);
-  assert.match(svText(env), /Requirement: capacity unknown for 5 trucks and 0 cars → estimated capacity covers 5 trucks and 0 cars \(approval unknown\)/);
+  assert.match(svText(env), /Requirement: capacity unknown for 5 trucks → estimated capacity covers 5 trucks \(approval unknown\)/);
   assert.match(svText(env), /Different property: A → B/); assert.match(svText(env), /Floor area \(index estimates, not measurements\): \d+ m² → 90 m²/);
   assert.match(svText(env), /Parking capacity is an estimate; approval is unknown\. Verify on site\./); assert.match(svText(env), /This compares planner data, not shootability, and is not an approval\./);
   assert.doesNotMatch(svText(env), /%|best|winner|saved the scene|guarantee/i);
@@ -2736,6 +2736,11 @@ test('save the scene: Apply moves the scene, keeps both takes (with sample origi
   assert.equal(env.api.S.decisions.s1.after.shot_id, 'b1'); assert.equal(env.api.S.decisions.s1.original.trucks, 0); assert.equal(env.api.S.decisions.s1.revised.trucks, 5);
   assert.match(env.$('checksBody').textContent, /Saved decision \(historical record\)[\s\S]*not current source data and not an approval/);
   assert.equal(env.api.exportSnapshot().plan_note, undefined, 'a plan chosen by the revised request keeps its recalculated totals');
+  assert.doesNotMatch(env.$('planMeta').textContent, /not recalculated/);
+  // an ordinary manual swap outside Save still marks plan totals not recalculated
+  const envManual = await saveEnv();
+  envManual.api.swapLocation('s1', 'b1');
+  assert.match(envManual.api.exportSnapshot().plan_note, /were not recalculated/);
   env.drawLog.length = 0; env.api.setVariant('B'); assert.ok(painted(env).includes('AUTHORED SAMPLE · not AI')); assert.ok(painted(env).includes('STAGING CARRIED OVER · UNREVIEWED ON THIS FRAME'));
 });
 
@@ -2805,6 +2810,9 @@ test('save the scene: a result for an older script, requirement, rejection, scen
   // a candidate id that is not in the revised pool can never be applied
   const e2 = await saveEnv(); await svFind(e2, 5); e2.api.S.save.outcome.afterCand = { eligible: true, shot: { shot_id: 'forged', property_id: 'B' } }; e2.api.applySave();
   assert.equal(e2.api.validSwap('s1'), null); assert.equal(e2.api.S.resp.plans[0].assignments[0].shot_id, 'a1');
+  // a candidate in the pool that is NOT assigned in the revised plan can never be applied
+  const e3 = await saveEnv(); await svFind(e3, 5); e3.api.S.save.outcome.afterCand = e3.api.S.save.resp.scenes[0].candidates.find((c) => c.shot.shot_id === 'a2'); e3.api.applySave();
+  assert.equal(e3.api.validSwap('s1'), null); assert.equal(e3.api.S.resp.plans[0].assignments[0].shot_id, 'a1');
 });
 
 test('save the scene: re-planning the whole script keeps other scenes work reviewable and requests, controls and assignments agree', async () => {
@@ -2861,6 +2869,7 @@ test('save the scene: draft recovery restores the decision and requirements, and
   const job = r.take('/api/production/plan'); const body = JSON.parse(job.opts.body); assert.equal(body.trucks, 5);
   job.resolve(jsonResponse(svReply(body))); await drain();
   assert.equal(r.api.S.decisions.s1.revised.trucks, 5); assert.equal(r.api.exportSnapshot().scenes[0].evidence.frame.shot_id, 'b1'); assert.equal(r.api.shotData('s1', 'A').dialogue, 'DRAFT_TAKE'); assert.equal(r.api.S.transfer['s1::b1'].reviewed, false);
+  assert.equal(r.$('saveBtn').disabled, false, 'Save button is re-enabled after draft restore completes');
   assert.match(r.$('swapNotice').textContent, /Takes copied to this frame for review\. Review stand-in placement; room fit remains unverified\./);
   const html = readFileSync(join(DIR, '..', 'director.html'), 'utf8'); assert.match(html.match(/<button id="saveBtn"[^>]*>/)[0], /data-film-only/); assert.match(html.match(/<section id="savePanel"[^>]*>/)[0], /data-film-only/);
   const c = boot(); c.$('modeComm').click(); await buildScript(c, NEEDS, CROWS(), { candidates: CPOOL() }); c.api.openSave(); assert.equal(c.api.S.save, null); assert.equal(c.$('savePanel').hidden, true); assert.equal(c.$('saveBtn').disabled, true);
@@ -2885,4 +2894,30 @@ test('save the scene: malformed or hostile decision records are refused on impor
   assert.equal(clean.differences[0], 'a b'); assert.equal('extra' in clean, false);
   assert.equal(P3.normalizeProject(file(mutate((r) => { r.before = null; }))).scenes[0].decision.before, null);
   assert.equal('decision' in P3.normalizeProject(JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{ id: 's1', heading: 'h', description: 'd' }] })).scenes[0], false);
+});
+
+test('save the scene: complete plan requirement, availability-only wording, destination-kept status, and saveBtn after import', async () => {
+  const env = await saveEnv();
+  // partial plan leaving s2 uncovered refuses alternative
+  await svFind(env, 5, (b) => planFor(b, [assignment('s1', 'B', 'b1')], { candidates: SV_POOL(), evidenceFor: svEvidence, extra: { uncovered_scene_ids: ['s2'] } }));
+  assert.equal(svButton(env, /Apply alternative/), undefined); assert.match(svText(env), /leaves other scenes uncovered/);
+  // plan with unknown parking on s2 refuses alternative under 5-truck request (fresh env so saveBtn does not toggle closed)
+  const envUnk = await saveEnv();
+  await svFind(envUnk, 5, (b) => svReply(b, { s2: 'A' }));
+  assert.equal(svButton(envUnk, /Apply alternative/), undefined); assert.match(svText(envUnk), /does not satisfy the requirement/);
+  // availability-only request states available listing instead of 0 trucks
+  const eAv = await saveEnv(); eAv.$('saveBtn').click(); svForm(eAv, 0, 0, true); svButton(eAv, /Find an alternative/).click();
+  const jAv = eAv.take('/api/production/plan'); jAv.resolve(jsonResponse(planFor(JSON.parse(jAv.opts.body), [assignment('s1', 'B', 'b1'), assignment('s2', 'B', 'b2')], { candidates: SV_POOL(), evidenceFor: (p) => (p === 'B' ? { property: { availability_status: 'available' } } : {}) }))); await drain();
+  svButton(eAv, /Apply alternative/).click();
+  assert.match(eAv.$('status').textContent, /for an available listing/); assert.doesNotMatch(eAv.$('status').textContent, /for 0 trucks/);
+  // destination work kept does not claim takes copied in status
+  const eDest = await saveEnv(); eDest.api.S.edits['s1::b1'] = { A: { duration_sec: 4, dialogue: 'KEEP_ME', actors: [] }, B: { duration_sec: 5, dialogue: '', actors: [] } };
+  await svFind(eDest, 5); svButton(eDest, /Apply alternative/).click();
+  assert.match(eDest.$('status').textContent, /Existing staging on this frame was kept\./); assert.doesNotMatch(eDest.$('status').textContent, /Both takes were copied/);
+  // project import re-enables saveBtn when complete
+  const eImp = await saveEnv(); eImp.$('expJson').click();
+  const txt = await blobText(eImp.downloads.find((d) => d.name === 'typecast-project.json').blob);
+  const fresh = boot(); const imp = await startImport(fresh, txt);
+  imp.job.resolve(jsonResponse(planFor(imp.body, SV_OLD(), { candidates: SV_POOL() }))); await drain();
+  assert.equal(fresh.$('saveBtn').disabled, false, 'Save button is enabled after project import completes');
 });
