@@ -93,7 +93,7 @@ def test_construction_and_cgi_are_public_estimates_with_ranges_notes_and_date():
     construction, cgi = A["set_construction_per_sqft"], A["cgi_per_shot"]
     assert (construction["low"], construction["value"], construction["high"]) == (
         10,
-        25,
+        15,
         40,
     )
     assert (cgi["low"], cgi["value"], cgi["high"]) == (5000, 5000, 25000)
@@ -111,6 +111,11 @@ def test_construction_and_cgi_are_public_estimates_with_ranges_notes_and_date():
         and "Excludes design fees" in construction["note"]
     )
     assert "High end is a team assumption" in construction["note"]
+    assert (
+        "the value is the midpoint of the source-derived $10-20 range"
+        in construction["source"]
+    )
+    assert construction["source"].endswith("and the high end is a team assumption")
     assert "Still needs a real studio quote" in construction["note"]
     assert "Vitrina" in cgi["source"] and "Vitrina" in cgi["note"]
     assert "$5,000-25,000 per shot" in cgi["note"] and "conservative" in cgi["note"]
@@ -121,6 +126,14 @@ def test_construction_and_cgi_are_public_estimates_with_ranges_notes_and_date():
         + construction["quality"]
         + cgi["quality"]
     )
+
+
+def test_construction_value_is_the_midpoint_of_the_range_the_blog_figures_imply():
+    # 20x30 ft = 600 sq ft; materials $1,500-4,000 plus build crew $4,500-8,100.
+    low, high = (1500 + 4500) / 600, (4000 + 8100) / 600
+    assert (low, round(high)) == (10, 20)
+    assert A["set_construction_per_sqft"]["low"] == low
+    assert A["set_construction_per_sqft"]["value"] == (10 + 20) / 2
 
 
 def test_only_those_two_changed_tag_and_the_other_placeholders_keep_theirs():
@@ -139,7 +152,7 @@ def test_new_ranges_flow_through_the_build_set_and_cgi_scenarios(rent_dir):
         construction["low_usd"],
         construction["amount_usd"],
         construction["high_usd"],
-    ) == (10_000, 25_000, 40_000)
+    ) == (10_000, 15_000, 40_000)
     cgi = lines(result, "cgi")["CGI environment"]
     shots = A["cgi_shots_per_scene"]["value"]
     assert (cgi["low_usd"], cgi["amount_usd"], cgi["high_usd"]) == (

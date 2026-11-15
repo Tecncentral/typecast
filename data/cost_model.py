@@ -109,9 +109,10 @@ DEFAULT_ASSUMPTIONS = {
         high=1000.0,
     ),
     "set_construction_per_sqft": _entry(
-        25.0,
+        15.0,
         "USD per sq ft",
-        "One public production-blog estimate for a simple 20x30 ft interior; high end is a team assumption",
+        "One public production-blog estimate for a simple 20x30 ft interior; the value is the midpoint "
+        "of the source-derived $10-20 range and the high end is a team assumption",
         "2026-11-15",
         "Derived from one public production-blog estimate for a simple 20x30 ft interior: materials "
         "$1,500-4,000 plus build crew $4,500-8,100. Excludes design fees. High end is a team "
