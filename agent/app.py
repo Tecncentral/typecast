@@ -156,6 +156,30 @@ def vexcel3d_tile(zoom: int, x: int = Query(alias="tile-x"), y: int = Query(alia
     return Response(content, media_type="model/gltf-binary", headers={"Cache-Control": "private, max-age=86400"})
 
 
+class FrameEditRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=600)
+    edit_id: Optional[str] = Field(default=None, pattern=r"^[0-9a-f]{16}$")
+    shot_id: Optional[str] = Field(default=None, max_length=440)
+    address: str = Field(default="", max_length=120)
+    image: Optional[str] = Field(default=None, max_length=12_000_000)
+
+
+@app.post("/api/frame/edit")
+def frame_edit(req: FrameEditRequest):
+    """Edit a framed view of a scanned room; the first message carries the view, later ones build on it."""
+    from agent import frame_edit as fe
+    try:
+        return fe.edit(req.message, edit_id=req.edit_id, shot_id=req.shot_id, address=req.address, image=req.image)
+    except KeyError:
+        raise HTTPException(404, "This edit has expired. Start again from the view.") from None
+    except fe.EditUnavailable as error:
+        raise HTTPException(403 if "TYPECAST_ALLOW_VISION_UPLOAD" in str(error) else 502, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    except Exception:  # noqa: BLE001 - provider failures are reported generically
+        raise HTTPException(502, "The image model could not edit this view right now.") from None
+
+
 class RefineRequest(BaseModel):
     thread_id: str = Field(pattern=state.THREAD_ID_PATTERN)
     message: str
