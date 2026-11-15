@@ -22,10 +22,10 @@ Details: `docs/team/status-lane-b.md` and `data/VEXCEL.md`. Live data exists onl
 - tests: `pytest data/tests` in both modes. In live mode the one mock-only test in `test_data.py` skips with a reason.
 - gaps: parking is unknown for some properties (5 of the 19 indexed, 3 of the 10 cached here). Walking distance is unknown for all, because sources do not establish a connected route and entrance. Shot-fit is unknown because directional Matterport depth is unmeasured (Lane A). Most availability is unknown. Imagery cannot show permission, truck clearance, current availability or sound level; noise is a proximity estimate.
 - waiting on: Lane A's shot index for default precompute.
-- done: `data/rent_precompute.py` grades each property's rent A, B or C by reliability. `data/cost_model.py` compares a found location, a build set, a standing set and CGI as scenario estimates, not verified savings. Both have tests. PR #54.
+- done: `data/rent_precompute.py` grades each property's rent A, B or C by reliability. `data/cost_model.py` compares a found location, a build set, a standing set and CGI as scenario estimates, not verified savings. Both have tests. PR #54 is merged.
 - done: a spending guard and 429 retry for Vexcel oblique calls, with tests. PR #55. It depends on #51.
-- open: construction per sq ft and CGI per shot are placeholders that need real quotes. Multifamily rents are mostly ground-floor retail, not apartment rent. The demo set should be the 9 QA buildings, and it needs their Vexcel caches. Drive time and a radius filter are pending the #43 comparison. Sending Vexcel imagery to outside AI models is unconfirmed. The Vexcel billing unit is unconfirmed.
-- done: an offline radius filter, `data/radius.py`, straight-line distance and not drive time, in PR #58. The 9 QA buildings now all have Vexcel caches with `logistics.json`: parking and noise are estimated and walking distance is unknown. That closes the cache item in the open line above.
+- open: construction per sq ft and CGI per shot now use public estimates (tagged PUBLIC ESTIMATE, not a quote) and still need real studio quotes. Multifamily rents are mostly ground-floor retail, not apartment rent. Sending Vexcel imagery to outside AI models is unconfirmed. The Vexcel billing unit is unconfirmed.
+- done: an offline radius filter, `data/radius.py`, straight-line distance and not drive time, in PR #58, which is merged. The 9 QA buildings now all have Vexcel caches with `logistics.json`: parking and noise are estimated and walking distance is unknown.
 
 ## Owner 3 (agent/)
 - works: fixed-order pipeline + FastAPI endpoints on mocks
