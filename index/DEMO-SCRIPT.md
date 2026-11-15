@@ -27,6 +27,12 @@ Framing (a design hypothesis, not a result): Typecast helps a producer judge ear
 | 1:30-1:45 | Play the saved WebM, show Shoot pack (print preview of one scene's decision sheet) | "The shoot pack is now a decision sheet: the choice, both takes side by side, open unknowns and an on-site checklist. It has no prices or permissions. Sample-derived takes carry the AUTHORED SAMPLE tag." | If recording fails, show the pack. |
 | 1:45-2:00 | Optional: real AI dressing wipe, or the trace | "AI dressing is imagined and labelled so; the real room stays one click away." Only if tested with the real cache. | Close at 1:45 on the stage. |
 
+## Optional community beat (20 s at most, only if the judges ask about public benefit; never replaces the film flow)
+Click **Community planning**, load the example needs, **Find candidate sites**, open the Site tab and say: "Same real frames and evidence, aimed at a volunteer supply site before an incident. Every coordinator check starts unknown; I record what I was told, and the brief lists what is still unverified. It never calls a site safe or computes capacity." Show the printed Site Brief only if asked. Do not claim any organization uses it or any measured benefit, and never describe it as evacuation or emergency routing. Switch back to Film production afterwards; the film work is exactly as you left it.
+
+## Safety net
+If the page reloads or crashes, the film draft is restored at load (script, takes, notes) with a message and the evidence is rebuilt from current data; a screenplay can be pasted as plain INT./EXT. text and the "Reads as N scenes" line shows what will be built.
+
 ## Optional continuity beat (skip unless time remains)
 Only scenes you tag with the same "Continuity link" (Shot panel, Production notes) are compared; nothing appears otherwise. Say: "Link two scenes as one setting and Typecast flags a provable mismatch, such as different properties, and only suggests a fix." Do not present it as vision analysis.
 

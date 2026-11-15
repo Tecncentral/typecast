@@ -98,3 +98,12 @@ Owner: lane-a (Director). Producer and consumer: `index/director.js` and `index/
 - Optional per-variant `origin: "authored-sample"` (already recorded in the sample work) is the only accepted origin value.
 - Null semantics: absent means none; old files import unchanged. A saved choice is restored only if the same exact frame is an eligible candidate in the fresh plan response; otherwise the staging is retained for review. Rejections are reset by import, so none can leak back. Top-level `locations`, `company_moves` and `mean_similarity` are null (with `plan_note`) when a hand swap exists.
 - Migration: none required; files without these fields behave as before.
+
+
+## Director project JSON: community planning and local drafts (client-only, additive) - 2026-11-15
+
+Owner: lane-a (Director). Producer/consumer: `index/director.js`, `index/director-project.js`; no backend, `contracts/` or coordinate/unit change.
+- Optional top-level `mode`: only the exact string `"community"` is accepted (absent means film; any other value is refused). Optional `brief`: `{reviewer<=40, date<=20, notes<=600}`; optional `needs[]` (<=8, unique `scene_id` that exists): `{scene_id, requested_count: integer 0..100000 or null, note<=600}`; optional `sites[]` (<=48, unique `scene_id`+`property_id`, both id-pattern checked): `{checks: {permission|capacity|exits|access|toilets|utilities|hazards: {state: unknown|ok|issue, note<=200}}, verified: {capacity: integer, source<=80} (kept only with a non-empty source), tasks[] (<=6): {text 1..120, owner<=40}}`. Unknown check keys, states, extra shapes and duplicates are refused; control characters are stripped.
+- Meaning: all values are human-reported by the coordinator and never source-measured; `ok` is never verification. On import they are restored with `ok` marked "restored; re-verify". Community scenes export `variants: null`.
+- Local draft (browser storage, not a file contract): keys `typecast.director.draft.v1.film|community` and `typecast.director.draft.optout`; value `{v:1, mode, script, constraints{maxLoc,trucks,cars,reqAvail}, project (this schema, evidence reduced to frame identifiers), saved_at}`; <=300 KB; anything else is discarded.
+- Migration: none; old files import unchanged.
