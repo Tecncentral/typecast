@@ -1069,10 +1069,18 @@ async function importProject(file) {
   // Claim the operation and snapshot the user's state before the first await, so nothing
   // typed during a slow file read or evidence request can be overwritten.
   busy(true);
-  const rev = S.rev, scriptAtStart = $('script').value, limits = constraints();
+  let rev = S.rev, scriptAtStart = $('script').value, limits = constraints();
   try {
     if (file.size > TypecastProject.MAX_BYTES) throw new Error('Project file exceeds 1 MB.');
     const project = TypecastProject.normalizeProject(await file.text());
+    const target = project.mode || 'film';
+    if (target !== S.mode) {
+      // The file's mode decides which draft it belongs to. The other mode's work is stashed whole and untouched.
+      if (S.rev !== rev || $('script').value !== scriptAtStart || JSON.stringify(constraints()) !== JSON.stringify(limits))
+        throw new Error('you changed the script or staging while the file was being read, so nothing was replaced. Import again when ready');
+      setMode(target, { force: true });
+      rev = S.rev; scriptAtStart = $('script').value; limits = constraints();
+    }
     stopPlay(); cancelGen(); clearPending();
     status('Rebuilding project evidence using the current visible location and vehicle constraints…');
     const scenes = project.scenes.map(({ id, heading, description }) => ({ id, heading, description }));
@@ -1093,8 +1101,11 @@ async function importProject(file) {
     $('script').value = scenes.map((scene) => `${scene.heading} | ${scene.description}`.replace(/[\r\n]+/g, ' ')).join('\n');
     $('varA').setAttribute('aria-pressed', String(S.variant === 'A'));
     $('varB').setAttribute('aria-pressed', String(S.variant === 'B'));
-    renderAll();
-    status(`${modeNote(data)}Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, !!restored.reviewNeeded.length);
+    if (project.mode === 'community') communityRestore(restored);
+    renderAll(); renderBriefFields();
+    status(project.mode === 'community'
+      ? `${modeNote(data)}Project loaded with fresh evidence. ${restored.sites.length} saved site record(s) restored. Coordinator checks marked OK need re-verifying; nothing here approves a site.`
+      : `${modeNote(data)}Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, project.mode !== 'community' && !!restored.reviewNeeded.length);
   } catch (e) { status(`Project not loaded; existing work kept: ${e.message}`, true); }
   finally { busy(false); }
 }

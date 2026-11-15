@@ -27,7 +27,7 @@ const DIRECTOR_HTML = readFileSync(join(DIR, '..', 'director.html'), 'utf8');
 const FOOTER = `
 globalThis.__director = {
   S, frameAt, shotData, sanitizeShot, exportSnapshot, provText, drawStage,
-  selectScene, setVariant, BADGE, safeId, swapLocation, altChoices, validSwap, fitFor, continuityMap, decisionFor, viewShot, undoSwap, backToPlanned,
+  selectScene, setVariant, BADGE, safeId, setMode, swapLocation, altChoices, validSwap, fitFor, continuityMap, decisionFor, viewShot, undoSwap, backToPlanned,
 };
 `;
 
@@ -2114,4 +2114,209 @@ test('intake: errors and cuts are visible before Build and Build refuses with th
   assert.match(env.$('parseSummary').textContent, /1 note/); assert.match(env.$('parseSummary').textContent, /cut to fit/);
   env.$('script').value = 'just some words\n'.repeat(20); env.$('script').dispatchEvent({ type: 'input' });
   assert.match(env.$('parseSummary').textContent, /No scene headings found/);
+});
+
+// ---------- community planning mode ----------
+const NEEDS = 'Supply hub\nLarge open floor for volunteers, at least 100 m2, loading access for trucks\n\nCheck-in room\nA quiet room with restrooms and water for 30 volunteers';
+const CROWS = () => [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_a', 'shot_a2')];
+const CPOOL = () => [...CROWS(), assignment('s1', 'prop_b', 'shot_b'), assignment('s2', 'prop_b', 'shot_b2')];
+async function commEnv(extra = {}) {
+  const env = boot();
+  env.$('modeComm').click();
+  await buildScript(env, NEEDS, CROWS(), { candidates: CPOOL(), evidence: { shot: { room_area_m2: 600 } }, ...extra });
+  env.api.selectScene('s1');
+  return env;
+}
+const checkSelects = (env) => env.$('siteChecks').querySelectorAll('select');
+const setCheck = (env, i, value) => { const s = checkSelects(env)[i]; s.value = value; s.dispatchEvent({ type: 'change' }); };
+const FILM_STRINGS = /stand-in|Take [AB]|dialogue|AUTHORED SAMPLE|rehears|screen-space|Variant [AB]|shoot pack|filming|film\b|actor|WebM|cinematic/i;
+
+test('community: the mode control separates drafts; film work is untouched and community starts empty', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN - DAY | a kitchen', [assignment('s1', 'prop_f', 'shot_f')]);
+  env.$('addActor').click(); env.$('dlg').value = 'FILM_LINE'; env.$('dlg').dispatchEvent({ type: 'input' });
+  env.$('trucks').value = '3';
+  const filmScenes = JSON.stringify(env.api.S.scenes), filmEdits = JSON.stringify(env.api.S.edits);
+  env.$('modeComm').click();
+  assert.equal(env.api.S.mode, 'community'); assert.equal(env.$('script').value, ''); assert.equal(env.api.S.scenes.length, 0);
+  assert.equal(env.api.S.resp, null); assert.equal(JSON.stringify(env.api.S.edits), '{}'); assert.equal(env.$('trucks').value, '0');
+  assert.equal(env.$('h-script').textContent, 'Site needs'); assert.equal(env.$('build').textContent, 'Find candidate sites');
+  assert.equal(env.$('expPack').textContent, 'Site brief (printable)'); assert.equal(env.$('lblTrucks').textContent, 'Supply trucks');
+  await buildScript(env, NEEDS, CROWS());
+  env.api.selectScene('s1'); env.$('siteNote').value = 'community note'; env.$('siteNote').dispatchEvent({ type: 'input' });
+  env.$('modeFilm').click();
+  assert.equal(env.api.S.mode, 'film'); assert.equal(JSON.stringify(env.api.S.scenes), filmScenes); assert.equal(JSON.stringify(env.api.S.edits), filmEdits);
+  assert.equal(env.$('trucks').value, '3'); assert.equal(env.$('build').textContent, 'Build plan'); assert.equal(env.api.shotData('s1').dialogue, 'FILM_LINE');
+  assert.equal(JSON.stringify(env.api.S.edits).includes('community'), false);
+  env.$('modeComm').click();                                        // and back: the community draft is exactly as left
+  assert.equal(env.api.S.scenes.length, 2); assert.equal(env.api.S.comm['need:s1'].note, 'community note'); assert.equal(env.api.S.edits[Object.keys(env.api.S.edits)[0]]?.A?.dialogue ?? '', '');
+});
+
+test('community: switching is refused while a plan is loading, and film controls are marked for hiding in community', async () => {
+  const env = boot();
+  env.$('script').value = 'INT. A - DAY | a'; env.$('build').click();
+  env.$('modeComm').click();
+  assert.equal(env.api.S.mode, 'film'); assert.match(env.$('status').textContent, /Wait for the plan or reel/);
+  const html = readFileSync(join(DIR, '..', 'director.html'), 'utf8');
+  for (const id of ['stage-modes', 'transport-play', 'prog', 'clock', 'addActor', 'lookAround', 'timeline', 'tab-shot', 'tab-alt', 'panel-shot', 'panel-alt', 'expReel', 'cancelReel', 'expPng', 'reelNote', 'compareStrip']) {
+    const tag = ['stage-modes', 'transport-play'].includes(id) ? new RegExp(`<div class="${id}"[^>]*>`) : new RegExp(`<[^>]*id="${id}"[^>]*>`);
+    const m = html.match(tag); assert.ok(m, id); assert.match(m[0], /data-film-only/, `${id} is film-only`);
+  }
+  for (const id of ['tab-site', 'panel-site', 'briefFields', 'commBanner']) assert.match(html.match(new RegExp(`<[^>]*id="${id}"[^>]*>`))[0], /data-community-only/, id);
+  const css = readFileSync(join(DIR, '..', 'director.css'), 'utf8');
+  assert.match(css, /\[data-mode="community"\] \[data-film-only\].*display: none !important/);
+  assert.match(html, /<body data-mode="film">/);
+});
+
+test('community: coordinator checks are unknown by default, human-reported, and never become a safe or approved badge', async () => {
+  const env = await commEnv();
+  assert.equal(checkSelects(env).length, 7);
+  assert.match(env.$('siteChecksSummary').textContent, /Needs verification · 7 of 7 checks unknown/);
+  assert.match(env.$('siteChecks').textContent, /reported by you\. Typecast cannot verify it, and nothing marks a site approved/);
+  for (const sel of checkSelects(env)) assert.equal(sel.value, 'unknown');
+  setCheck(env, 0, 'ok'); setCheck(env, 2, 'issue');
+  assert.match(env.$('siteChecksSummary').textContent, /5 of 7 checks unknown · 1 reported problem · 1 reported OK by you \(not verified\)/);
+  for (let i = 0; i < 7; i++) setCheck(env, i, 'ok');
+  const all = env.$('siteChecksSummary').textContent;
+  assert.match(all, /0 of 7 checks unknown/); assert.match(all, /7 reported OK by you \(not verified\)/); assert.match(all, /^Coordinator checks · Needs verification/);
+  assert.doesNotMatch(env.$('panel-site').textContent + env.$('checksBody').textContent, /\bsafe\b|approved site|certified|verified safe/i.source ? /(?<!not )(?<!nothing marks a site )\b(safe shelter|is safe|safe site|certified)\b/i : /x/);
+  assert.equal(env.api.S.comm['site:s1::prop_a'].checks.permission.state, 'ok');
+  assert.equal(env.$('siteReq').disabled, false);
+});
+
+test('community: a requested headcount is a request; verified capacity needs a stated source and is never computed', async () => {
+  const env = await commEnv();
+  env.$('siteReq').value = '40'; env.$('siteReq').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.S.comm['need:s1'].requested, 40);
+  for (const bad of ['-5', '1.5', 'abc', '100001']) { env.$('siteReq').value = bad; env.$('siteReq').dispatchEvent({ type: 'input' }); assert.equal(env.api.S.comm['need:s1'].requested, null, bad); }
+  env.$('siteReq').value = '40'; env.$('siteReq').dispatchEvent({ type: 'input' });
+  env.$('siteCap').value = '120'; env.$('siteCap').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.S.comm['site:s1::prop_a'].verified, null, 'a number without a source is not kept');
+  env.$('siteCapSrc').value = 'Fire marshal letter, 3 Nov'; env.$('siteCapSrc').dispatchEvent({ type: 'input' });
+  assert.deepEqual(copied(env.api.S.comm['site:s1::prop_a'].verified), { capacity: 120, source: 'Fire marshal letter, 3 Nov' });
+  env.$('siteCap').value = ''; env.$('siteCap').dispatchEvent({ type: 'input' }); assert.equal(env.api.S.comm['site:s1::prop_a'].verified, null);
+  // 600 m2 of index area and a request of 40 produce no capacity, anywhere
+  env.$('expPack').click(); await drain();
+  const html = await blobText(env.downloads.find((d) => d.name === 'typecast-site-brief.html').blob);
+  assert.ok(html.includes('Requested: 40 participants or volunteers (a request).'));
+  assert.ok(html.includes('Independently verified capacity: none provided. Typecast does not calculate capacity from floor area, photos, listings or parking.'));
+  assert.doesNotMatch(html, /capacity (is|of) \d|can hold|fits \d+|accommodat/i);
+});
+
+test('community: the Site Brief states needs, alternatives, unresolved checks and provenance, with no film wording and no leaked source fields', async () => {
+  const env = await commEnv();
+  env.$('siteReq').value = '40'; env.$('siteReq').dispatchEvent({ type: 'input' });
+  setCheck(env, 1, 'issue'); env.$('siteChecks').querySelectorAll('input')[1].value = 'hall <b>2</b> cap unclear'; env.$('siteChecks').querySelectorAll('input')[1].dispatchEvent({ type: 'input' });
+  env.$('taskAdd').click(); const ti = env.$('siteTasks').querySelectorAll('input'); ti[0].value = 'Call the facilities office'; ti[0].dispatchEvent({ type: 'input' }); ti[1].value = 'Ana'; ti[1].dispatchEvent({ type: 'input' });
+  env.$('siteNote').value = `<script>alert(1)</script> loading dock on the east side`; env.$('siteNote').dispatchEvent({ type: 'input' });
+  env.$('briefReviewer').value = 'R. Coordinator'; env.$('briefReviewer').dispatchEvent({ type: 'input' }); env.$('briefDate').value = '2026-11-14'; env.$('briefDate').dispatchEvent({ type: 'input' });
+  env.$('expPack').click(); await drain();
+  const html = await blobText(env.downloads.find((d) => d.name === 'typecast-site-brief.html').blob);
+  for (const must of ['Typecast site brief · preparedness planning', 'not an approval of any site, not an emergency or evacuation plan', 'NEEDS VERIFICATION · 13 coordinator checks still unknown',
+    'Reviewer: R. Coordinator', 'Review date: 2026-11-14', '1. Supply hub', '2. Check-in room', 'Requested participants or volunteers: 40. This is a request, not a capacity.',
+    'Coordinator checks (reported by the coordinator, not verified by Typecast)', 'Reported problem', 'Call the facilities office (Ana)',
+    'Other candidate sites in the pool (not assessed)', 'Property prop_b', 'Verification checklist', 'Establish: Owner permission and access.', 'Resolve: Verified occupancy and capacity',
+    'Get the owner\'s permission and agree access before any use.', 'Indexed scan image from the source index. It is not a current photo of the site.', 'index estimate, not a capacity']) assert.ok(html.includes(must), must);
+  assert.equal(html.includes('<b>2</b>'), false); assert.equal(html.includes('<script>alert'), false); assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
+  assert.doesNotMatch(html.replace(/<style>[\s\S]*?<\/style>/, ''), FILM_STRINGS, 'no film-specific controls or labels in a community brief');
+  for (const leak of ['FAKE', 'sk-live', 'licensed.jpg', '/Users/demo', 'listing contact']) assert.equal(html.includes(leak), false, leak);
+  assert.match(html, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'/);
+});
+
+test('community: the stage shows the real frame with a preparedness label and nothing film-specific', async () => {
+  const env = await commEnv();
+  env.drawLog.length = 0; env.api.selectScene('s2'); env.api.selectScene('s1');
+  const texts = env.drawLog.filter((e) => e.m === 'fillText').map((e) => String(e.args[0]));
+  assert.ok(texts.includes('PREPAREDNESS PLANNING · CANDIDATE SITE · NOT AN APPROVED SITE'));
+  assert.equal(texts.some((t) => /UNCALIBRATED|REHEARSAL/.test(t)), false); assert.ok(texts.some((t) => /^Need 1 · Matterport · property prop_a/.test(t)));
+  assert.equal(env.api.exportSnapshot().scenes[0].variants, null); assert.equal(env.api.exportSnapshot().scenes[0].staging, null);
+  const cv = env.$('stage'); env.api.shotData('s1');                // pointer and key input cannot create film staging in community mode
+  cv.dispatchEvent({ type: 'pointerdown', clientX: 100, clientY: 600, pointerId: 1 }); cv.dispatchEvent({ type: 'keydown', key: 'ArrowLeft' });
+  assert.equal(env.api.shotData('s1').actors.length, 0);
+});
+
+test('community: fit evidence uses the same source rules and lists community needs as not in the data', async () => {
+  const env = await commEnv();
+  assert.match(env.$('checksSummary').textContent, /^Site fit evidence · /);
+  const body = env.$('checksBody').textContent;
+  assert.match(body, /Consistent \(estimated\): Floor area\. Your text says "at least 100 m2"\. The index estimate is 600\.0 m²/);   // an estimate, never a capacity
+  assert.match(body, /Details in your needs\. Your text mentions .*(restroom|water|loading)/); assert.match(body, /toilets, power, water, ramps and similar are not in any source/);
+  assert.doesNotMatch(body, /Continuity|your script/);
+  assert.match(env.$('stageCaption').textContent, /Not an approved site/);
+  assert.match(readFileSync(join(DIR, '..', 'director.html'), 'utf8'), /Not for real-time evacuation or emergency routing\. Nothing here approves a site, shelter or capacity/);
+});
+
+test('community: project JSON carries mode, brief, needs and per-site reports; import routes to the right mode, keeps film work and flags restored OK checks', async () => {
+  const env = await commEnv();
+  env.$('siteReq').value = '40'; env.$('siteReq').dispatchEvent({ type: 'input' }); setCheck(env, 0, 'ok'); env.$('siteChecks').querySelectorAll('input')[0].value = 'asked the owner'; env.$('siteChecks').querySelectorAll('input')[0].dispatchEvent({ type: 'input' });
+  env.$('siteCap').value = '80'; env.$('siteCap').dispatchEvent({ type: 'input' }); env.$('siteCapSrc').value = 'owner email'; env.$('siteCapSrc').dispatchEvent({ type: 'input' });
+  env.$('briefReviewer').value = 'Ana'; env.$('briefReviewer').dispatchEvent({ type: 'input' });
+  env.api.selectScene('s2'); env.api.swapLocation('s2', 'shot_b2'); setCheck(env, 3, 'issue');
+  env.$('expJson').click(); const text = await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob);
+  const saved = JSON.parse(text);
+  assert.equal(saved.mode, 'community'); assert.equal(saved.brief.reviewer, 'Ana'); assert.deepEqual(saved.needs, [{ scene_id: 's1', requested_count: 40, note: '' }]);
+  assert.equal(saved.sites.length, 2); assert.equal(saved.scenes[0].variants, null); assert.match(saved.honesty, /Coordinator checks are reported by a person and are not verified/);
+  assert.equal(JSON.stringify(saved).includes('"approved"'), false);
+  // import into a fresh app that is in FILM mode with work in it
+  const fresh = boot();
+  await buildScript(fresh, 'INT. KITCHEN - DAY | k', [assignment('s1', 'prop_f', 'shot_f')]);
+  fresh.$('addActor').click(); fresh.$('dlg').value = 'FILM_KEEP'; fresh.$('dlg').dispatchEvent({ type: 'input' });
+  const { job, body } = await startImport(fresh, text);
+  assert.equal(body.scenes.length, 2);
+  job.resolve(jsonResponse(planFor(body, CROWS(), { candidates: CPOOL(), evidence: { shot: { room_area_m2: 600 } } }))); await drain();
+  assert.equal(fresh.api.S.mode, 'community'); assert.equal(fresh.$('script').value.includes('Supply hub'), true);
+  assert.equal(fresh.api.S.comm['need:s1'].requested, 40); assert.equal(fresh.api.S.comm['site:s1::prop_a'].checks.permission.stale, true);
+  assert.equal(fresh.api.S.comm['site:s1::prop_a'].verified.source, 'owner email'); assert.equal(fresh.api.S.brief.reviewer, 'Ana');
+  fresh.api.selectScene('s1'); assert.match(fresh.$('siteChecks').textContent, /restored from a file; re-verify/);
+  fresh.$('modeFilm').click(); assert.equal(fresh.api.shotData('s1').dialogue, 'FILM_KEEP'); assert.equal(fresh.$('script').value, 'INT. KITCHEN - DAY | k');
+  // a film project imported while in community mode goes to film mode and leaves community alone
+  fresh.$('modeComm').click(); const before = JSON.stringify(Object.keys(fresh.api.S.comm));
+  const filmFile = JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{ id: 's1', heading: 'INT. A - DAY', description: 'x' }] });
+  const second = await startImport(fresh, filmFile);
+  second.job.resolve(jsonResponse(planFor(second.body, [assignment('s1', 'prop_f', 'shot_f')]))); await drain();
+  assert.equal(fresh.api.S.mode, 'film'); fresh.$('modeComm').click(); assert.equal(JSON.stringify(Object.keys(fresh.api.S.comm)), before);
+});
+
+test('community: malformed or hostile community fields are refused; absent fields migrate unchanged', async () => {
+  const P2 = (await import('../director-project.js')).default;
+  const base = (extra) => JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{ id: 's1', heading: 'h', description: 'd' }], ...extra });
+  const ok = P2.normalizeProject(base({ mode: 'community', brief: { reviewer: 'a\u0000b', date: '2026-11-14', notes: 'n' }, needs: [{ scene_id: 's1', requested_count: 5, note: '' }],
+    sites: [{ scene_id: 's1', property_id: 'p1', checks: { permission: { state: 'ok', note: 'x' } }, verified: { capacity: 10, source: 'letter' }, tasks: [{ text: 'call', owner: 'Ana' }] }] }));
+  assert.equal(ok.mode, 'community'); assert.equal(ok.brief.reviewer, 'a b'); assert.equal(ok.sites[0].verified.capacity, 10);
+  assert.equal(P2.normalizeProject(base({ mode: 'community', sites: [{ scene_id: 's1', property_id: 'p1', verified: { capacity: 10, source: '' } }] })).sites[0].verified, null);   // no source, not kept
+  const bad = (extra, re) => assert.throws(() => P2.normalizeProject(base(extra)), re || /Invalid project/);
+  bad({ mode: 'emergency' }); bad({ mode: 'Community' }); bad({ mode: ['community'] });
+  bad({ needs: [{ scene_id: 'nope', requested_count: 1, note: '' }] }); bad({ needs: [{ scene_id: 's1', requested_count: -1 }] }); bad({ needs: [{ scene_id: 's1', requested_count: 1.5 }] }); bad({ needs: [{ scene_id: 's1', requested_count: 100001 }] });
+  bad({ needs: [{ scene_id: 's1', requested_count: 1 }, { scene_id: 's1', requested_count: 2 }] }); bad({ needs: Array.from({ length: 9 }, () => ({ scene_id: 's1', requested_count: 1 })) });
+  const site = (o) => ({ scene_id: 's1', property_id: 'p1', ...o });
+  bad({ sites: [site({ checks: { toilets2: { state: 'ok' } } })] }); bad({ sites: [site({ checks: { __proto__x: { state: 'ok' }, constructor: { state: 'ok' } } })] }); bad({ sites: [site({ checks: { permission: { state: 'safe' } } })] });
+  bad({ sites: [site({ checks: { permission: { state: 'ok', note: 'x'.repeat(201) } } })] }); bad({ sites: [site({ property_id: '__proto__' })] }); bad({ sites: [site({ property_id: 'a b' })] });
+  bad({ sites: [site({ tasks: Array.from({ length: 7 }, () => ({ text: 'a' })) })] }); bad({ sites: [site({ tasks: [{ text: '' }] })] }); bad({ sites: [site({ verified: { capacity: 1.5, source: 's' } })] });
+  bad({ sites: [site({}), site({})] }); bad({ sites: Array.from({ length: 49 }, (_, i) => site({ property_id: `p${i}` })) }); bad({ brief: { reviewer: 'x'.repeat(41) } }); bad({ brief: 'text' });
+  const old = P2.normalizeProject(base({})); assert.equal('mode' in old, false); assert.equal('sites' in old, false);        // old files are unchanged
+  const proto = P2.normalizeProject(base({ mode: 'community', needs: [{ scene_id: 's1', requested_count: 1, note: '' }], brief: { reviewer: '__proto__', date: 'constructor', notes: '' } }));
+  assert.equal(proto.brief.reviewer, '__proto__'); assert.equal(Object.getPrototypeOf(proto.brief) === Object.prototype, true);
+});
+
+test('community: rule-out, swap and stale-build guards work in community mode too', async () => {
+  const env = await commEnv();
+  env.api.swapLocation('s1', 'shot_b'); assert.equal(env.api.validSwap('s1').property_id, 'prop_b');
+  assert.match(env.$('swapNotice').textContent, /This need now points at another candidate site\. Your coordinator checks stay with each site/); assert.doesNotMatch(env.$('swapNotice').textContent, /Takes copied|stand-in/);
+  setCheck(env, 0, 'ok');
+  assert.equal(env.api.S.comm['site:s1::prop_b'].checks.permission.state, 'ok'); assert.equal(Object.keys(env.api.S.comm['site:s1::prop_a'].checks).length, 0);   // reports belong to the swapped-to site only
+  env.$('reject').click(); assert.deepEqual(copied(env.api.S.forbidden), ['prop_b']); assert.equal(env.api.validSwap('s1'), null);
+  env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();
+  env.$('script').value = NEEDS; env.$('build').click(); const job = env.take('/api/production/plan'); const sent = JSON.parse(job.opts.body);
+  env.$('trucks').value = '9'; job.resolve(jsonResponse(planFor(sent, CROWS()))); await drain();
+  assert.match(env.$('status').textContent, /earlier script, constraints or rejections/);
+  assert.equal(env.$('clearRej').textContent, 'Clear ruled-out sites');
+});
+
+test('community: prototype-like need ids and notes cannot corrupt state', async () => {
+  const env = await commEnv();
+  env.$('briefNotes').value = '__proto__'; env.$('briefNotes').dispatchEvent({ type: 'input' }); assert.equal(env.api.S.brief.notes, '__proto__');
+  assert.equal(Object.getPrototypeOf(env.api.S.comm), null); assert.equal(({}).polluted, undefined);
+  env.api.S.comm['need:__proto__'] = { requested: 1, note: '' }; env.api.S.comm['site:constructor::toString'] = { checks: {}, verified: null, tasks: [] };
+  env.$('expJson').click(); const saved = JSON.parse(await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob));
+  assert.equal(saved.needs.some((n) => n.scene_id === '__proto__'), false); assert.equal(saved.sites.some((x) => x.scene_id === 'constructor'), false);   // only real scene ids are exported
 });
