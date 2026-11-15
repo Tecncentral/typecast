@@ -24,7 +24,7 @@ Framing (a design hypothesis, not a result): Typecast helps a producer judge ear
 | 0:40-1:00 | Take B: genuine proposal (Generate alternative, show diff, Apply to B) OR the optional sample (below) | Genuine: "The model proposes, I review the diff, nothing changes until I apply." Sample: "No model here, so I load the authored sample alternative. It is pre-written blocking, not AI, and it is tagged that way everywhere." | If the provider errors, say it failed closed and use the sample button, naming it as the authored sample. |
 | 1:00-1:15 | Compare A/B, press Play | "Both takes on the same frame. Durations differ, so the shorter one holds; the labels say so. Compare is a preview, not an export." | Skip if time is short. |
 | 1:15-1:30 | The one confirmed constraint (Reject or Trucks), then optionally **Try another location** on that scene | "The owner says no. I reject this location and the plan rebuilds. Or I try another candidate in one click: my takes come along as a draft I must confirm on the new frame." | If the plan does not change, say it holds. If no alternative appears, say the pool has none. Never claim a change that did not happen. |
-| 1:30-1:45 | Play the saved WebM, show Shoot pack (print preview of one scene's decision sheet) | "The shoot pack is now a decision sheet: the choice, both takes, open unknowns and an on-site checklist. It has no prices or permissions. Sample-derived takes carry the AUTHORED SAMPLE tag." | If recording fails, show the pack. |
+| 1:30-1:45 | Play the saved WebM, show Shoot pack (print preview of one scene's decision sheet) | "The shoot pack is now a decision sheet: the choice, both takes side by side, open unknowns and an on-site checklist. It has no prices or permissions. Sample-derived takes carry the AUTHORED SAMPLE tag." | If recording fails, show the pack. |
 | 1:45-2:00 | Optional: real AI dressing wipe, or the trace | "AI dressing is imagined and labelled so; the real room stays one click away." Only if tested with the real cache. | Close at 1:45 on the stage. |
 
 ## Optional continuity beat (skip unless time remains)
@@ -35,7 +35,7 @@ In the AI take tab the button "Load authored sample alternative" appears next to
 
 ## Words and claims we do not use
 - No "shootable", "verified location", "3D", "collision", "accurate fit", "measured clearance", "optimal" (outside "within this candidate pool").
-- No savings, ROI or time-saved figures, and no overall suitability score or percentage: the fit check lists conflicts and unknowns only. No claim that Typecast would solve any specific production's location search.
+- No savings, ROI or time-saved figures, and no overall suitability score or percentage: the fit check lists conflicts and unknowns only. After you review carried-over staging by eye, say "aligned by eye", never "fits": geometric fit stays unknown. No claim that Typecast would solve any specific production's location search.
 - No filmmaker endorsement, consultation or user-testing claim, and no attributed quote. Peri, Photon and other eligibility are not claimed.
 - No retrieval numbers unless asked; keep generations separate (see `docs/team/eval.md`); the expanded v2 review was not a fresh holdout and was not reproduced by root.
 - Do not call the planner, status text, proposal card or authored sample an agent trace or AI.
