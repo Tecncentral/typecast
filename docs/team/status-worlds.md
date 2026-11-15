@@ -1,6 +1,6 @@
 # AI-dressed sets (World Labs Atlas)
 
-Updated 2026-11-15 01:35 UTC. PRs #41 (walkable sets, whole rooms) and #42 (stand-ins, longer walk) are merged into `dev`; #44 (animated people, card entry) is open. Branch `dressed-set`.
+Updated 2026-11-15 01:40 UTC. PRs #41 (walkable sets, whole rooms), #42 (stand-ins, longer walk) and #44 (animated people, card entry) are merged into `dev`; the roller disco hall is in a follow-up PR. Branch `dressed-set`.
 
 Shot ids, Matterport model ids and scan point ids are licensed identifiers and are not written here; they are in the git-ignored `cache/worlds/` records.
 
