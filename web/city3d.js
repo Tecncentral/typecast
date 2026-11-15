@@ -33,7 +33,7 @@ function localFrame(lat, lon) {
   );
 }
 
-export async function mountCity3D(host, lat, lon, { onStatus = () => {}, signal } = {}) {
+export async function mountCity3D(host, lat, lon, { onStatus = () => {}, signal, footprint = null } = {}) {
   const response = await fetch(`/api/vexcel3d/place?lat=${lat}&lon=${lon}`, { cache: "no-store", signal });
   const place = await response.json().catch(() => ({}));
   if (!response.ok) throw Error(place.detail || "3D Cities is unavailable here.");
@@ -170,6 +170,41 @@ export async function mountCity3D(host, lat, lon, { onStatus = () => {}, signal 
   };
   await Promise.all(Array.from({ length: 6 }, worker));
   if (!disposed) onStatus("");
+
+  // The Vexcel Structure footprint of the building, as a low amber band standing on its roof edge.
+  // Each corner is dropped onto the mesh (slightly inside the edge, so the ray meets the roof, not
+  // the street), so the band follows the real roof height.
+  if (!disposed && Array.isArray(footprint) && footprint.length >= 3) {
+    const kx = 111320 * Math.cos(rad(lat));
+    const pts = footprint.filter((_, i) => i % Math.ceil(footprint.length / 120) === 0)
+      .map(([x, y]) => [(x - lon) * kx, -(y - lat) * 110574]);
+    const cx = pts.reduce((a, p) => a + p[0], 0) / pts.length;
+    const cz = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+    city.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(city);
+    const top = [];
+    for (const [x, z] of pts) {
+      const ix = x + (cx - x) * 0.04, iz = z + (cz - z) * 0.04;
+      ray.set(new THREE.Vector3(ix, box.max.y + 50, iz), down);
+      const hit = ray.intersectObject(city, true)[0];
+      top.push(hit ? hit.point.y : pin.position.y);
+    }
+    const positions = [];
+    const index = [];
+    pts.forEach(([x, z], i) => {
+      positions.push(x, top[i] + 0.2, z, x, top[i] + 2.2, z);
+      const j = (i + 1) % pts.length;
+      index.push(2 * i, 2 * j, 2 * i + 1, 2 * j, 2 * j + 1, 2 * i + 1);
+    });
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    geometry.setIndex(index);
+    const band = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+      color: 0xedbd69, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
+    band.renderOrder = 5;
+    scene.add(band);
+    render();
+  }
 
   return {
     place,

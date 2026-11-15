@@ -387,6 +387,35 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.ob-building {
+  display: grid;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.ob-building h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.ob-building .ob-eyebrow {
+  margin: 0;
+}
+.ob-building dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 14px;
+  margin: 0;
+}
+.ob-building dt {
+  color: var(--muted);
+  font: 12px/1.5 var(--mono);
+}
+.ob-building dd {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
 .ob-ask {
   display: grid;
   gap: 10px;
