@@ -209,9 +209,15 @@ function presetButtons(host, list) {
   for (const text of list) {
     const button = el("button", text, "ob-chip");
     button.type = "button";
+    // A sample only fills the box: a search costs Vexcel and vision calls, so it runs when Search is
+    // pressed, in the area that is selected then.
     button.addEventListener("click", () => {
       $("#ob-query").value = text;
-      run();
+      const area = $("#ob-area").selectedOptions[0]?.textContent || "the selected area";
+      const status = $("#ob-status");
+      status.hidden = false;
+      status.textContent = `Press Search to look for this in ${area}.`;
+      $("#ob-run").focus();
     });
     host.append(button);
   }

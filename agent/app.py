@@ -5,7 +5,7 @@ import os
 import pathlib
 import re
 from threading import Event as ThreadEvent
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -207,7 +207,8 @@ class ShortlistCostsRequest(BaseModel):
     picks: list[ShortlistPick] = Field(min_length=1, max_length=10)
     scene_sqft: float = Field(ge=100, le=1_000_000)
     shoot_days: int = Field(ge=1, le=60)
-    drive_minutes: dict[str, float] = Field(default_factory=dict)
+    # One-way minutes from a base in the same city; 10 hours is far beyond any local production base.
+    drive_minutes: dict[str, Annotated[float, Field(ge=0, le=600)]] = Field(default_factory=dict, max_length=10)
 
 
 class ShortlistCommutesRequest(BaseModel):

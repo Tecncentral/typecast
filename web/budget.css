@@ -171,3 +171,12 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.budget-input-note {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--warning);
+}
+.budget-bars.is-stale,
+.budget-table.is-stale {
+  opacity: 0.45;
+}

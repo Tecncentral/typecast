@@ -78,3 +78,18 @@ def test_routes_validate_input(monkeypatch):
                                                 "shoot_days": 61}).status_code == 422
     assert c.post("/api/shortlist/commutes", json={"base": "nowhere", "picks": PICKS}).status_code == 400
     assert c.post("/api/shortlist/commutes", json={"base": "../etc", "picks": PICKS}).status_code == 422
+
+
+def test_costs_list_each_assumption_with_its_source(rents):
+    out = sx.costs(PICKS[:1], 2000, 2)
+    assert {"location_day_rate", "studio_day_rate", "cgi_per_shot"} <= set(out["sources"])
+    assert all(s["source"] and s["quality"] for s in out["sources"].values())
+
+
+def test_costs_route_rejects_impossible_drive_times():
+    from agent.app import app
+    c = TestClient(app)
+    body = {"picks": [{"property_id": "p1"}], "scene_sqft": 2000, "shoot_days": 2}
+    assert c.post("/api/shortlist/costs", json={**body, "drive_minutes": {"p1": 1_000_000_000}}).status_code == 422
+    assert c.post("/api/shortlist/costs", json={**body, "drive_minutes": {"p1": -5}}).status_code == 422
+    assert c.post("/api/shortlist/costs", json={**body, "drive_minutes": {"p1": 45}}).status_code == 200

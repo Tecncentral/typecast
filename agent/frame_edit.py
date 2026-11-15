@@ -65,6 +65,16 @@ def _size_for(width: int, height: int) -> str:
     return "1536x1024" if ratio >= 1.25 else "1024x1536" if ratio <= 0.8 else "1024x1024"
 
 
+def _letterbox(width: int, height: int, size: str) -> tuple[tuple[int, int], tuple[int, int, int, int]]:
+    """The model's canvas and where the view sits on it, scaled without distortion (a 2.39:1 frame
+    gets black bars on a 3:2 canvas instead of being stretched)."""
+    tw, th = (int(v) for v in size.split("x"))
+    scale = min(tw / width, th / height)
+    w, h = max(1, round(width * scale)), max(1, round(height * scale))
+    x, y = (tw - w) // 2, (th - h) // 2
+    return (tw, th), (x, y, x + w, y + h)
+
+
 def chat(edit_id: str) -> dict:
     path = _folder(edit_id) / "chat.json"
     if not path.is_file():
@@ -97,14 +107,18 @@ def edit(message: str, *, edit_id: str | None = None, shot_id: str | None = None
     source = ROOT / (history["versions"][-1]["path"] if history["versions"] else history["base"])
     width, height = history["size"]
     size = _size_for(width, height)
+    canvas_size, box = _letterbox(width, height, size)
+    letterboxed = box != (0, 0, *canvas_size)
     with Image.open(source) as current:
-        current = current.convert("RGB").resize(tuple(int(v) for v in size.split("x")), Image.LANCZOS)
+        canvas = Image.new("RGB", canvas_size, (0, 0, 0))
+        canvas.paste(current.convert("RGB").resize((box[2] - box[0], box[3] - box[1]), Image.LANCZOS), box[:2])
         buf = io.BytesIO()
-        current.save(buf, "PNG")
+        canvas.save(buf, "PNG")
     prompt = ("This is a photograph of a real, scanned room, framed by a film director. Change it as requested, "
               "photorealistic, keeping the same camera position, lens, room geometry (walls, windows, doors, "
               "columns, ceiling, floor) and natural light, and every part of the room the request does not "
-              f"mention. Request: {message}. No people unless asked. No text, captions or logos.")
+              f"mention. Request: {message}. No people unless asked. No text, captions or logos."
+              + (" The black bars are letterboxing outside the frame: keep them plain black." if letterboxed else ""))
     from agent.image_edit import ImageEditError, edit_image
     try:
         content, model, quality = edit_image(buf.getvalue(), prompt, size, client=client)
@@ -113,7 +127,8 @@ def edit(message: str, *, edit_id: str | None = None, shot_id: str | None = None
     number = len(history["versions"]) + 1
     path = folder / f"v{number}.jpg"
     with Image.open(io.BytesIO(content)) as edited:
-        edited.convert("RGB").resize((width, height), Image.LANCZOS).save(path, "JPEG", quality=92)
+        frame = edited.convert("RGB").resize(canvas_size, Image.LANCZOS).crop(box)
+        frame.resize((width, height), Image.LANCZOS).save(path, "JPEG", quality=92)
     history["versions"].append({"path": str(path.relative_to(ROOT)), "message": message, "model": model,
                                 "quality": quality, "created_at": datetime.now(timezone.utc).isoformat()})
     (folder / "chat.json").write_text(json.dumps(history, indent=2), encoding="utf-8")

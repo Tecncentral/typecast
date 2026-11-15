@@ -57,13 +57,18 @@ test('scouting tile shows the scenario value and never calls it a saving', () =>
   assert.equal(impact.scoutText({ result: { error: 'Build a complete plan before estimating its savings.' } }, lvs.money).headline, '—');
 });
 
-test('location-vs-set tile states a lower bound when materials are unknown', () => {
-  const text = impact.setText(lvs.compare({ ...lvs.DEFAULTS }), lvs);
-  assert.equal(text.headline, '≥ $29,881.44 less');
-  assert.match(text.sub, /Real location \$2,220 · standing set \$2,000 · build ≥ \$32,101\.44/);
-  const known = impact.setText(lvs.compare({ ...lvs.DEFAULTS, materials: 0 }), lvs);
-  assert.equal(known.headline, '$29,881.44 less');
-  assert.equal(impact.setText(lvs.compare({}), lvs).headline, '—');
+test('set tile reads the shared cost model: likely difference, ranges, whole dollars', () => {
+  const o = (total, low, high) => ({ total_usd: total, total_low_usd: low, total_high_usd: high, lines: [] });
+  const costs = { shoot_days: 2, scene_sqft: 2000, picks: [{ found_location: o(7036.4, 5175, 9012) }],
+    alternatives: { standing_set: o(5298, 4598, 5998), build_set: o(34500, 23000, 86000), cgi: o(44500, 43000, 206000) } };
+  const text = impact.setText(costs);
+  assert.equal(text.headline, '$27,464 less');
+  assert.match(text.sub, /for 2 shoot days at 2,000 sq ft/);
+  assert.match(text.sub, /Real location \$7,036 \(\$5,175–\$9,012\) · standing set \$5,298 .* · build \$34,500 .* · CGI \$44,500/);
+  assert.doesNotMatch(text.sub, /\.\d\d\b/);
+  assert.equal(impact.setText(null).headline, '—');
+  assert.equal(impact.setText({ error: 'Cost estimate unavailable.' }).sub, 'Cost estimate unavailable.');
+  assert.equal(impact.setText({ ...costs, alternatives: { ...costs.alternatives, build_set: o(5000, 4000, 6000) } }).headline, '$2,036 more');
 });
 
 test('selected locations list each property once with its scene count', () => {

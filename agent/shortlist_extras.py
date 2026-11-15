@@ -13,7 +13,7 @@ property is inside the 30-mile studio zone, which is itself defined as a straigh
 """
 from __future__ import annotations
 
-from data.cost_model import LABEL as COST_LABEL, _load_rent, cost_compare
+from data.cost_model import DEFAULT_ASSUMPTIONS, LABEL as COST_LABEL, _load_rent, cost_compare
 from data.rent_precompute import MULTIFAMILY
 from data.radius import LABEL as RADIUS_LABEL, haversine_km
 
@@ -70,8 +70,12 @@ def costs(picks: list[dict], scene_sqft: float, shoot_days: int, drive_minutes: 
         per_pick.append({"property_id": pid, "address": pick.get("address"),
                          "found_location": {k: found[k] for k in ("total_usd", "total_low_usd", "total_high_usd", "lines")},
                          "rent": _rent(pid, found)})
+    used = {name for option in [*(scenarios or {}).values(), *(p["found_location"] for p in per_pick)]
+            for line in option["lines"] for name in line.get("inputs", [])}
+    sources = {name: {k: entry[k] for k in ("source", "quality", "unit", "low", "value", "high")}
+               for name, entry in DEFAULT_ASSUMPTIONS.items() if name in used}
     return {"label": COST_LABEL, "dollar_line": DOLLAR_LINE, "scene_sqft": scene_sqft, "shoot_days": shoot_days,
-            "alternatives": scenarios or {}, "picks": per_pick,
+            "alternatives": scenarios or {}, "picks": per_pick, "sources": sources,
             "note": "The found-location figure uses a benchmark day rate, the same for every pick; each building's "
                     "own CoStar rent is shown beside it for reference."}
 

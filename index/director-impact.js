@@ -60,12 +60,20 @@
       sub: `${value < 0 ? 'Added' : 'Released'} labor value: ${qty == null ? 'hours unknown' : `${Math.abs(qty)} ${unit}${Math.abs(qty) === 1 ? '' : 's'}`} at ${basis}. SCENARIO from your inputs, not a measured saving. ${cash}` };
   }
 
-  function setText(r, lvs) {
-    if (!r || r.error) return { headline: '—', sub: r?.error || '' };
-    const m = lvs.money, bound = r.buildIsLowerBound ? '≥ ' : '';
-    const headline = r.locationVsBuild > 0 ? `${bound}${m(r.locationVsBuild)} less` : r.locationVsBuild < 0 ? `${m(-r.locationVsBuild)} more` : 'Same cost';
-    const days = `${r.assumptions.shootDays} shoot day${r.assumptions.shootDays === 1 ? '' : 's'}`;
-    return { headline, sub: `than building a set, for ${days}. Real location ${m(r.location)} · standing set ${m(r.standing)} · build ${bound}${m(r.build)}. SCENARIO at published rates.` };
+  /* The tile reads the shared cost model (data/cost_model.cost_compare via /api/shortlist/costs), the same
+     numbers as the shortlist's Travel and budget panel: likely totals with low-high ranges, whole dollars. */
+  const usd = n => `$${Math.round(n).toLocaleString('en-US')}`;
+  function setText(c) {
+    if (!c || c.error) return { headline: '—', sub: c?.error || 'Build a plan to price its location.' };
+    const found = c.picks?.[0]?.found_location, alt = c.alternatives || {};
+    if (!found || !alt.build_set) return { headline: '—', sub: 'No cost estimate for this location.' };
+    const diff = alt.build_set.total_usd - found.total_usd;
+    const headline = diff > 0 ? `${usd(diff)} less` : diff < 0 ? `${usd(-diff)} more` : 'Same cost';
+    const days = `${c.shoot_days} shoot day${c.shoot_days === 1 ? '' : 's'}`;
+    const range = o => `${usd(o.total_usd)} (${usd(o.total_low_usd)}–${usd(o.total_high_usd)})`;
+    return { headline, sub: `than building a set (likely figures), for ${days} at ${Math.round(c.scene_sqft).toLocaleString('en-US')} sq ft. ` +
+      `Real location ${range(found)} · standing set ${range(alt.standing_set)} · build ${range(alt.build_set)}` +
+      (alt.cgi ? ` · CGI ${range(alt.cgi)}` : '') + '.' };
   }
 
   /* One row per selected property, with how many scenes shoot there. */
@@ -85,24 +93,19 @@
 
   const $ = id => document.getElementById(id);
   const lvs = root.TypecastLocationVsSet;
+  // [key, label, step, default, min, max]: the same inputs and limits as the shortlist's budget panel.
   const FIELDS = [
-    ['shootDays', 'Shoot days at this location', 1], ['locationHourly', 'Real location: rental per hour ($)', 0.01, 'locationHourly'],
-    ['locationHoursPerDay', 'Real location: hours per day', 0.5], ['locationPrepDays', 'Real location: paid prep days', 1],
-    ['standingShootDay', 'Standing set: per shoot day ($)', 0.01, 'standingShootDay'], ['standingPrepDay', 'Standing set: per prep or strike day ($)', 0.01],
-    ['standingPrepDays', 'Standing set: prep or strike days', 1], ['stageDay', 'Build: stage rental per day ($)', 0.01, 'stageDay'],
-    ['buildDays', 'Build: construction days (your assumption)', 1], ['strikeDays', 'Build: strike days (your assumption)', 1],
-    ['buildCrew', 'Build: construction crew (your assumption)', 1], ['crewHourly', 'Build: crew pay per hour ($)', 0.01, 'crewHourly'],
-    ['crewHoursPerDay', 'Build: crew hours per day', 0.5], ['materials', 'Build: materials and dressing ($) — blank if unknown', 0.01],
+    ['sceneSqft', 'Scene size (sq ft)', 100, 2000, 100, 1000000],
+    ['shootDays', 'Shoot days at this location', 1, 2, 1, 60],
   ];
-  let last = null, lease = { pid: null, data: null }, leaseSeq = 0;
+  let last = null, lease = { pid: null, data: null }, leaseSeq = 0, costSeq = 0, costTimer = null;
 
   function inputs() {
     const out = {};
-    for (const [key] of FIELDS) {
-      const raw = $('lvs_' + key).value.trim();
-      out[key] = raw === '' ? (key === 'materials' ? null : NaN) : Number(raw);
+    for (const [key, , , , min, max] of FIELDS) {
+      const raw = $('lvs_' + key).value.trim(), n = Number(raw);
+      out[key] = raw !== '' && Number.isFinite(n) && n >= min && n <= max && (key !== 'shootDays' || Number.isInteger(n)) ? n : null;
     }
-    if (lease.data && typeof lease.data.daily_floor_usd === 'number') out.leaseFloorPerDay = lease.data.daily_floor_usd;
     return out;
   }
   const set = (id, text) => { const el = $(id); if (el) el.textContent = text; };
@@ -140,22 +143,52 @@
     renderSet(); renderLease(root.typecastPlanningSnapshot?.());
   }
 
-  function renderSet() {
-    if (!lvs || !$('lvs_shootDays')) return;
-    const r = lvs.compare(inputs()), text = setText(r, lvs), box = $('lvsResult');
+  function paintSet(c) {
+    const text = setText(c), box = $('lvsResult');
     set('impactSet', text.headline); set('impactSetSub', text.sub);
+    if (!box) return;
     box.replaceChildren();
-    const line = (tag, t) => { const el = document.createElement(tag); el.textContent = t; box.append(el); };
-    if (r.error) return void line('p', r.error);
-    const m = lvs.money, a = r.assumptions;
-    line('h3', lvs.verdict(r));
-    line('p', `Real location: ${m(a.locationHourly)}/h × ${a.locationHoursPerDay} h × ${a.shootDays + a.locationPrepDays} day(s) = ${m(r.location)}.`);
-    line('p', `Standing set: ${m(a.standingShootDay)} × ${a.shootDays} shoot day(s) + ${m(a.standingPrepDay)} × ${a.standingPrepDays} prep day(s) = ${m(r.standing)}.`);
-    line('p', `Build a set: stage ${m(a.stageDay)} × ${r.parts.stageDays} days = ${m(r.parts.stage)}; crew ${a.buildCrew} × ${m(a.crewHourly)}/h × ${a.crewHoursPerDay} h × ${a.buildDays + a.strikeDays} days = ${m(r.parts.labor)}; materials ${r.parts.materials === null ? 'not entered' : m(r.parts.materials)}. Total ${r.buildIsLowerBound ? 'at least ' : ''}${m(r.build)}.`);
-    line('p', r.breakEvenShootDays === null ? 'At these day rates the built set never becomes cheaper with more shoot days.'
-      : `The built set would match the location at about ${r.breakEvenShootDays} shoot day(s).`);
-    if (r.leaseFloorTotal !== null) line('p', `CoStar prorated lease floor for the same days: ${m(r.leaseFloorTotal)} (reference only).`);
-    line('p', 'No crew, lighting, permits, insurance, travel or fringes in any column. Scenario only.');
+    const line = (tag, t) => { const el = document.createElement(tag); el.textContent = t; box.append(el); return el; };
+    if (!c || c.error || !c.picks?.[0]) return void line('p', text.sub);
+    const options = [['Real location', c.picks[0].found_location], ['Standing set', c.alternatives.standing_set],
+      ['Build a set on a stage', c.alternatives.build_set], ['CGI', c.alternatives.cgi]].filter(([, o]) => o);
+    const cheapest = options.reduce((a, b) => (b[1].total_usd < a[1].total_usd ? b : a));
+    line('h3', `${cheapest[0]} is the lowest likely cost for this scene.`);
+    for (const [name, o] of options) {
+      line('p', `${name}: ${usd(o.total_usd)} likely, ${usd(o.total_low_usd)}–${usd(o.total_high_usd)}. `
+        + (o.lines || []).map(l => `${l.label} ${usd(l.amount_usd)} (${l.formula})`).join('; ') + '.');
+    }
+    const sources = $('lvsSources');
+    if (sources) {
+      sources.replaceChildren();
+      for (const [name, s] of Object.entries(c.sources || {})) {
+        const li = document.createElement('li');
+        li.textContent = `${name.replace(/_/g, ' ')}: ${s.source} (${s.quality}).`;
+        sources.append(li);
+      }
+    }
+  }
+
+  function renderSet() {
+    if (!$('lvs_shootDays')) return;
+    clearTimeout(costTimer);
+    costTimer = setTimeout(loadSet, 250);
+  }
+
+  async function loadSet() {
+    const s = root.typecastPlanningSnapshot?.(), chosen = s ? selectedProperty(s) : null, v = inputs();
+    const seq = ++costSeq;
+    if (!chosen) return void paintSet(null);
+    if (v.sceneSqft === null || v.shootDays === null) return void paintSet({ error: 'Scene size must be 100–1,000,000 sq ft and shoot days a whole number from 1 to 60.' });
+    const row = selectedLocations(s.response ? driveSummary(s.response, s.assignments) : null).find(x => x.propertyId === chosen.id);
+    const minutes = typeof row?.minutes === 'number' && row.minutes <= 600 ? { [chosen.id]: row.minutes } : {};
+    try {
+      const response = await fetch('/api/shortlist/costs', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ picks: [{ property_id: chosen.id }], scene_sqft: v.sceneSqft, shoot_days: v.shootDays, drive_minutes: minutes }) });
+      const data = await response.json().catch(() => ({}));
+      if (seq !== costSeq) return;
+      paintSet(response.ok ? data : { error: `Cost estimate unavailable (${response.status}).` });
+    } catch { if (seq === costSeq) paintSet({ error: 'Cost estimate unavailable.' }); }
   }
 
   function render(ctx) {
@@ -180,18 +213,11 @@
 
   root.addEventListener('DOMContentLoaded', () => {
     if (!lvs || !$('lvsInputs')) return;
-    for (const [key, title, step, sourceKey] of FIELDS) {
+    for (const [key, title, step, value, min, max] of FIELDS) {
       const label = document.createElement('label'); label.textContent = title;
       const input = document.createElement('input');
-      Object.assign(input, { id: 'lvs_' + key, type: 'number', min: key === 'shootDays' ? '1' : '0', max: '100000000', step: String(step),
-        value: lvs.DEFAULTS[key] == null ? '' : String(lvs.DEFAULTS[key]) });
-      if (sourceKey) input.title = lvs.SOURCES[sourceKey].label;
+      Object.assign(input, { id: 'lvs_' + key, type: 'number', min: String(min), max: String(max), step: String(step), value: String(value) });
       input.addEventListener('input', renderSet); label.append(input); $('lvsInputs').append(label);
-    }
-    for (const source of Object.values(lvs.SOURCES)) {
-      const li = document.createElement('li'), link = document.createElement('a');
-      link.href = source.url; link.target = '_blank'; link.rel = 'noopener'; link.textContent = source.label;
-      li.append(link, ` (${source.kind}, checked ${source.checked})`); $('lvsSources').append(li);
     }
     // A drive limit a reviewer moves should visibly change the plan: rebuild when the slider is released or the filter toggled.
     const rebuild = () => {

@@ -24,9 +24,15 @@ async function post(path, body) {
     cache: "no-store",
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw Error(data.detail || `The request failed (${response.status}).`);
+  if (!response.ok) {
+    // FastAPI validation errors arrive as a list of {msg}; show their text, never "[object Object]".
+    const detail = Array.isArray(data.detail) ? data.detail.map((d) => d?.msg).filter(Boolean).join("; ") : data.detail;
+    throw Error(typeof detail === "string" && detail ? detail : `The request failed (${response.status}).`);
+  }
   return data;
 }
+
+const LIMITS = { sqft: [100, 1_000_000], days: [1, 60] };
 
 export function renderBudget(host, mapHost, picks) {
   const token = (host.__token = (host.__token || 0) + 1);
@@ -62,7 +68,8 @@ export function renderBudget(host, mapHost, picks) {
   sqftLabel.append(el("span", "Scene size (sq ft)"));
   const sqft = el("input");
   sqft.type = "number";
-  sqft.min = "100";
+  sqft.min = String(LIMITS.sqft[0]);
+  sqft.max = String(LIMITS.sqft[1]);
   sqft.step = "100";
   sqft.value = String(state.sqft);
   sqftLabel.append(sqft);
@@ -75,6 +82,10 @@ export function renderBudget(host, mapHost, picks) {
   days.value = String(state.days);
   daysLabel.append(days);
   costHead.append(sqftLabel, daysLabel);
+  const inputNote = el("p", undefined, "budget-note budget-input-note");
+  inputNote.hidden = true;
+  inputNote.setAttribute("role", "status");
+  costHead.append(inputNote);
   const pickChoice = el("div", undefined, "budget-picks");
   const bars = el("div", undefined, "budget-bars");
   const table = el("div", undefined, "budget-table");
@@ -172,6 +183,8 @@ export function renderBudget(host, mapHost, picks) {
       });
       if (!live()) return;
       state.costs = data;
+      bars.classList.remove("is-stale");
+      table.classList.remove("is-stale");
       paintCosts();
     } catch (error) {
       if (live()) bars.replaceChildren(el("p", error.message, "budget-note"));
@@ -182,7 +195,9 @@ export function renderBudget(host, mapHost, picks) {
     .then((r) => r.json())
     .then((d) => {
       if (!live()) return;
-      for (const b of d.bases || []) {
+      // Only bases in the picks' own city: a Houston base for LA picks is a 26-hour drive, not a choice.
+      const bases = (d.bases || []).filter((b) => !city || b.city === city);
+      for (const b of bases.length ? bases : d.bases || []) {
         const option = el("option", b.label);
         option.value = b.id;
         option.selected = b.id === state.base;
@@ -203,11 +218,22 @@ export function renderBudget(host, mapHost, picks) {
     clearTimeout(timer);
     timer = setTimeout(() => {
       const s = Number(sqft.value), d = Number(days.value);
-      if (s >= 100 && d >= 1 && d <= 60) {
-        state.sqft = s;
-        state.days = Math.round(d);
-        loadCosts();
+      const problems = [];
+      if (!(sqft.value !== "" && s >= LIMITS.sqft[0] && s <= LIMITS.sqft[1]))
+        problems.push(`Scene size must be ${LIMITS.sqft[0].toLocaleString("en-US")}–${LIMITS.sqft[1].toLocaleString("en-US")} sq ft`);
+      if (!(days.value !== "" && Number.isInteger(d) && d >= LIMITS.days[0] && d <= LIMITS.days[1]))
+        problems.push(`shoot days must be a whole number from ${LIMITS.days[0]} to ${LIMITS.days[1]}`);
+      inputNote.hidden = !problems.length;
+      bars.classList.toggle("is-stale", Boolean(problems.length));
+      table.classList.toggle("is-stale", Boolean(problems.length));
+      if (problems.length) {
+        const said = problems.join("; ");
+        inputNote.textContent = `${said[0].toUpperCase()}${said.slice(1)}. The figures below are still for ${state.sqft.toLocaleString("en-US")} sq ft and ${state.days} day${state.days === 1 ? "" : "s"}.`;
+        return;
       }
+      state.sqft = s;
+      state.days = d;
+      loadCosts();
     }, 350);
   };
   sqft.addEventListener("input", recost);
