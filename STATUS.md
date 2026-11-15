@@ -25,6 +25,7 @@ Details: `docs/team/status-lane-b.md` and `data/VEXCEL.md`. Live data exists onl
 - done: `data/rent_precompute.py` grades each property's rent A, B or C by reliability. `data/cost_model.py` compares a found location, a build set, a standing set and CGI as scenario estimates, not verified savings. Both have tests. PR #54.
 - done: a spending guard and 429 retry for Vexcel oblique calls, with tests. PR #55. It depends on #51.
 - open: construction per sq ft and CGI per shot are placeholders that need real quotes. Multifamily rents are mostly ground-floor retail, not apartment rent. The demo set should be the 9 QA buildings, and it needs their Vexcel caches. Drive time and a radius filter are pending the #43 comparison. Sending Vexcel imagery to outside AI models is unconfirmed. The Vexcel billing unit is unconfirmed.
+- done: an offline radius filter, `data/radius.py`, straight-line distance and not drive time, in PR #58. The 9 QA buildings now all have Vexcel caches with `logistics.json`: parking and noise are estimated and walking distance is unknown. That closes the cache item in the open line above.
 
 ## Owner 3 (agent/)
 - works: fixed-order pipeline + FastAPI endpoints on mocks
