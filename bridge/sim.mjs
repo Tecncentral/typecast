@@ -10,6 +10,7 @@
 //   @burst a | b   two messages in the same poll (rapid double-send)
 //   @fail N        the next N sends fail                          @nomatch        the next search finds nothing
 //   @failresults   every results bubble fails to send (to test the fallback line)
+//   Alerts (createSim({ alerts: true }) or --alerts): @advance MIN moves the clock and runs the watcher, @maxrent N, @rent RANK N, @real (PHOTON_ALERTS_REAL=1)
 //   @viewer URL    set PHOTON_VIEWER_URL for this run
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -17,6 +18,8 @@ import readline from "node:readline";
 import { createRunner, parseConfig } from "./watch-beta.mjs";
 import { sessions } from "./core.mjs";
 import { BUDGET } from "./conversations.mjs";
+import { openStore } from "./store.mjs";
+import { createAlerts } from "./alerts.mjs";
 
 export const SIM_SENDER = "+15550100100";
 export const SIM_OTHER = "+15550100999";
@@ -33,14 +36,15 @@ export function mockBackend(sim) {
     if (path === "/scout" || path === "/refine") {
       const none = sim.flags.nomatch && path === "/scout";
       sim.flags.nomatch = false;
-      return ok({ thread_id: "sim-thread", picks: none ? [] : MOCK_PICKS, gave_up: none ? ["era", "parking"] : [], source_mode: "mock", engine: "fixed" });
+      if (path === "/scout") sim.scouts = (sim.scouts ?? 0) + 1;
+      return ok({ thread_id: sim.scouts > 1 ? `sim-thread-${sim.scouts}` : "sim-thread", picks: none ? [] : MOCK_PICKS, gave_up: none ? ["era", "parking"] : [], source_mode: "mock", engine: "fixed" });
     }
     if (path === "/approve") return ok({ sent: false });
     return { ok: false, status: 404, json: async () => ({}), text: async () => "" };
   };
 }
 
-export function createSim({ env = {}, print = () => {}, fetchImpl } = {}) {
+export function createSim({ env = {}, print = () => {}, fetchImpl, alerts: withAlerts = false, rentSource } = {}) {
   sessions.clear();
   const sim = { calls: [], outbound: [], flags: { nomatch: false }, failures: 0, failTexts: null, inbox: [], printed: [] };
   const cfg = parseConfig({ PHOTON_PROJECT_ID: "sim-project", PHOTON_PROJECT_SECRET: "sim-secret", PHOTON_AGENT_HANDLE: SIM_AGENT, PHOTON_ALLOWED_SENDERS: SIM_SENDER });
@@ -58,8 +62,11 @@ export function createSim({ env = {}, print = () => {}, fetchImpl } = {}) {
       return { id: `sent-${sim.outbound.length}` };
     },
   } };
+  // Optional alerts: an in-memory store and a fake clock, so reminders and price checks run offline.
+  const store = withAlerts ? openStore(":memory:") : null;
+  const alerts = withAlerts ? createAlerts({ store, allowed: cfg.allowed, env, now: () => clock, log: (l) => emit(`  [alerts] ${l}`), ...(rentSource ? { rentSource } : {}) }) : null;
   const runner = createRunner({
-    photon, cfg, now: () => clock, wait: async () => {}, log: (l) => emit(`  [runner] ${l}`), logError: (l) => emit(`  [runner error] ${l}`),
+    alerts, photon, cfg, now: () => clock, wait: async () => {}, log: (l) => emit(`  [runner] ${l}`), logError: (l) => emit(`  [runner error] ${l}`),
     env, fetchImpl: fetchImpl ?? mockBackend(sim),
   });
 
@@ -83,7 +90,10 @@ export function createSim({ env = {}, print = () => {}, fetchImpl } = {}) {
   sim.dup = async () => { const last = sim.inbox[sim.inbox.length - 1]; emit("you: [same message delivered again]"); sim.push({ ...last }); await sim.step(); };
   sim.burst = async (...texts) => { for (const t of texts) emit(`you (rapid): ${t}`); sim.push(...texts.map((t) => text(t))); await sim.step(); };
   sim.failNext = (n) => { sim.failures = n; };
-  sim.runner = runner; sim.env = env; sim.cfg = cfg;
+  sim.advance = async (minutes) => { clock += minutes * 60_000; emit(`  [clock] +${minutes} min`); return runner.alertTick(); };
+  sim.setMaxRent = (maxRent, rentUnits = null) => store.setMaxRent(store.db.prepare("SELECT MAX(id) AS id FROM searches").get().id, { maxRent, rentUnits });
+  sim.setRent = (rank, rentRef) => store.db.prepare("UPDATE picks SET rent_ref = ? WHERE rank = ? AND search_id = (SELECT MAX(id) FROM searches)").run(rentRef, rank);
+  sim.runner = runner; sim.env = env; sim.cfg = cfg; sim.store = store; sim.alerts = alerts;
   return sim;
 }
 
@@ -102,6 +112,10 @@ export async function runScript(sim, lines) {
     else if (cmd === "fail") sim.failNext(Number(arg) || 1);
     else if (cmd === "nomatch") sim.flags.nomatch = true;
     else if (cmd === "failresults") sim.failTexts = /^MOCK ·/;
+    else if (cmd === "advance") await sim.advance(Number(arg));
+    else if (cmd === "maxrent") sim.setMaxRent(Number(arg));
+    else if (cmd === "rent") { const [rank, value] = arg.split(/\s+/).map(Number); sim.setRent(rank, value); }
+    else if (cmd === "real") sim.env.PHOTON_ALERTS_REAL = "1";
     else if (cmd === "viewer") sim.env.PHOTON_VIEWER_URL = arg.trim();
     else throw new Error(`unknown script command @${cmd}`);
   }
@@ -111,7 +125,7 @@ export async function runScript(sim, lines) {
 async function main() {
   const argv = process.argv.slice(2);
   const scriptAt = argv.indexOf("--script");
-  const sim = createSim({ env: { PHOTON_VIEWER_URL: process.env.PHOTON_VIEWER_URL ?? "" }, print: console.log });
+  const sim = createSim({ env: { PHOTON_VIEWER_URL: process.env.PHOTON_VIEWER_URL ?? "" }, print: console.log, alerts: argv.includes("--alerts") });
   console.log(`Simulator: nothing is sent to Photon. Mock data only. Budget ${BUDGET} outbound messages per search.`);
   if (scriptAt >= 0) {
     await runScript(sim, readFileSync(argv[scriptAt + 1], "utf8").split(/\r?\n/));

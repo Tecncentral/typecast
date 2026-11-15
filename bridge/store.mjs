@@ -136,7 +136,11 @@ CREATE TABLE alerts (
   sent_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE UNIQUE INDEX one_reminder_per_search ON alerts(search_id) WHERE kind = 'reach_out_reminder';` },
+  // Outbound messages already spent on a search (questions, results, alerts) so the per-search cap survives a restart. NULL = unknown.
+  { version: 3, sql: `ALTER TABLE searches ADD COLUMN outbound_count INTEGER;` },
 ];
+/** SQLite datetime text for a millisecond timestamp, e.g. 2026-11-15 12:00:00 (UTC). */
+export const sqlTime = (ms) => new Date(ms).toISOString().slice(0, 19).replace("T", " ");
 export const SCHEMA_VERSION = MIGRATIONS.at(-1).version;
 
 /** Apply every migration newer than the database's user_version, each in its own transaction. Safe to rerun. */
@@ -231,13 +235,13 @@ export function openStore(file = DEFAULT_DB) {
   }
 
   /** One scout run. Limits and the base point are optional (NULL when unknown). Returns the row id. */
-  function saveSearch({ briefId, userId, threadId, sourceMode, maxRent, rentUnits, baseLabel, baseLat, baseLon, maxDriveMin, alertsOn } = {}) {
+  function saveSearch({ briefId, userId, threadId, sourceMode, maxRent, rentUnits, baseLabel, baseLat, baseLon, maxDriveMin, alertsOn, createdAt } = {}) {
     if (!threadId || typeof threadId !== "string") throw new Error("threadId is required");
-    return Number(db.prepare(`INSERT INTO searches (brief_id, user_id, thread_id, source_mode, max_rent, rent_units, base_label, base_lat, base_lon, max_drive_min, alerts_on)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+    return Number(db.prepare(`INSERT INTO searches (brief_id, user_id, thread_id, source_mode, max_rent, rent_units, base_label, base_lat, base_lon, max_drive_min, alerts_on, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, datetime('now')))`).run(
       needId(briefId, "briefId"), userId == null ? null : needId(userId, "userId"), threadId, oneOf(sourceMode, ["mock", "live"], "sourceMode"),
       realOrNull(maxRent, "maxRent"), orNull(rentUnits), orNull(baseLabel), realOrNull(baseLat, "baseLat"), realOrNull(baseLon, "baseLon"),
-      intOrNull(maxDriveMin, "maxDriveMin"), alertsOn ? 1 : 0,
+      intOrNull(maxDriveMin, "maxDriveMin"), alertsOn ? 1 : 0, orNull(createdAt),
     ).lastInsertRowid);
   }
 
@@ -274,7 +278,45 @@ export function openStore(file = DEFAULT_DB) {
     return result.changes === 1;
   }
 
+  // --- alerts support: small reads and writes used by bridge/alerts.mjs -----------------------------------------
+  const one = (sql, ...args) => db.prepare(sql).get(...args) ?? null;
+  const run = (sql, ...args) => db.prepare(sql).run(...args);
+
+  /** The sender's most recent search: { id, thread_id, alerts_on, outbound_count } or null. */
+  const latestSearch = (senderHash) => one(`SELECT s.id, s.thread_id, s.alerts_on, s.outbound_count FROM searches s
+    JOIN users u ON u.id = s.user_id WHERE u.sender_hash = ? ORDER BY s.id DESC LIMIT 1`, senderHash);
+  /** Turn alerts on or off for the sender's latest search. Returns that search id, or null when they have none. */
+  function setAlertsOn(senderHash, on) {
+    const latest = latestSearch(senderHash);
+    if (!latest) return null;
+    run("UPDATE searches SET alerts_on = ? WHERE id = ?", on ? 1 : 0, latest.id);
+    return latest.id;
+  }
+  const searchByThread = (threadId) => one("SELECT id FROM searches WHERE thread_id = ?", threadId)?.id ?? null;
+  const setCurrentSearch = (conversationId, searchId) => run("UPDATE conversations SET current_search_id = ?, updated_at = datetime('now') WHERE id = ?", searchId, conversationId);
+  const setOutboundCount = (searchId, n) => run("UPDATE searches SET outbound_count = ? WHERE id = ?", intOrNull(n, "count"), searchId);
+  /** Add to the count; an unknown (NULL) count stays unknown. */
+  const addOutbound = (searchId, n = 1) => run("UPDATE searches SET outbound_count = outbound_count + ? WHERE id = ?", n, searchId);
+  const setMaxRent = (searchId, { maxRent, rentUnits }) => run("UPDATE searches SET max_rent = ?, rent_units = ? WHERE id = ?", realOrNull(maxRent, "maxRent"), orNull(rentUnits), searchId);
+  const recordReachOut = (searchId, rank, draftedAt = new Date().toISOString()) =>
+    run("INSERT INTO reach_outs (search_id, rank, drafted_at) VALUES (?, ?, ?) ON CONFLICT DO NOTHING", needId(searchId, "searchId"), needId(rank, "rank"), draftedAt).changes === 1;
+  const hasReachOut = (searchId) => Boolean(one("SELECT 1 AS x FROM reach_outs WHERE search_id = ? LIMIT 1", searchId));
+  const hasReminder = (searchId) => Boolean(one("SELECT 1 AS x FROM alerts WHERE search_id = ? AND kind = 'reach_out_reminder'", searchId));
+  const picksFor = (searchId) => db.prepare("SELECT rank, property_id, address, property_type, rent_ref FROM picks WHERE search_id = ? ORDER BY rank").all(searchId);
+  /** Mock searches with alerts on, with the conversation to reach the sender in. */
+  const alertSearches = () => db.prepare(`SELECT s.id AS search_id, s.created_at, s.max_rent, s.rent_units, s.outbound_count, u.sender_hash,
+      (SELECT c.photon_space FROM conversations c WHERE c.user_id = u.id ORDER BY c.updated_at DESC, c.id DESC LIMIT 1) AS photon_space
+    FROM searches s JOIN users u ON u.id = s.user_id WHERE s.alerts_on = 1 AND s.source_mode = 'mock' ORDER BY s.id`).all();
+  const getPriceState = (searchId, propertyId) => one("SELECT state, streak, last_rent FROM price_state WHERE search_id = ? AND property_id = ?", searchId, propertyId);
+  /** Every price in this build comes from a simulated source, so last_simulated is always 1. */
+  const savePriceState = (searchId, propertyId, { state, streak, lastRent, checkedAt }) => run(`INSERT INTO price_state (search_id, property_id, state, streak, last_rent, last_simulated, checked_at)
+    VALUES (?, ?, ?, ?, ?, 1, ?) ON CONFLICT(search_id, property_id) DO UPDATE SET state = excluded.state, streak = excluded.streak,
+    last_rent = excluded.last_rent, last_simulated = 1, checked_at = excluded.checked_at`,
+  searchId, propertyId, oneOf(state, ["within", "above"], "state"), streak, realOrNull(lastRent, "lastRent"), checkedAt);
+
   return {
+    latestSearch, setAlertsOn, searchByThread, setCurrentSearch, setOutboundCount, addOutbound, setMaxRent, recordReachOut, hasReachOut,
+    hasReminder, picksFor, alertSearches, getPriceState, savePriceState,
     db, getSettings, saveSettings, upsertUser, upsertConversation, saveBrief, saveSearch, savePicks, recordMessage, recordAlert,
     close: () => db.close(),
   };

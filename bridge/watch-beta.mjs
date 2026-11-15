@@ -14,6 +14,7 @@ import { createConversations } from "./conversations.mjs";
 
 export const POLL_MS = 2000;
 export const MAX_TEXT = 1500;
+const ALERT_TICK_MS = 60_000;
 const BACKOFF_START_MS = 5000;
 const BACKOFF_MAX_MS = 120_000;
 const WINDOW_OVERLAP_MS = 60_000;
@@ -109,7 +110,7 @@ export function makeDryRunClient(real, log = console.log) {
 
 export function createRunner({
   photon, cfg, handle = handleMessage, wait = sleep, mergeWait = wait, now = Date.now,
-  log = console.log, logError = console.error, env = process.env, fetchImpl, dryRun = false,
+  log = console.log, logError = console.error, env = process.env, fetchImpl, dryRun = false, alerts = null,
 }) {
   const startedAt = now();
   const seen = createSeen();
@@ -133,8 +134,19 @@ export function createRunner({
     }
   }
 
+  // Proactive alerts (bridge/alerts.mjs): sent into a conversation we already know the agent's user id for.
+  const routes = new Map();
+  async function sendAlert(spaceId, key, text) {
+    const senderId = routes.get(spaceId);
+    if (!senderId) return "no_route";
+    try {
+      await photon.projects.sendMessage({ path: { id: cfg.projectId }, headers: { "idempotency-key": key }, body: { spaceId, senderId, content: { type: "text", format: "plain", text } } });
+      return "sent";
+    } catch (e) { logError(describeError(e)); return "failed"; }
+  }
+
   const conversations = createConversations({
-    handle, send: sendText, split: chunkText, wait: mergeWait, log, fetchImpl, env,
+    handle: alerts ? alerts.wrapHandle(handle) : handle, onResultsSent: alerts ? (info) => alerts.saveResults(info) : undefined, send: sendText, split: chunkText, wait: mergeWait, log, fetchImpl, env,
     onError: (e) => logError(describeError(e)), onAnswered: () => { stats.answered += 1; },
   });
 
@@ -153,7 +165,10 @@ export function createRunner({
         if (!raw?.id || seen.has(raw.id)) continue;
         seen.add(raw.id);
         const accepted = acceptMessage(raw, cfg, startedAt);
-        if (accepted.ok) conversations.submit(accepted); else stats.ignored += 1;
+        if (accepted.ok) {
+          routes.set(accepted.spaceId, accepted.senderId);
+          conversations.submit(alerts ? { ...accepted, senderHash: alerts.hash(raw.sentBy.handle) } : accepted);
+        } else stats.ignored += 1;
       }
       pageToken = page.nextPageToken;
     } while (pageToken);
@@ -182,7 +197,8 @@ export function createRunner({
     return 0;
   }
 
-  return { pollOnce, run, stats, idle: conversations.idle };
+  const alertTick = () => (alerts ? alerts.tick({ send: sendAlert }) : Promise.resolve(null));
+  return { pollOnce, run, stats, idle: conversations.idle, alertTick };
 }
 
 async function main() {
@@ -196,10 +212,17 @@ async function main() {
   const real = new Photon({ headers: { Authorization: `Bearer ${cfg.key}` } });
   const dryRun = process.env.PHOTON_DRY_RUN === "1";
   const photon = dryRun ? makeDryRunClient(real) : real;
+  const api = process.env.TYPECAST_API || "http://localhost:8000";
+  const { openStore } = await import("./store.mjs");
+  const { createAlerts } = await import("./alerts.mjs");
+  const alerts = createAlerts({ store: openStore(process.env.TYPECAST_DB || undefined), allowed: cfg.allowed, guard: () => assertMockMode(api), dryRun });
+  console.log(`Alerts: ${alerts.isReal() ? "REAL sends enabled (simulated prices only)" : "dry run, counts only; set PHOTON_ALERTS_REAL=1 to send"}`);
   let stop = false;
   process.on("SIGINT", () => { stop = true; });
-  const runner = createRunner({ photon, cfg, dryRun, mergeWait: sleep });
+  const runner = createRunner({ photon, cfg, dryRun, alerts, mergeWait: sleep });
+  const ticker = setInterval(() => runner.alertTick().catch((e) => console.error(describeError(e))), ALERT_TICK_MS);
   process.exitCode = await runner.run({ shouldStop: () => stop });
+  clearInterval(ticker);
   await runner.idle();
 }
 

@@ -26,7 +26,7 @@ test("migration on an empty database creates all 11 tables, settings, the index,
   const s = openStore(file);
   assert.deepEqual(tableNames(s.db), [...ELEVEN, "settings"].sort());
   assert.equal(s.db.prepare("PRAGMA user_version").get().user_version, SCHEMA_VERSION);
-  assert.equal(SCHEMA_VERSION, 2);
+  assert.equal(SCHEMA_VERSION, 3);
   assert.equal(s.db.prepare("PRAGMA foreign_keys").get().foreign_keys, 1);
   assert.equal(s.db.prepare("PRAGMA journal_mode").get().journal_mode, "wal");
   const index = s.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'one_reminder_per_search'").get();
@@ -44,7 +44,7 @@ test("rerunning the migration changes nothing and keeps the data", () => {
   for (let i = 0; i < 2; i++) {
     const again = openStore(file);
     assert.deepEqual(tableNames(again.db), before);
-    assert.equal(again.db.prepare("PRAGMA user_version").get().user_version, 2);
+    assert.equal(again.db.prepare("PRAGMA user_version").get().user_version, SCHEMA_VERSION);
     assert.equal(again.upsertUser(H), ids.userId, "same user, no duplicate");
     assert.equal(again.db.prepare("SELECT COUNT(*) AS n FROM users").get().n, 1);
     assert.equal(again.getSettings(H).trucks, 2, "the settings table and its functions still work");
