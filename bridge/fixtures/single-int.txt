@@ -1,0 +1,3 @@
+# One detailed INT. message: zero questions, one search.
+@viewer http://192.0.2.10:8000
+INT. WAREHOUSE, DAY. Two couriers exchange a case. Parking for 2 trucks.

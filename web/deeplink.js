@@ -18,3 +18,18 @@ if (scene && params.get("autorun") === "1") {
     history.replaceState(null, "", `${location.pathname}?${params}${location.hash}`);
   }
 }
+
+// An exterior brief (ext=) never runs from a link: it is a billable Vexcel search. Show a hand-off to the
+// outdoors page, which only pre-fills its box (oblique.js); the user presses Search.
+const ext = (params.get("ext") || "").trim().slice(0, 300);
+if (ext) {
+  const handoff = document.createElement("p");
+  handoff.id = "ext-handoff";
+  const next = new URLSearchParams({ q: ext });
+  if (params.get("city")) next.set("city", params.get("city"));
+  const link = document.createElement("a");
+  link.href = `./oblique.html?${next}`;
+  link.textContent = "Open the exterior search";
+  handoff.append(`Exterior search ready: ${ext.replace(/\.+$/, "")}. It does not run until you open it and press Search (a live Vexcel call). `, link);
+  document.getElementById("scene-form")?.after(handoff);
+}

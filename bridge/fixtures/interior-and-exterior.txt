@@ -1,0 +1,3 @@
+# Interior plus an exterior in one brief: no questions, the exterior is never searched.
+@viewer http://192.0.2.10:8000
+need a police station in LA at night with an alley outside, 3 trucks and 30 cars

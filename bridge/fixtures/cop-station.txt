@@ -1,0 +1,6 @@
+# The four-message example: city, then exterior and look, then parking, then a search.
+@viewer http://192.0.2.10:8000
+need a cop station for a night interrogation scene
+LA
+80s, kinda grimy
+3 trucks 30 cars
