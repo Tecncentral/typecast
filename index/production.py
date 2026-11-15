@@ -109,7 +109,11 @@ class CommuteConstraint(_StrictModel):
     @field_validator("lat", "lon", "max_minutes", mode="before")
     @classmethod
     def _v_number(cls, v):
-        return _finite_float(v)
+        # float(None) and float([]) raise TypeError, which escapes FastAPI as a 500.
+        try:
+            return _finite_float(v)
+        except TypeError:
+            raise ValueError("Value must be a finite number") from None
 
 
 class PlanRequest(_StrictModel):
