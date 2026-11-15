@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agent import state
 from agent.deep_tools import ToolSession, make_tools
 from agent.interfaces import Requirements, RunContext, timed
-from contracts.schemas import Event, Pick, ScoutResponse
+from contracts.schemas import Event, Pick, ScoutResponse, Vehicles
 
 PROMPTS = Path(__file__).with_name("prompts")
 MAX_APPROVALS = 512
@@ -401,7 +401,8 @@ def run_deep(ctx: RunContext, req: Requirements | dict) -> ScoutResponse:
         ctx.event(Event(type="final", agent="director", text=f"{len(session.picks)} source-backed picks reviewed by the skeptic."))
         return ScoutResponse(thread_id=ctx.thread_id, picks=session.picks, gave_up=session.gave_up,
                              events=events, engine="deep", source_mode=ctx.source_mode,
-                             trace_url=None, timings=dict(ctx.timings))
+                             trace_url=None, timings=dict(ctx.timings),
+                             vehicles=Vehicles(trucks=req.trucks, cars=req.cars))
     except Exception as exc:
         if not session.failures:
             ctx.event(Event(type="error", agent="director",

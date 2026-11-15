@@ -144,7 +144,7 @@ def test_occupied_unknown_fit_and_parking_short_are_blocking_not_small_score_pen
     assert any("Parking short" in e.text for e in result.events)
     assert any("not listed as available" in e.text for e in result.events)
     assert any("Shot fit unknown" in e.text for e in result.events)
-    assert "explicitly blocked alternatives" in result.events[-1].text
+    assert "with open checks" in result.events[-1].text
 
 
 def test_each_evidence_layer_has_field_level_uncertainty(monkeypatch):
@@ -268,6 +268,28 @@ def test_configured_rerank_can_promote_beyond_first_ten_without_losing_refine_po
     assert len(cached) == 45 and {s.shot_id for s in cached} == {s.shot_id for s in shots}
 
 
+def test_vehicle_only_refine_keeps_saved_visual_order_without_rescoring(monkeypatch):
+    _, shots = dataset(monkeypatch, [{} for _ in range(6)])
+    calls = []
+
+    def rerank(ctx, req, candidates, k):
+        calls.append(req.scene)
+        return list(reversed(candidates[:k]))
+
+    monkeypatch.setattr(pipeline.rerank, "rerank_shots", rerank)
+    ctx = RunContext(thread_id="vehicle-only")
+    pipeline.scout(ctx, Requirements(scene="Office"))
+    saved = [s.shot_id for s in pipeline._threads[ctx.thread_id]["candidates"]]
+    assert len(calls) == 1
+    result = pipeline.refine(ctx, pipeline._threads[ctx.thread_id], "need parking for 5 trucks")
+    assert len(calls) == 1, "a vehicle-only follow-up must not re-score images"
+    assert [s.shot_id for s in pipeline._threads[ctx.thread_id]["candidates"]] == saved
+    assert result.vehicles.trucks == 5
+    assert any("kept the saved visual ranking" in e.text for e in result.events)
+    pipeline.refine(ctx, pipeline._threads[ctx.thread_id], "make it a 1970s building")
+    assert len(calls) == 2, "a look or era change still re-scores the saved pool"
+
+
 def test_live_unknown_availability_capacity_and_noise_are_visible(monkeypatch):
     dataset(monkeypatch, [{"pid": "live-unknown", "available": False, "trucks": None}])
     prop = pipeline.get_property("live-unknown").model_copy(update={
@@ -303,3 +325,18 @@ def test_live_market_pool_excludes_unindexed_properties_before_logistics(monkeyp
     monkeypatch.setattr(store, "load_index", lambda: ([shots[0]], None, "synthetic"))
     pool = pipeline.market_properties(RunContext(thread_id="live-market", source_mode="live"), "Los Angeles")
     assert [p.property_id for p in pool] == ["indexed"]
+
+
+def test_costar_recorded_parking_becomes_evidence_and_a_surface_caveat(monkeypatch):
+    dataset(monkeypatch, [{"pid": "recorded"}])
+    prop = pipeline.get_property("recorded").model_copy(update={"parking_spaces": {"Surface": 10, "Covered": 600}})
+    monkeypatch.setattr(pipeline, "get_property", lambda pid: prop)
+    monkeypatch.setattr(pipeline, "search_costar", lambda **kwargs: [prop])
+    result = pipeline.scout(RunContext(thread_id="recorded-parking"), Requirements(scene="Office", trucks=5, cars=10))
+    pick = result.picks[0]
+    assert any(e.source == "costar" and e.claim == "CoStar records 600 covered and 10 surface parking spaces at the property."
+               for e in pick.evidence)
+    assert any(note.startswith("CoStar records 10 surface spaces") and "30 car equivalents" in note
+               for note in pick.skeptic_notes)
+    calm = pipeline.scout(RunContext(thread_id="recorded-calm"), Requirements(scene="Office", trucks=0, cars=10))
+    assert not any(note.startswith("CoStar records") for note in calm.picks[0].skeptic_notes)

@@ -88,3 +88,18 @@ legacy `[lat,lon]` ring into the matching unannotated image. It rejects unsuppor
 or out-of-bounds geometry and falls back to revealing the supplied annotated
 aerial unchanged. No new polygon or building-centroid claim is inferred. No
 existing response schema or endpoint behavior changes.
+
+## Crew vehicles and CoStar recorded parking — 2026-11-14
+
+Additive, optional; consumer: viewer map and change summary.
+- `ScoutResponse.vehicles: {trucks, cars} | null` is the crew demand the picks were
+  checked against (both engines). The viewer draws demand against each lot with it;
+  without it the viewer shows trucks from the allocation and leaves the fit unconfirmed.
+- `Property.parking_spaces: {type: count}` is CoStar's recorded `parking[].totalSpaces`
+  by labelled `ParkingType` (e.g. `{"Surface": 73, "Covered": 129}`), read from the
+  private extract `cache/costar-parking.json` (`python -m data.costar_parking`, about
+  1 s). Absent file or record means `{}`. The pipeline adds it as CoStar evidence and,
+  when trucks are requested and recorded surface spaces are below the demand, a
+  caveat that is not a blocker.
+No existing field or endpoint behavior changes.
+
