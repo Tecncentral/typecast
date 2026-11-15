@@ -22,6 +22,13 @@ OPEN = """async (id) => {
   img.src = '/cache/views/' + id + '.jpg'; img.style.cssText = 'position:fixed;left:20px;top:20px;width:200px';
   document.body.append(img); await img.decode(); await vf.open(id, img);
 }"""
+CARD = """async (id) => {
+  const stage = document.createElement('div'); stage.className = 'shot-stage';
+  stage.style.cssText = 'position:fixed;left:20px;top:20px;width:640px;height:360px;z-index:5';
+  const img = new Image(); img.className = 'shot-image'; img.alt = 'Frame at Check St';
+  img.src = '/cache/views/' + id + '.jpg'; img.style.cssText = 'width:100%;height:100%;object-fit:cover';
+  stage.append(img); document.body.append(stage); await img.decode();
+}"""
 STATE = """async () => {
   const {walkState} = await import('/app/viewfinder-walk.js');
   const w = walkState(window.__vf), free = Array.from(w.free || []), g = w.grid;
@@ -59,8 +66,9 @@ def main():
                                              args=["--use-angle=metal", "--enable-gpu", "--ignore-gpu-blocklist"])
         page = browser.new_page(viewport={"width": 1440, "height": 900})
         page.on("pageerror", lambda error: errors.append(f"pageerror: {str(error)[:300]}"))
+        # A frame with no emptied plate answers 404 to the card's Strike lookup; that is not this check's subject.
         page.on("console", lambda m: errors.append(f"console: {m.text[:300]} @ {m.location.get('url', '')[-80:]}")
-                if m.type == "error" else None)
+                if m.type == "error" and "/api/strike/" not in m.location.get("url", "") else None)
         page.add_init_script("addEventListener('unhandledrejection', (e) => console.error('unhandled rejection: '"
                              " + String(e.reason && (e.reason.stack || e.reason.message || e.reason))))")
         # Only the local server may be reached. Spark starts its sort worker from a blob: URL.
@@ -100,18 +108,21 @@ def main():
         if start["room"]:
             # Stand-ins: P brings on the cast, B adds one, each stands on walkable floor, P clears.
             page.keyboard.press("p")
+            page.wait_for_function("(async () => (await import('/app/viewfinder-walk.js')).walkState(window.__vf).cast?.size > 0)()", timeout=20000)
             page.wait_for_timeout(1200)
             cast = page.evaluate("""async () => { const {walkState} = await import('/app/viewfinder-walk.js');
               const w = walkState(window.__vf), g = w.grid;
               const on = (m) => g.walk[Math.floor((m.z - g.minZ) / g.cell) * g.nx + Math.floor((m.x - g.minX) / g.cell)] === 1;
               return {size: w.cast.size, walkers: w.cast.members.filter(m => m.route).length, on_floor: w.cast.members.every(on),
-                      height_units: w.cast.members[0].figure.root.scale.y * 1.75, shown: getComputedStyle(document.querySelector('.vf-cast')).display}; }""")
-            require(cast["size"] == 3 and cast["walkers"] == 1 and cast["on_floor"], f"the default cast is wrong: {cast}")
-            require(abs(cast["height_units"] / k - 1.75) < 1e-6 and cast["shown"] != "none", "stand-ins are not life size")
+                      animated: w.cast.members.filter(m => m.mixer).length, heights_m: w.cast.members.map(m => m.heightM),
+                      shown: getComputedStyle(document.querySelector('.vf-cast')).display}; }""")
+            require(cast["size"] == 5 and cast["walkers"] == 2 and cast["on_floor"], f"the default cast is wrong: {cast}")
+            require(cast["animated"] == 5, f"the stand-ins are not the animated people: {cast}")
+            require(all(1.6 <= h <= 1.85 for h in cast["heights_m"]) and cast["shown"] != "none", "stand-ins are not life size")
             page.screenshot(path=str(args.screens_dir / "stand-ins.png"))
             page.keyboard.press("b")
-            page.wait_for_timeout(300)
-            require(page.evaluate("(async () => (await import('/app/viewfinder-walk.js')).walkState(window.__vf).cast.size)()") == 4,
+            page.wait_for_timeout(600)
+            require(page.evaluate("(async () => (await import('/app/viewfinder-walk.js')).walkState(window.__vf).cast.size)()") == 6,
                     "B did not add a stand-in")
             page.keyboard.press("p")
             page.wait_for_timeout(300)
@@ -141,6 +152,27 @@ def main():
         page.wait_for_selector("dialog.vf.is-walking", timeout=60000)
         page.wait_for_timeout(800)
         page.screenshot(path=str(args.screens_dir / "linked.png"))
+        # On a card, the frame offers the walk itself: one press opens the room and steps inside.
+        page.goto(args.base_url + "/app/", wait_until="networkidle")
+        page.reload(wait_until="networkidle")
+        page.evaluate(CARD, args.shot)
+        page.wait_for_selector(".shot-stage > .vf-walk-open", timeout=10000)
+        page.wait_for_selector(".shot-stage > .vf-open", timeout=10000)
+        page.screenshot(path=str(args.screens_dir / "card.png"))
+        page.click(".shot-stage > .vf-walk-open")
+        page.wait_for_selector("dialog.vf.is-walking", timeout=60000)
+        if start["room"]:
+            page.wait_for_selector(".vf-cast.is-active", timeout=20000)
+        page.wait_for_timeout(1500)
+        page.screenshot(path=str(args.screens_dir / "card-walk.png"))
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(900)
+        # Look around on the same frame afterwards opens the 360° view, not the walk.
+        page.click(".shot-stage > .vf-open")
+        page.wait_for_selector(".vf-walk:not([hidden])", timeout=15000)
+        page.wait_for_timeout(1200)
+        require(not page.evaluate("document.querySelector('dialog.vf').classList.contains('is-walking')"),
+                "Look around stepped into the set without being asked")
         require(not errors, f"browser errors: {errors[:3]}")
         report.update(walked_m=round(walked / k, 2), world_units_per_m=round(k, 3), chromium_version=browser.version)
         if start["room"]:

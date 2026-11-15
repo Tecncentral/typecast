@@ -383,6 +383,22 @@ def load_dressed(model_id: str, sweep_id: str) -> Optional[dict]:
     }
 
 
+def walkable_scan_points(limit: int = 200) -> list[dict]:
+    """Scan points whose validated dressed set has a walkable reconstruction, for the viewer's cards."""
+    found = []
+    try:
+        records = sorted(worlds_dir().glob("*/*/dressed/dressed.json"))[:limit]
+    except OSError:
+        return found
+    for path in records:
+        model_id, sweep_id = path.parts[-4], path.parts[-3]
+        record = load_dressed(model_id, sweep_id)
+        if record and record["splat"]:
+            found.append({"model_id": model_id, "sweep_id": sweep_id, "mode": record["splat"]["mode"],
+                          "room": bool(record["room"])})
+    return found
+
+
 def dressed_cache_state(model_id: str, sweep_id: str) -> str:
     """'absent' (no dressed.json yet), 'valid' (usable by the viewer) or 'invalid' (a record exists but fails validation).
 
