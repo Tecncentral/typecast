@@ -5,7 +5,8 @@
 import { el, assetUrl } from "./utils.js";
 
 const HEADING = /^\s*(?:\d+\s*[.)]?\s*)?(INT\.?\/EXT\.?|EXT\.?\/INT\.?|I\/E\.?|INT\.|EXT\.)\s+\S/i;
-const MAX_SCENES = 24;
+const MAX_SCENES = 60; // read this many; the planner itself takes PLANNER_LIMIT at a time
+export const PLANNER_LIMIT = 8; // POST /api/production/plan rejects more than 8 scenes (HTTP 422)
 const MAX_DESCRIPTION = 4000;
 
 /** Scene headings in the text, as [{id, heading, description}]. */
@@ -39,7 +40,8 @@ async function post(path, body) {
   return data;
 }
 
-export async function requestPlan(scenes, { trucks = 0, cars = 0 } = {}) {
+export async function requestPlan(allScenes, { trucks = 0, cars = 0 } = {}) {
+  const scenes = allScenes.slice(0, PLANNER_LIMIT);
   return post("/api/production/plan", {
     scenes, max_locations: 3, forbidden_property_ids: [], require_available: false,
     trucks: Math.max(0, Math.floor(trucks) || 0), cars: Math.max(0, Math.floor(cars) || 0),
@@ -59,6 +61,8 @@ export function renderPlan(host, data, scenes) {
     return;
   }
   const headings = new Map(scenes.map((s, i) => [s.id, { n: i + 1, heading: s.heading }]));
+  if (scenes.length > data.scenes.length)
+    host.append(el("p", `Planned scenes 1–${data.scenes.length} of ${scenes.length}. The planner takes ${PLANNER_LIMIT} scenes at a time; scenes ${data.scenes.length + 1}–${scenes.length} were not planned.`, "plan-warning"));
   host.append(el("p",
     `${plural(data.scenes.length, "scene")} · ${plural(plan.locations, "location")} · ${plural(plan.company_moves, "company move")}` +
       (plan.uncovered_scene_ids?.length ? ` · ${plural(plan.uncovered_scene_ids.length, "scene")} uncovered` : ""),

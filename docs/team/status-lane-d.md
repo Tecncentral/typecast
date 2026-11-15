@@ -135,3 +135,8 @@ Recommendation: safe to demo on mocks. Not run against live data or the private 
 - The "Demo scenes" row is now "Try an example:", with dashed suggestion chips under the scene box. Hovering a chip previews its full scene text. Clicking fills the box and puts the cursor at the end; it no longer starts scouting (it used to scout immediately). The five validated scenes and Roller disco are unchanged in web/scenes.js.
 - Whole script mode starts empty with a placeholder and offers one "Three-scene script" example instead of the single-scene chips.
 - Checked: a chip click makes no /scout request and focuses the box; the script example shows "Script: 3 scenes detected"; check_viewer.py --mobile --failure-states 7/7 after two overflow fixes it caught (previews now hang from the examples row, and the preview box uses border-box); verify.py 1082 passed / 1 xfailed; web tests 24/24.
+
+### Whole script: 8-scene planner limit (11:53 UTC)
+
+- POST /api/production/plan rejects more than 8 scenes (HTTP 422, checked: 8 ok, 9 rejected). The brief now reads up to 60 headings, says "Script: N scenes detected. The planner takes 8 at a time, so Scout plans scenes 1–8" when there are more, sends the first 8, and the results say "Planned scenes 1–8 of N … scenes 9–N were not planned".
+- Checked in the browser: 3-scene example → one /api/production/plan call, "3 scenes · 1 location · 0 company moves"; 10-scene script → "8 scenes · …" plus the not-planned line, no error; Director's Room sheet opens with the pasted script. Live planning (private index) not checked here.

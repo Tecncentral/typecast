@@ -12,7 +12,7 @@ import {
 } from "./parking.js";
 import { Progress } from "./progress.js";
 import { Descent } from "./descent.js";
-import { parseScript, requestPlan, renderPlan } from "./script-mode.js";
+import { parseScript, requestPlan, renderPlan, PLANNER_LIMIT } from "./script-mode.js";
 const $ = (selector) => document.querySelector(selector);
 const progress = new Progress();
 const descent = new Descent($("#location-map"));
@@ -668,7 +668,9 @@ loadConfig().catch((error) => {
 function updateScriptNote() {
   const n = parseScript($("#scene").value).length;
   $("#script-note").hidden = n < 2;
-  $("#script-note").textContent = n >= 2 ? `Script: ${n} scenes detected. Scout plans locations across all of them.` : "";
+  $("#script-note").textContent = n < 2 ? ""
+    : n <= PLANNER_LIMIT ? `Script: ${n} scenes detected. Scout plans locations across all of them.`
+    : `Script: ${n} scenes detected. The planner takes ${PLANNER_LIMIT} at a time, so Scout plans scenes 1–${PLANNER_LIMIT}.`;
 }
 $("#scene").addEventListener("input", updateScriptNote);
 updateScriptNote();
