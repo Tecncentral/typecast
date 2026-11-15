@@ -26,6 +26,7 @@ LABEL = "scenario estimate, not verified savings"
 
 BENCHMARK = "benchmark (supplied, unverified)"
 PLACEHOLDER = "ASSUMPTION, needs a real quote"
+PUBLIC_ESTIMATE = "PUBLIC ESTIMATE, not a quote"
 USER_INPUT = "user input"
 OVERRIDE = "user override"
 
@@ -108,20 +109,28 @@ DEFAULT_ASSUMPTIONS = {
         high=1000.0,
     ),
     "set_construction_per_sqft": _entry(
-        40.0,
+        25.0,
         "USD per sq ft",
-        "Placeholder",
-        _CREATED,
-        _EDITABLE,
-        PLACEHOLDER,
+        "One public production-blog estimate for a simple 20x30 ft interior; high end is a team assumption",
+        "2026-11-15",
+        "Derived from one public production-blog estimate for a simple 20x30 ft interior: materials "
+        "$1,500-4,000 plus build crew $4,500-8,100. Excludes design fees. High end is a team "
+        "assumption. Still needs a real studio quote.",
+        PUBLIC_ESTIMATE,
+        low=10.0,
+        high=40.0,
     ),
     "cgi_per_shot": _entry(
-        1500.0,
+        5000.0,
         "USD per shot",
-        "Placeholder",
-        _CREATED,
-        _EDITABLE,
-        PLACEHOLDER,
+        "Public 2026 VFX pricing guide (Vitrina)",
+        "2026-11-15",
+        "Public 2026 VFX pricing guide (Vitrina), mid-complexity set replacement or environment "
+        "extension, $5,000-25,000 per shot. Value set to the low end so the headline savings claim "
+        "is conservative.",
+        PUBLIC_ESTIMATE,
+        low=5000.0,
+        high=25000.0,
     ),
     "cgi_shots_per_scene": _entry(
         8,
