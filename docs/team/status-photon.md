@@ -1,12 +1,17 @@
 # Photon iMessage line (branch `photon-imessage`)
 
-Updated 2026-11-15 05:55 ET. Stage 1 only: "Text your location scout" (conversational intake). Stages 2 and 3 are not started.
+Updated 2026-11-15 06:25 ET, after the real-phone test. Stage 1 only: "Text your location scout" (conversational intake). Stages 2 and 3 are not started.
 
 **Platform: Photon 2.0 Beta.** The project is on Photon Beta, so the runner is **`bridge/watch-beta.mjs`**: `@photon-ai/api` 0.6.0, Bearer auth, `projects.listMessages` polling and `projects.sendMessage`, following the [Beta iMessage guide](https://photon.codes/docs/beta/get-started/imessage.md). `bridge/watch.mjs` was my first runner and uses the **Stable** SDK `spectrum-ts`; Photon rejected the Beta project ID with it (HTTP 422). It, and the older `bridge/photon.mjs`, do not work with a Beta project and are **kept only as history**. Beta iMessage supports text and images only, and the runner sends plain text only.
 
 **Mode: mock only.** Replies come from `mocks/` data. `bridge/watch-beta.mjs` refuses to start unless the API's `/health` says `mocks: true` with every source `mock`. No real CoStar or Vexcel data can go through Photon.
 
-**UNVERIFIED on a real phone.** The Beta runner started, authenticated and completed its first `listMessages` poll against the Photon Beta project, then kept polling. No real message has been received or answered yet. Message shapes, delivery and replies are tested only against fakes built from the Beta docs and the SDK types.
+**Verified on a real phone, mock data only.** Three tests passed on a real iPhone, run by Udit against the Beta runner and the mock-mode API; every reply came from `mocks/` data:
+1. The example conversation (a short brief, then the follow-up questions, ending in a search) got replies.
+2. A first message starting `INT.` searched immediately and got a reply.
+3. "start over" got a reply.
+
+**Still UNVERIFIED** (not tested on a phone): the "See them in 3D" link, images (the runner sends plain text only), a text from a non-allowlisted sender getting no reply, no message answered twice after a restart, and long unattended runs. Real CoStar or Vexcel data has never gone through Photon.
 
 ## What is new (new files, plus one added line in `web/index.html`, one added dependency in `bridge/package.json` and three empty names in `.env.example`; no other existing file is edited)
 | File | What |
@@ -72,16 +77,19 @@ Add `GET /thread/{thread_id}` that returns the thread's last `ScoutResponse` wit
 ## Verification so far
 - Bridge tests: 43 pass (6 existing in `core.test.mjs`, 15 intake, 22 `watch-beta`). Web node tests: 29 pass (24 existing, 5 new).
 - The example conversation, a re-rank, "start over" and a detailed first message were run through `handleMessage` against the real mock API (no fakes): three questions, then one `/scout` call with the exact target scene string.
-- `watch-beta.mjs` was started against the Photon Beta project in mock mode: it authenticated and completed its first poll and kept polling. No message traffic has been seen.
-- Not verified: how a real inbound message looks (the filter follows the Beta guide's fields), whether replies arrive on a phone (the API only confirms acceptance, not delivery), the idempotency-key format limits, the maximum text length, and the link on a phone.
+- `watch-beta.mjs` was started against the Photon Beta project in mock mode: it authenticated, completed its first poll and kept polling.
+- **On a real iPhone (mock data only), passed:** the example conversation, an immediate `INT.` search, and "start over". Real inbound messages matched the fields the sender filter reads, and the replies arrived.
+- Not verified: the "See them in 3D" link on a phone, images, a non-allowlisted sender getting no reply, no double answers across a restart, and the idempotency-key and text-length limits (the tests did not reach them).
 
-## Still to do on a real phone (screenshots to `cache/screens/photon/`)
-- [ ] The example conversation end to end: "need a cop station for a night interrogation scene", "LA", "80s, kinda grimy", "3 trucks 30 cars".
-- [ ] One detailed first message that searches immediately, then "start over".
-- [ ] Tap the "See them in 3D" link from the text (needs `PHOTON_VIEWER_URL` set to an address the phone can reach): the site should open and start the search live.
-- [ ] A text from a number that is not on the allowlist gets no reply.
-- [ ] No message is answered twice, including after a restart.
-- [ ] If a reply does not arrive, check the conversation and API Activities in the Photon dashboard; the runner only knows a send was accepted.
+## Real-phone checklist
+- [x] The example conversation end to end: "need a cop station for a night interrogation scene", "LA", "80s, kinda grimy", "3 trucks 30 cars". Passed.
+- [x] One detailed first message that searches immediately (`INT.` form). Passed.
+- [x] "start over". Passed.
+- [ ] Tap the "See them in 3D" link from the text (needs `PHOTON_VIEWER_URL` set to an address the phone can reach): the site should open and start the search live. Not tested.
+- [ ] A text from a number that is not on the allowlist gets no reply. Not tested.
+- [ ] No message is answered twice, including after a restart. Not tested.
+- [ ] Screenshots to `cache/screens/photon/`. Not recorded here.
+- If a reply does not arrive, check the conversation and API Activities in the Photon dashboard; the runner only knows a send was accepted.
 - A message starting `INT.` or `EXT.` searches directly with no questions, so the original single-scene Stage 1 behaviour is still available through the same runner.
 
 ## Known limits
