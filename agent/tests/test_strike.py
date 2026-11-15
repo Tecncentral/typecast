@@ -109,7 +109,9 @@ def test_route_returns_the_shot_face_and_404_422_and_disable(client, monkeypatch
     body = client.get("/api/strike/p1-m1-s1-0.000-abc").json()
     assert body["label"] == "AI-edited: furniture removed, not the real room"
     assert body["face"]["struck_url"] == "/cache/strike/m1/s1/struck_000.jpg"
-    assert client.get("/api/strike/p1-m1-s2-0.000-abc").status_code == 404
+    empty = client.get("/api/strike/p1-m1-s2-0.000-abc")
+    assert empty.status_code == 200 and empty.json()["face"] is None
+    assert client.get("/api/strike/p9-m9-s9-0.000-abc").status_code == 404
     assert client.get("/api/strike/bad%20id").status_code == 422
     monkeypatch.setenv("TYPECAST_ENABLE_STRIKE", "0")
     assert client.get("/api/strike/p1-m1-s1-0.000-abc").status_code == 404
