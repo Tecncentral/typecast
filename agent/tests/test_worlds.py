@@ -254,3 +254,36 @@ def test_redress_keeps_the_posed_depth_and_archives_the_previous_look(dressed_cl
     served = dressed_client.get("/api/dressed/p1-m1-s1-0.000-abc").json()
     assert served["scene"] == "INT. PRECINCT - NIGHT." and served["splat"] is None
     assert served["faces"][0]["dressed_url"].endswith(new["faces"][0]["dressed"])
+
+
+def test_copy_assets_moves_frames_and_depth_to_another_project_and_a_splat_can_skip_frames(tmp_path, monkeypatch):
+    monkeypatch.setenv("TYPECAST_WORLDS_DIR", str(tmp_path))
+    out = tmp_path / "m1" / "s1" / "dressed"
+    out.mkdir(parents=True)
+    camera = {"extrinsics": {"position": [0, 1, 0], "quaternion": [0, 0, 0, 1]}, "intrinsics": {}}
+    faces = [{"dressed": f"room_{i:02d}-abc.jpg", "image_asset_id": f"old_img_{i}", "depth_asset_id": f"old_depth_{i}",
+              "camera": camera} for i in range(3)]
+    for face in faces:
+        (out / face["dressed"]).write_bytes(b"\xff\xd8jpeg")
+    (out / "dressed.json").write_text(json.dumps({"scene_id": "x", "prompt": "p", "model_id": "m1", "sweep_id": "s1",
+                                                   "faces": faces, "splat": None}))
+    source = _Session([reply for i in range(3) for reply in
+                       (_Resp(200, {"readUrl": f"https://signed/{i}"}), _Resp(200, chunks=[b"EXR", bytes([i])]))])
+    target = _Session([_Resp(200, {"id": f"new_{kind}_{i}"}) for i in range(3) for kind in ("img", "depth")])
+    record = dress.copy_assets(sweep={"model_id": "m1", "sweep_id": "s1"}, log=lambda m: None,
+                               source=atlas.AtlasClient(api_key=KEY, session=source, sleep=lambda s: None),
+                               target=atlas.AtlasClient(api_key="wl_other_project_key", session=target, sleep=lambda s: None))
+    assert [(f["image_asset_id"], f["depth_asset_id"]) for f in record["faces"]] == [(f"new_img_{i}", f"new_depth_{i}") for i in range(3)]
+    assert record["faces"][2]["copied_from"] == {"image_asset_id": "old_img_2", "depth_asset_id": "old_depth_2"}
+    assert source.calls[0][1].endswith("/assets/old_depth_0:createReadUrl") and "WLT-Api-Key" not in source.calls[1][2].get("headers", {})
+    depth_upload = json.loads(target.calls[1][2]["data"])["asset"]
+    assert depth_upload["base64"].startswith("data:image/x-exr;base64,") and depth_upload["displayName"] == "room_00-abc-depth.exr"
+    assert KEY not in json.dumps([c[2].get("data") for c in target.calls])
+
+    session = _Session([_Resp(201, {"id": "op_s", "done": True, "response": {"refinedSplats": {"2000000": {"assetId": "a", "url": "https://x/s.spz"}}}}),
+                        _Resp(200, chunks=[b"spz"])])
+    record = dress.splat_scan_point(sweep={"model_id": "m1", "sweep_id": "s1"}, skip=("room_01",), log=lambda m: None,
+                                    client=atlas.AtlasClient(api_key=KEY, session=session, sleep=lambda s: None))
+    sent = json.loads(session.calls[0][2]["data"])
+    assert [f["imageAsset"]["assetId"] for f in sent["posedFrames"]] == ["new_img_0", "new_img_2"]
+    assert record["splat"]["frames"] == 2 and record["splat"]["skipped"] == ["room_01-abc.jpg"]

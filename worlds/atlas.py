@@ -70,11 +70,31 @@ class AtlasClient:
 
     # ---- assets ----
     def upload_image(self, path: pathlib.Path) -> str:
-        data = pathlib.Path(path).read_bytes()
+        mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
+        return self.upload_bytes(pathlib.Path(path).read_bytes(), mime, path.name)
+
+    def read_bytes(self, asset_id: str, limit: int = 64 * 1024 * 1024) -> bytes:
+        """An asset's content, through a short-lived read URL that is fetched without the key."""
+        url = self._request("POST", f"/assets/{asset_id}:createReadUrl", {}).get("readUrl") or ""
+        if urlparse(url).scheme != "https":
+            raise AtlasError("Atlas did not return an HTTPS read URL")
+        try:
+            with self.session.get(url, timeout=(10, 300), stream=True) as response:
+                if response.status_code != 200:
+                    raise AtlasError(f"Asset download HTTP {response.status_code}")
+                data = b""
+                for chunk in response.iter_content(1 << 16):
+                    data += chunk
+                    if len(data) > limit:
+                        raise AtlasError("Asset larger than the copy limit")
+        except requests.RequestException as error:
+            raise AtlasError(f"Asset download failed ({type(error).__name__})") from None
+        return data
+
+    def upload_bytes(self, data: bytes, mime: str, name: str) -> str:
         if len(data) >= 10 * 1024 * 1024:
             raise AtlasError("Image is over the 10 MiB inline limit")
-        mime = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-        body = {"asset": {"displayName": path.name[:120],
+        body = {"asset": {"displayName": name[:120],
                           "base64": f"data:{mime};base64," + base64.b64encode(data).decode("ascii")}}
         asset = self._request("POST", "/assets", body)
         asset = asset.get("asset", asset)
