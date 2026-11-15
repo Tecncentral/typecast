@@ -3,6 +3,9 @@ const $ = (id) => document.getElementById(id);
 const POSES = ['stand', 'sit', 'walk'];
 const ORIGIN_SAMPLE = 'authored-sample', ORIGIN_TAG = 'AUTHORED SAMPLE · not AI';
 const PLANNING_REQUESTS = new WeakMap();
+// The rejected-property list each plan response was built with. A decision memo is only current while the list still matches.
+const PLANNING_FORBIDDEN = new WeakMap();
+const forbiddenKey = (list) => JSON.stringify([...list].sort());
 const BADGE = 'UNCALIBRATED SCREEN-SPACE REHEARSAL · GEOMETRIC FIT UNKNOWN';
 // Stage palette and type follow the scouting app (web/styles.css tokens).
 const INK = { bg: '#0b0d0d', text: '#f2efe8', muted: '#adb5b3', accent: '#edbd69', scrim: 'rgba(11,13,13,.74)' };
@@ -180,7 +183,7 @@ async function build(reuse) {
     if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
     if (sig() !== sent) return status('That plan was built for your earlier script, constraints or rejections, which changed while it loaded. Nothing was replaced and your work is kept. Press Build plan again.', true);
     applyForbidden(data);
-    PLANNING_REQUESTS.set(data, JSON.stringify(constraints()));
+    PLANNING_REQUESTS.set(data, JSON.stringify(constraints())); PLANNING_FORBIDDEN.set(data, forbiddenKey(body.forbidden_property_ids));
     orderPlans(data);
     S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {}; S.builtScript = reuse ? S.builtScript : scriptSent; S.swaps = Object.create(null); S.swapUndo = null; S.built = { trucks: body.trucks, cars: body.cars, require_available: body.require_available };
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
@@ -1117,7 +1120,7 @@ async function importProject(file) {
     status('Rebuilding project evidence using the current visible location and vehicle constraints…');
     const scenes = project.scenes.map(({ id, heading, description }) => ({ id, heading, description }));
     const data = await api('/api/production/plan', { scenes, forbidden_property_ids: [], ...limits });
-    PLANNING_REQUESTS.set(data, JSON.stringify(limits));
+    PLANNING_REQUESTS.set(data, JSON.stringify(limits)); PLANNING_FORBIDDEN.set(data, forbiddenKey([]));
     orderPlans(data);
     // Newer user work must never be silently overwritten by a slow import.
     if (S.rev !== rev || $('script').value !== scriptAtStart)
@@ -1329,6 +1332,7 @@ async function runSave() {
   try {
     const data = await api('/api/production/plan', body, sv.ctrl.signal);
     PLANNING_REQUESTS.set(data, JSON.stringify({ ...constraints(), trucks: body.trucks, cars: body.cars, require_available: body.require_available }));
+    PLANNING_FORBIDDEN.set(data, forbiddenKey(body.forbidden_property_ids));
     if (S.save !== sv || tok !== saveTok) return;
     if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
     if (data.mode !== S.resp?.mode) throw new Error('The data source mode changed, so the two plans are not comparable');
@@ -1850,7 +1854,8 @@ if (typeof document.addEventListener === 'function') document.addEventListener('
 window.addEventListener('pagehide', () => { saveDraft(); });
 
 window.typecastPlanningSnapshot = () => ({ plan: plan(), response: S.resp, mode:S.mode, limits:{maxLocations:$('maxLoc').value,trucks:$('trucks').value,cars:$('cars').value,requireAvailable:$('reqAvail').checked}, scenes:S.scenes.map(s=>({id:s.id,heading:s.heading})), rejected:[...S.forbidden], selectedScene: S.sceneId, selectedShot: assignFor(S.sceneId)?.shot_id, assignments: S.scenes.map(s => assignFor(s.id)).filter(Boolean), sceneCount: S.scenes.length,
-  stale: anySwap() || (S.resp && (S.builtScript !== $('script').value || (PLANNING_REQUESTS.has(S.resp) && PLANNING_REQUESTS.get(S.resp) !== JSON.stringify(constraints())))) });
+  stale: anySwap() || (S.resp && (S.builtScript !== $('script').value || (PLANNING_REQUESTS.has(S.resp) && PLANNING_REQUESTS.get(S.resp) !== JSON.stringify(constraints()))
+    || (PLANNING_FORBIDDEN.has(S.resp) && PLANNING_FORBIDDEN.get(S.resp) !== forbiddenKey(S.forbidden)))) });
 $('script').value = DEMO;
 renderAll(); renderParse(); applyModeUI();
 // Canvas text uses the app's faces once they load; until then the system fallback draws.

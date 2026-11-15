@@ -2921,3 +2921,19 @@ test('save the scene: complete plan requirement, availability-only wording, dest
   imp.job.resolve(jsonResponse(planFor(imp.body, SV_OLD(), { candidates: SV_POOL() }))); await drain();
   assert.equal(fresh.$('saveBtn').disabled, false, 'Save button is enabled after project import completes');
 });
+
+// ---------- producer decision binding (director.js <-> director-planning.js contract) ----------
+test('producer snapshot goes stale when the rejected-property list differs from the one the plan was built with', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. KITCHEN | first\nINT. OFFICE | second', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_b', 'shot_b')]);
+  const snap = () => (env.context.window || env.context).typecastPlanningSnapshot();
+  assert.equal(snap().stale, false, 'a freshly built plan is current');
+  env.api.selectScene('s1'); env.$('reject').click();
+  assert.equal(snap().stale, true, 'while the replan is in flight the decision must not be exportable');
+  const job = env.take('/api/production/plan'), body = JSON.parse(job.opts.body);
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_c', 'shot_c'), assignment('s2', 'prop_b', 'shot_b')]))); await drain();
+  assert.equal(snap().stale, false, 'plan rebuilt with the rejection is current');
+  assert.deepEqual(copied(snap().rejected), ['prop_a']);
+  env.$('clearRej').click();
+  assert.equal(snap().stale, true, 'clearing a rejection without a rebuild leaves a plan built under different rules');
+});

@@ -4,10 +4,10 @@
   let origin = null, map = null, pin = null, layer = null, L = null;
   let imageBusy = false, imageFrame = null;
   let latestCase = null, importedAgainst, requireRebuild = false, lastStored = '';
-  let formRevision = 0;
+  let formRevision = 0, importSeq = 0, currentFingerprint = null, decisionBound = null;
   const CASE_KEY = 'typecast-producer-budget-v1';
   const imageContext = s => JSON.stringify([s?.selectedScene, s?.selectedShot, $('instr')?.value.trim()]);
-  const money = n => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
+  const money = n => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 0, maximumFractionDigits: 2 }).format(n);
   const fields = [
     ['visitsBefore', 'In-person scout visits before Typecast', 10, 1], ['visitsAfter', 'Visits still needed after Typecast', 3, 1],
     ['scouts', 'People per scouting visit', 2, 1], ['scoutRate', 'Scouting labor / person / hour ($)', 40, 1],
@@ -20,10 +20,17 @@
   const caseFields = ['scoutBilling','dailyScoutRate','scoutCommitment','crewCommitment','mileageCommitment','avoidableScoutUnits','costSourceStatus','costSourceNote','producerName','producerReviewer','producerDecision','pilotBaselineUnits','pilotActualUnits','pilotBaselineCost','pilotActualCost','pilotSource','pilotNotes'];
   const formIds = () => [...fields.map(([k])=>'cost_'+k),...caseFields];
   function formState() { return {version:1,fields:Object.fromEntries(formIds().map(id=>[id,$(id).value])),paidTravel:$('paidTravel').checked}; }
+  // True only when the browser copy matches the open form (or the producer has not opted in). A refused write
+  // withdraws the opt-in instead of claiming a persistence that did not happen.
   function saveForm() {
-    if (!$('keepProducerCase')?.checked) return;
-    try { const text = JSON.stringify(formState()); if (text !== lastStored) { localStorage.setItem(CASE_KEY,text); lastStored=text; } }
-    catch { $('producerCaseStatus').textContent='Browser storage unavailable. Download a budget case instead.'; }
+    if (!$('keepProducerCase')?.checked) return true;
+    try { const text = JSON.stringify(formState()); if (text !== lastStored) { localStorage.setItem(CASE_KEY,text); lastStored=text; } return true; }
+    catch { $('keepProducerCase').checked=false; $('producerCaseStatus').textContent='Browser storage unavailable; this budget case was not saved. Download a budget case instead.'; return false; }
+  }
+  // Verified removal: a refused delete must not be reported as a clear.
+  function purgeStored() {
+    lastStored='';
+    try { localStorage.removeItem(CASE_KEY); return localStorage.getItem(CASE_KEY)===null; } catch { return false; }
   }
   function applyForm(value) {
     if (!value || value.version!==1 || !value.fields || typeof value.fields!=='object') throw new Error('Unsupported saved budget form.');
@@ -77,7 +84,8 @@
     const a = Object.fromEntries(fields.map(([k]) => [k, $('cost_' + k).value.trim() === '' ? NaN : Number($('cost_' + k).value)]));
     a.paidTravel = $('paidTravel').checked;
     a.billing = $('scoutBilling').value;
-    a.dailyRate = $('dailyScoutRate').value.trim() === '' ? NaN : Number($('dailyScoutRate').value);
+    // Blank means unknown (null), never NaN: NaN made a legitimate hourly-mode case unexportable.
+    a.dailyRate = $('dailyScoutRate').value.trim() === '' ? null : Number($('dailyScoutRate').value);
     for (const k of ['scoutCommitment','crewCommitment','mileageCommitment']) a[k] = $(k).value;
     a.avoidableScoutUnits = $('avoidableScoutUnits').value.trim() === '' ? null : Number($('avoidableScoutUnits').value);
     a.rateSource = $('costSourceNote').value.trim(); a.sourceNote = 'Reviewer-entered source; applicability not independently verified.';
@@ -95,14 +103,15 @@
     const matches = c && s.response ? s.response.scenes.flatMap(sc => sc.candidates || []).filter(x => x.commute?.status === 'estimated' && x.commute.minutes <= c.max_minutes) : [];
     $('drivePreview').textContent = c && s.response ? `${new Set(matches.map(x => x.shot.property_id)).size} cached candidate properties within ${c.max_minutes} min. Build plan to apply the current limit.` : '';
     const box = $('costResult'); box.replaceChildren();
-    latestCase = null;
+    latestCase = null; currentFingerprint = null;
     for (const id of ['exportProducerHtml','exportProducerJson']) $(id).disabled = !!result.error;
     const line = (tag, text) => { const el = document.createElement(tag); el.textContent = text; box.append(el); };
     if (result.error) { line('p', result.error); return; }
     line('h3', result.cashPotential == null ? 'Cash impact: unconfirmed' : `${money(Math.abs(result.cashPotential))} ${result.cashPotential >= 0 ? 'potential cash avoided' : 'additional cash cost'} / project`);
-    line('p', `SCENARIO · Labor capacity value: ${money(result.laborCapacityValue)}. This is not payroll saved. ${result.scoutDaysReleased != null ? `${result.scoutDaysReleased} scout person-days potentially released.` : `${result.scoutHoursReleased} scout person-hours potentially released.`}`);
+    const added = result.visitsAvoided < 0, scoutUnit = result.scoutDaysReleased != null ? 'person-days' : 'person-hours', scoutQty = result.scoutDaysReleased ?? result.scoutHoursReleased;
+    line('p', `SCENARIO · ${result.laborCapacityValue < 0 ? `Additional labor required: ${money(-result.laborCapacityValue)}` : `Labor capacity value: ${money(result.laborCapacityValue)}`}. This is not payroll saved. ${scoutQty == null ? 'Scout hours unknown: no hours per day entered.' : scoutQty < 0 ? `${-scoutQty} additional scout ${scoutUnit} required.` : `${scoutQty} scout ${scoutUnit} potentially released.`}`);
     for (const unresolved of result.cashUnresolved) line('p', unresolved);
-    line('p', `Scouting: ${money(result.before)} before → ${money(result.after)} after; ${result.visitsAvoided} fewer ${a.billing === 'daily' ? 'billable scout days' : 'visits'} assumed.`);
+    line('p', `Scouting: ${money(result.before)} before → ${money(result.after)} after; ${added ? `${-result.visitsAvoided} more` : `${result.visitsAvoided} fewer`} ${a.billing === 'daily' ? 'billable scout days' : 'visits'} assumed${added ? ' (added cost)' : ''}.`);
     line('p', a.billing === 'daily' ? `Per day: ${a.scouts} scout(s) × ${money(a.dailyRate)}/day + ${a.visitMiles} mi × ${money(a.mileRate)}/mi = ${money(result.perVisit)}. Hourly inputs ignored in day-rate mode.` : `Per visit: ${a.scouts} × ${money(a.scoutRate)}/h × (${a.onsiteHours} on-site + ${a.travelHours} travel hours) + ${a.visitMiles} mi × ${money(a.mileRate)}/mi = ${money(result.perVisit)}.`);
     if (result.crewTravel !== null) line('p', `Paid crew travel: ${money(result.crewTravel)} change. (${a.baselineMinutes} − ${route.toFixed(1)}) min × 2 trips × ${a.crew} crew × ${a.days} days × ${money(a.crewRate)}/h ÷ 60. Uses the slowest selected location from this one starting pin.`);
     else line('p', 'Crew travel excluded: enable paid travel and build a plan with known routes to include it.');
@@ -115,15 +124,21 @@
         return {sceneId:x.scene_id,propertyId:x.property_id,shotId:x.shot_id,heading:s.scenes?.find(sc=>sc.id===x.scene_id)?.heading || x.scene_id,
           decision:'Selected within the retrieved pool by scene coverage, location count and visual similarity; not a lowest-cost or filming-permission certification.',notes};
       });
-      const unknowns = [...new Set(rows.flatMap(c=>(c.warnings||[]).map(w=>String(w.message||'').slice(0,300))).filter(Boolean))].slice(0,20);
-      if (s.rejected?.length) unknowns.push(`Producer rejected properties: ${s.rejected.join(', ').slice(0,240)}. Record reasons in the decision.`);
-      unknowns.push('A marketed lease listing does not establish filming permission or current owner access.');
       let hash = 2166136261;
       const signature = JSON.stringify([s.response.mode,assignments,s.response.commute_limit_minutes,routes,s.plan.property_ids]);
       for (const ch of signature) hash = Math.imul(hash ^ ch.charCodeAt(0),16777619);
+      const fingerprint = `plan:${(hash>>>0).toString(16)}`;
+      const unknowns = [...new Set(rows.flatMap(c=>(c.warnings||[]).map(w=>String(w.message||'').slice(0,300))).filter(Boolean))].slice(0,20);
+      if (s.rejected?.length) unknowns.push(`Producer rejected properties: ${s.rejected.join(', ').slice(0,240)}. Record reasons in the decision.`);
+      // Free-text reasoning belongs to the plan it was written against; never let it silently describe a different shortlist.
+      if ($('producerDecision').value.trim() && decisionBound !== fingerprint)
+        unknowns.push(decisionBound ? `Reviewer decision text was written for an earlier plan (${decisionBound}); re-read it before relying on it for ${fingerprint}.`
+          : 'Reviewer decision text was restored from a file or browser copy, or typed before this plan existed; confirm it applies to this plan.');
+      unknowns.push('A marketed lease listing does not establish filming permission or current owner access.');
+      currentFingerprint = fingerprint;
       const optional = id => $(id).value.trim()==='' ? null : Number($(id).value);
       latestCase = TypecastProducerBrief.normalizeCase({version:1,project:{name:$('producerName').value,reviewer:$('producerReviewer').value,decision:$('producerDecision').value,date:new Date().toISOString()},
-        plan:{current:true,mode:s.response.mode,fingerprint:`plan:${(hash>>>0).toString(16)}`,sceneCount:s.sceneCount,covered:assignments.length,locations:s.plan.locations,moves:s.plan.company_moves,
+        plan:{current:true,mode:s.response.mode,fingerprint,sceneCount:s.sceneCount,covered:assignments.length,locations:s.plan.locations,moves:s.plan.company_moves,
           propertyIds:[...new Set(assignments.map(x=>x.propertyId))],unknowns,sceneAssignments:assignments,
           constraintsSummary:`Selected retrieved plan; maximum ${s.limits?.maxLocations ?? '?'} locations, ${s.limits?.trucks ?? '?'} trucks and ${s.limits?.cars ?? '?'} crew cars; require available listing: ${s.limits?.requireAvailable ? 'yes' : 'no'}. One visit per property assumed. One-way commute limit: ${s.response.commute_limit_minutes ?? 'off'} minutes; no live traffic. Starting coordinates omitted. Filming permission not established.`},
         budget:{assumptions:a,result},pilot:{baselineUnits:optional('pilotBaselineUnits'),actualUnits:optional('pilotActualUnits'),baselineCost:optional('pilotBaselineCost'),actualCost:optional('pilotActualCost'),source:$('pilotSource').value,notes:$('pilotNotes').value}});
@@ -141,15 +156,19 @@
       const input = document.createElement('input'); Object.assign(input, { id: 'cost_' + key, type: 'number', min: '0', max: '1000000', step: String(step), value: String(value) });
       input.addEventListener('input', () => { formRevision++; render(); }); label.append(input); $('costInputs').append(label);
     }
-    $('paidTravel').addEventListener('change', render);
+    $('paidTravel').addEventListener('change', () => { formRevision++; render(); });
     for (const id of caseFields) $(id).addEventListener('input', () => { formRevision++; render(); });
+    // Registered after the render above, so the fingerprint is current when the reviewer's text is bound to it.
+    $('producerDecision').addEventListener('input', () => { decisionBound = currentFingerprint; });
     $('keepProducerCase').addEventListener('change', () => {
-      if ($('keepProducerCase').checked) { saveForm(); $('producerCaseStatus').textContent='This current budget case is stored in this browser. Use JSON files for separate projects.'; }
-      else { try { localStorage.removeItem(CASE_KEY); lastStored=''; } catch {} $('producerCaseStatus').textContent='Browser copy removed. Open values are unchanged.'; }
+      if ($('keepProducerCase').checked) { if (saveForm()) $('producerCaseStatus').textContent='This current budget case is stored in this browser. Use JSON files for separate projects.'; }
+      else $('producerCaseStatus').textContent = purgeStored() ? 'Browser copy removed. Open values are unchanged.' : 'Could not remove the browser copy (storage refused). No further saves will be made; clear this site’s data in browser settings.';
     });
     $('clearProducerCase').addEventListener('click', () => {
-      try { localStorage.removeItem(CASE_KEY); lastStored=''; } catch {}
-      $('keepProducerCase').checked=false; $('producerCaseStatus').textContent='Stored budget case cleared. Open values remain; they will not be saved again unless you opt in.';
+      const removed = purgeStored();
+      $('keepProducerCase').checked=false;
+      $('producerCaseStatus').textContent = removed ? 'Stored budget case cleared. Open values remain; they will not be saved again unless you opt in.'
+        : 'Could not clear the stored budget case (storage refused). It may still exist; no further saves will be made. Clear this site’s data in browser settings.';
     });
     for (const [id,kind] of [['exportProducerHtml','html'],['exportProducerJson','json']]) $(id).addEventListener('click', () => {
       render();
@@ -161,22 +180,26 @@
     });
     $('importProducerJson').addEventListener('change', async e => {
       const file=e.target.files?.[0]; e.target.value=''; if (!file) return;
-      const revision=formRevision;
+      // The most recently chosen file wins, and any edit made while a file is being read wins over the file.
+      const revision=formRevision, seq=++importSeq;
       try {
         if (file.size>100000) throw new Error('Budget case exceeds 100 KB.');
         const c=TypecastProducerBrief.importCase(await file.text()), a=c.budget.assumptions;
+        if (seq!==importSeq) return;   // superseded by a newer file; stay silent so the newer result's status is kept
         if (formRevision!==revision) throw new Error('Inputs changed while the file was loading; current inputs were retained.');
-        for (const [k] of fields) if (a[k]!=null) $('cost_'+k).value=String(a[k]);
+        // A field the file does not contain becomes blank (unknown), never the previous project's value or an invented default.
+        for (const [k] of fields) $('cost_'+k).value=a[k]==null?'':String(a[k]);
         for (const [id,k] of [['scoutBilling','billing'],['dailyScoutRate','dailyRate'],['scoutCommitment','scoutCommitment'],['crewCommitment','crewCommitment'],['mileageCommitment','mileageCommitment'],['avoidableScoutUnits','avoidableScoutUnits'],['costSourceStatus','sourceStatus'],['costSourceNote','rateSource']]) $(id).value=a[k]==null?'':String(a[k]);
         $('paidTravel').checked=a.paidTravel;
         for (const [id,k] of [['producerName','name'],['producerReviewer','reviewer'],['producerDecision','decision']]) $(id).value=c.project[k]||'';
         for (const [id,k] of [['pilotBaselineUnits','baselineUnits'],['pilotActualUnits','actualUnits'],['pilotBaselineCost','baselineCost'],['pilotActualCost','actualCost'],['pilotSource','source'],['pilotNotes','notes']]) $(id).value=c.pilot[k]==null?'':String(c.pilot[k]);
+        decisionBound=null; formRevision++;
         importedAgainst=window.typecastPlanningSnapshot?.().response; requireRebuild=true; render();
         $('producerCaseStatus').textContent='Restored assumptions and producer-reported pilot fields only. Build plan to bind them to current evidence; saved results and approvals were not restored.';
       } catch(e) { $('producerCaseStatus').textContent=`Could not restore budget case: ${e.message}`; }
     });
     $('instr').addEventListener('input', render);
-    $('scoutBilling').addEventListener('change', render); $('dailyScoutRate').addEventListener('input', render);
+    $('scoutBilling').addEventListener('change', () => { formRevision++; render(); }); $('dailyScoutRate').addEventListener('input', render);
     $('commercialRatePreset').addEventListener('click', () => {
       $('scoutBilling').value = 'daily'; $('dailyScoutRate').value = '957.58';
       for (const [k,v] of Object.entries({visitsBefore:5,visitsAfter:2,scouts:1,visitMiles:0,toolCost:0})) $('cost_'+k).value = String(v);
@@ -227,7 +250,8 @@
     });
     try {
       const saved=localStorage.getItem(CASE_KEY);
-      if (saved && saved.length<=30000) { applyForm(JSON.parse(saved)); $('keepProducerCase').checked=true; lastStored=saved; $('producerCaseStatus').textContent='Budget inputs restored from this browser. Build a current plan before exporting a decision.'; }
+      if (saved && saved.length>30000) $('producerCaseStatus').textContent='A saved browser budget is too large to restore and was ignored. Use Clear stored budget case to remove it.';
+      else if (saved) { applyForm(JSON.parse(saved)); $('keepProducerCase').checked=true; lastStored=saved; $('producerCaseStatus').textContent='Budget inputs restored from this browser. Build a current plan before exporting a decision.'; }
     } catch { $('producerCaseStatus').textContent='Saved browser budget unavailable; nothing was overwritten. Use a JSON case if available.'; }
     changed();
     try {
