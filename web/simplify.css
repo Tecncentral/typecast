@@ -463,3 +463,28 @@ body[data-mode="exterior"] footer { display: none; }
 #results .pick-card:hover h3::after { opacity: 1; }
 .filter-notes { min-width: 0; max-width: 100%; }
 .filter-bar { max-width: 100%; min-width: 0; }
+
+/* Live filter results */
+.filter-tags { margin: 2px 0 0; color: var(--measured); font: 500 13px var(--mono); }
+.filter-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: -10px 0 18px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.filter-summary.is-empty { color: var(--warning); }
+.filter-reset {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+}
+.filter-reset:hover { border-color: var(--accent); color: var(--accent); }
+#results .pick-card { transition: opacity .35s, transform .35s cubic-bezier(.2,.7,.1,1), box-shadow .3s, border-color .3s; }
+#results .pick-card.is-filtered { display: none; }
+@starting-style { #results .pick-card:not(.is-filtered) { opacity: 0; transform: scale(.97); } }

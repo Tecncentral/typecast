@@ -34,6 +34,11 @@ async function post(path, body) {
 
 const LIMITS = { sqft: [100, 1_000_000], days: [1, 60] };
 
+// Tell listeners (the filter bar in costs.js) what changed: drive times, costs and the drive limit.
+function announce(host, state) {
+  host.dispatchEvent(new CustomEvent("budget:data", { detail: { travel: state.travel, costs: state.costs, max: state.max } }));
+}
+
 export function renderBudget(host, mapHost, picks) {
   const token = (host.__token = (host.__token || 0) + 1);
   const live = () => host.__token === token;
@@ -95,6 +100,7 @@ export function renderBudget(host, mapHost, picks) {
 
   function paintTravel() {
     maxText.textContent = `Max drive: ${state.max} min`;
+    announce(host, state);
     if (!state.travel) return;
     setMapTravel(mapHost, state.travel.rows, state.max);
     const within = rows.filter((r) => {
@@ -107,6 +113,7 @@ export function renderBudget(host, mapHost, picks) {
   function paintCosts() {
     const c = state.costs;
     if (!c) return;
+    announce(host, state);
     pickChoice.replaceChildren(el("span", "Found location:", "budget-picks-label"));
     c.picks.forEach((p, i) => {
       const b = el("button", p.address || p.property_id);

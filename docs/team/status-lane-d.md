@@ -117,3 +117,10 @@ Recommendation: safe to demo on mocks. Not run against live data or the private 
 - The Travel and budget section under the results is gone. Its four controls (production base, max drive, scene size, shoot days) now sit in a filter bar above the cards. They are the same budget.js elements, moved in web/costs.js, so changing one still re-queries drive times and costs. The drive-time caveat is one line; hovering shows the full text.
 - Clicking a card (not its buttons or links) slides in a "Cost savings · estimate" panel for that pick. Headline figures count up from $0 to their exact values, and the range bars grow in. The "Scenario estimate… not verified savings" line stays at the top. Esc, Close or the backdrop closes it.
 - Verified on mocks: check_viewer.py --mobile --failure-states 7/7 (fixed a 29 px horizontal overflow at 1440 found by it); verify.py 1082 passed / 1 xfailed; web tests 24/24. Manual: the panel opens per card with the right figures; scene size 2,000 → 5,000 sq ft changes "Build the set" from $34,500 to $79,500. Screenshots: cache/screens/ui-simplify/v3-*.png.
+
+### UI simplify v4: live filters (11:35 UTC)
+
+- The filter bar now filters the shortlist as you drag. budget.js announces its drive times, costs and drive limit with a "budget:data" event (additive; its logic is unchanged). web/costs.js listens and hides cards whose known drive time is over Max drive or whose found-location estimate is over a new Max budget slider (range from the picks' own estimates). Unknown drive time or cost never hides a card.
+- Each card shows "N min drive · est. $X" (or "unknown"). A line under the filters says "Showing N of M" and why, with Reset filters.
+- On mocks, drive times are unknown (routing is not called), so the drive slider cannot hide anything there; filtering by drive was checked with a routed commute response (25/55/80 min): 60 min left 2 of 3 cards, then a $7,250 budget left 1, and Reset brought back 3.
+- Checks: check_viewer.py --mobile --failure-states 7/7; verify.py 1082 passed / 1 xfailed; web tests 24/24. Screenshot: cache/screens/ui-simplify/v4-filtered.png.

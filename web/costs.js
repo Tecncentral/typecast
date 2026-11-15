@@ -40,6 +40,119 @@ export function arrangeBudget() {
 
   costBox = budget.querySelector(".budget-costs");
   if (panel && costBox) mountCosts();
+
+  // Live filtering: the drive slider (budget.js) and a budget slider (here) hide cards.
+  filters.data = { travel: null, costs: null, max: null };
+  filters.budget = null;
+  filters.budgetField = null;
+  document.querySelectorAll(".filter-summary").forEach((n) => n.remove());
+  filters.summary = document.createElement("div");
+  filters.summary.className = "filter-summary";
+  filters.summary.setAttribute("role", "status");
+  bar.after(filters.summary);
+  if (!budget.__filtersBound) {
+    budget.__filtersBound = true;
+    budget.addEventListener("budget:data", (e) => {
+      filters.data = e.detail;
+      ensureBudgetSlider();
+      applyFilters();
+    });
+  }
+}
+
+/* ---------------- live filters ---------------- */
+const filters = { data: null, budget: null, budgetField: null, summary: null };
+const money = (v) => "$" + Math.round(v).toLocaleString("en-US");
+const costOf = (i) => {
+  const v = filters.data?.costs?.picks?.[i]?.found_location?.total_usd;
+  return typeof v === "number" ? v : null;
+};
+const driveOf = (i, id) => {
+  const row = filters.data?.travel?.rows?.[id];
+  return typeof row?.minutes === "number" ? row.minutes : null;
+};
+
+function ensureBudgetSlider() {
+  const totals = (filters.data?.costs?.picks || []).map((_, i) => costOf(i)).filter((v) => v != null);
+  if (!totals.length || !$("#filter-bar")) return;
+  const step = 250;
+  const lo = Math.floor(Math.min(...totals) / step) * step;
+  const hi = Math.ceil(Math.max(...totals) / step) * step;
+  if (!filters.budgetField) {
+    const label = document.createElement("label");
+    label.className = "budget-field budget-field--slider filter-budget";
+    const text = document.createElement("span");
+    const input = document.createElement("input");
+    input.type = "range";
+    input.step = String(step);
+    label.append(text, input);
+    $("#filter-bar").insertBefore(label, $("#filter-bar .filter-notes"));
+    input.addEventListener("input", () => { filters.budget = Number(input.value); applyFilters(); });
+    filters.budgetField = { label, text, input };
+  }
+  const { input } = filters.budgetField;
+  input.min = String(Math.max(0, lo - step));
+  input.max = String(hi);
+  if (filters.budget == null || filters.budget > hi) filters.budget = hi; // new costs: start by showing everything
+  input.value = String(filters.budget);
+}
+
+function tag(card) {
+  let t = card.querySelector(".filter-tags");
+  if (!t) {
+    t = document.createElement("p");
+    t.className = "filter-tags";
+    const row = card.querySelector(".pick-title-row") || card.querySelector("h3");
+    row?.after(t);
+  }
+  return t;
+}
+
+function applyFilters() {
+  const cards = [...document.querySelectorAll("#results .pick-card")];
+  if (!cards.length || !filters.data) return;
+  const ids = (filters.data.costs?.picks || []).map((p) => p.property_id);
+  const maxDrive = filters.data.max;
+  if (filters.budgetField) filters.budgetField.text.textContent = `Max budget: ${money(filters.budget)}`;
+  let overDrive = 0, overBudget = 0, unknownDrive = 0;
+  cards.forEach((card, i) => {
+    const id = ids[i];
+    const minutes = driveOf(i, id);
+    const cost = costOf(i);
+    // Unknown values never hide a pick: we can't say it is over a limit.
+    const driveOut = minutes != null && maxDrive != null && minutes > maxDrive;
+    const budgetOut = cost != null && filters.budget != null && cost > filters.budget;
+    if (minutes == null) unknownDrive++;
+    if (driveOut) overDrive++;
+    if (budgetOut && !driveOut) overBudget++;
+    card.classList.toggle("is-filtered", driveOut || budgetOut);
+    tag(card).textContent = [
+      minutes != null ? `${minutes} min drive` : "drive time unknown",
+      cost != null ? `est. ${money(cost)}` : "cost unknown",
+    ].join(" · ");
+  });
+  const shown = cards.length - overDrive - overBudget;
+  const parts = [`Showing ${shown} of ${cards.length}`];
+  if (overDrive) parts.push(`${overDrive} over the ${maxDrive} min drive`);
+  if (overBudget) parts.push(`${overBudget} over ${money(filters.budget)}`);
+  if (unknownDrive) parts.push(`${unknownDrive} with unknown drive time kept`);
+  filters.summary.replaceChildren(document.createTextNode(parts.join(" · ")));
+  if (overDrive || overBudget) {
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.className = "filter-reset";
+    reset.textContent = "Reset filters";
+    reset.addEventListener("click", resetFilters);
+    filters.summary.append(reset);
+  }
+  filters.summary.classList.toggle("is-empty", shown === 0);
+}
+
+function resetFilters() {
+  const driveSlider = [...document.querySelectorAll('#filter-bar input[type="range"]')].find((x) => !x.closest(".filter-budget"));
+  if (driveSlider) { driveSlider.value = driveSlider.max; driveSlider.dispatchEvent(new Event("input", { bubbles: true })); }
+  if (filters.budgetField) { filters.budget = Number(filters.budgetField.input.max); filters.budgetField.input.value = String(filters.budget); }
+  applyFilters();
 }
 
 function buildPanel() {
