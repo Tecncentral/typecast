@@ -25,14 +25,16 @@
 <p id="status" class="status" role="status" aria-live="polite"></p>
 <div id="draftNotice" class="notice" hidden role="status"></div>
 <p id="commBanner" class="comm-banner" data-community-only role="note"><strong>Preparedness planning.</strong> Candidate-site review for volunteer and supply coordination before an incident. Not for real-time evacuation or emergency routing. Nothing here approves a site, shelter or capacity.</p>
-<main class="room">
-  <aside class="col col-script" aria-label="Script and plan">
-    <div class="mode-switch">
+<div class="mode-bar">
+  <div class="mode-switch">
       <div class="seg" role="group" aria-label="Planning mode">
         <button id="modeFilm" type="button" aria-pressed="true">Film production</button><button id="modeComm" type="button" aria-pressed="false">Community planning</button>
       </div>
       <p id="modeHint" class="meta">Staging, locations and a shoot pack for a film.</p>
     </div>
+</div>
+<main class="room">
+  <aside class="col col-script" aria-label="Script and plan">
     <section class="block" aria-labelledby="h-script">
       <div class="block-head">
         <h2 id="h-script">Script</h2>
@@ -192,8 +194,8 @@
     <section id="panel-evidence" class="panel" role="tabpanel" aria-labelledby="tab-evidence" hidden>
       <h2>Source evidence</h2>
       <div id="evidence"></div>
-      <a id="planner" class="link" target="_blank" rel="noopener" hidden>Show camera metric panel (heading 0° assumed, unverified)</a>
-      <div id="plannerOut" class="ev" hidden aria-live="polite"></div>
+      <a id="planner" class="link" target="_blank" rel="noopener" hidden data-film-only>Show camera metric panel (heading 0° assumed, unverified)</a>
+      <div id="plannerOut" class="ev" hidden aria-live="polite" data-film-only></div>
     </section>
 
     <section id="panel-export" class="panel" role="tabpanel" aria-labelledby="tab-export" hidden>

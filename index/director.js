@@ -597,7 +597,7 @@ function renderFrames() {
   if (!a) return;
   const candidates = S.resp.scenes.find((s) => s.id === S.sceneId)?.candidates || [];
   const choices = candidates.filter((c) => c.eligible && c.shot.property_id === a.property_id);
-  const label = el('label', { text: `Frames in this location (creative choice) · ${choices.length}` }), select = el('select', { 'aria-label': 'Frame within assigned property' });
+  const label = el('label', { text: `${T('Frames in this location (creative choice)', 'Frames in this site')} · ${choices.length}` }), select = el('select', { 'aria-label': 'Frame within assigned property' });
   const sim = (v) => (typeof v === 'number' ? v.toFixed(2) : 'unknown');
   choices.forEach((c, n) => select.append(el('option', { value: c.shot.shot_id, text: `Frame ${n + 1} · similarity ${sim(c.shot.score)}` })));
   select.value = a.shot_id;
@@ -1572,7 +1572,7 @@ async function initDraft() {
   const note = $('draftNote');
   if (!lstore()) { draftState.unavailable = true; note.textContent = 'Local drafts are unavailable in this browser, so your work is not being kept. Export Project JSON to save it.'; $('draftOpt').disabled = true; $('draftClear').disabled = true; return; }
   $('draftOpt').checked = draftOn();
-  note.textContent = 'Kept only in this browser, as readable text in its local storage: your script, notes, takes or coordinator reports, and identifiers. It never holds images, keys or provider data. It is not encrypted or synced; clear it on a shared computer.';
+  note.textContent = 'Kept only in this browser, as readable text in its local storage: your script, notes, takes or coordinator reports, and identifiers. It never holds images, keys or provider data. It is not encrypted or synced; clear it on a shared computer. With several tabs open, the last one to save wins.';
   try { await restoreDraft('film'); } finally { draftState.ready = true; }
 }
 $('draftOpt').addEventListener('change', (e) => {

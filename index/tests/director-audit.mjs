@@ -2360,7 +2360,7 @@ test('drafts: a refresh restores script text exactly, constraints, takes and not
   const note = env.$('draftNotice').textContent;
   assert.match(note, /Restored your local draft from .* \(this browser only\)\. Evidence was rebuilt from the current data/); assert.match(note, /Discard this draft/); assert.match(note, /Stop keeping drafts/);
   assert.equal(env.$('draftNotice').hidden, false);
-  assert.match(env.$('draftNote').textContent, /Kept only in this browser.*not encrypted or synced; clear it on a shared computer/);
+  assert.match(env.$('draftNote').textContent, /Kept only in this browser.*not encrypted or synced; clear it on a shared computer\. With several tabs open, the last one to save wins/);
 });
 
 test('drafts: only necessary fields are stored: no images, keys, source rows, contacts, paths or availability', async () => {

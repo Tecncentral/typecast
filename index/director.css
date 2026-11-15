@@ -300,7 +300,8 @@ canvas.comparing { cursor: default; }
 .parse-list { margin: 4px 0 8px 18px; padding: 0; }
 .parse-list li { margin: 2px 0; }
 [data-mode="community"] [data-film-only], [data-mode="film"] [data-community-only] { display: none !important; }
-.mode-switch { margin-bottom: 14px; }
+.mode-bar { margin: 4px var(--page-gutter) 14px; max-width: 520px; }
+.mode-switch { margin-bottom: 0; }
 .mode-switch .seg { display: flex; }
 .mode-switch .seg button { flex: 1; min-height: 44px; }
 .mode-switch .meta { margin: 6px 0 0; }
