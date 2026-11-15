@@ -157,7 +157,83 @@
     return items;
   }
 
-  const api = { sceneNeeds, fitCheck, fitSummaryText, continuity, checklist, timeOfDay, KIND_LABEL };
+  // ---- script intake: plain screenplay headings or the original `HEADING | description` lines ----
+  // Pure and deterministic; no model. Nothing is silently dropped: cuts and ignored lines are reported in `notes`,
+  // and anything over a limit is an error with a count. Dialogue stays inside the scene description for retrieval
+  // and review; no actors or requirements are derived from it.
+  const LIMITS = { chars: 60000, scenes: 8, heading: 120, description: 600 };
+  const HEADING_RE = /^\s*(?:\d{1,3}[A-Z]?\s+)?(?:INT\.\s*\/\s*EXT\.|INT\/EXT\.?|I\/E\.?|INT\.|EXT\.)(?:\s+|$)/;
+  const CUE_RE = /^[A-Z][A-Z0-9 .'()-]{1,30}$/;
+  const clean = (t) => String(t).replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+  function cut(text, max, notes, what) {
+    if (text.length <= max) return { text, truncated: false };
+    notes.push(`${what} was cut from ${text.length} to ${max} characters.`);
+    return { text: text.slice(0, max), truncated: true };
+  }
+  function legacyScenes(lines, notes) {
+    if (lines.length > LIMITS.scenes) return { error: `Max ${LIMITS.scenes} scenes (found ${lines.length}).` };
+    const scenes = [];
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i], p = l.indexOf('|');
+      const headingRaw = clean(p < 0 ? l : l.slice(0, p));
+      if (!headingRaw) return { error: `Scene ${i + 1} needs a heading before "|".` };
+      const h = cut(headingRaw, LIMITS.heading, notes, `Scene ${i + 1} heading`);
+      const d = cut(clean(p < 0 ? l : l.slice(p + 1)) || h.text, LIMITS.description, notes, `Scene ${i + 1} description`);
+      scenes.push({ id: `s${i + 1}`, heading: h.text, description: d.text, truncated: h.truncated || d.truncated, dialogue_lines: 0 });
+    }
+    return { scenes };
+  }
+  function parseScript(text, mode) {
+    const notes = [];
+    const raw = String(text == null ? '' : text).replace(/\r\n?/g, '\n');
+    if (raw.length > LIMITS.chars) return { error: `The text is ${raw.length.toLocaleString('en-US')} characters; the limit is ${LIMITS.chars.toLocaleString('en-US')}. Paste fewer scenes.`, scenes: [], notes };
+    const lines = raw.split('\n').map((l) => l.replace(/\s+$/, ''));
+    const nonblank = lines.map((l) => l.trim()).filter(Boolean);
+    if (!nonblank.length) return { error: mode === 'community' ? 'Add at least one site need.' : 'Add at least one scene line.', scenes: [], notes };
+    const finish = (r) => (r.error ? { error: r.error, scenes: [], notes } : { error: null, scenes: r.scenes, notes });
+    if (nonblank.every((l) => l.includes('|'))) return finish(legacyScenes(nonblank, notes));
+    if (mode === 'community') {
+      // Needs are plain paragraphs: a blank line separates sites, the first line names the need. INT./EXT. has no special meaning here.
+      const blocks = []; let cur = [];
+      for (const l of lines) { if (l.trim()) cur.push(l.trim()); else if (cur.length) { blocks.push(cur); cur = []; } }
+      if (cur.length) blocks.push(cur);
+      if (blocks.length > LIMITS.scenes) return finish({ error: `Max ${LIMITS.scenes} needs (found ${blocks.length}).` });
+      const scenes = blocks.map((b, i) => {
+        const h = cut(clean(b[0].split('|')[0]), LIMITS.heading, notes, `Need ${i + 1} title`);
+        const d = cut(clean(b.slice(1).join(' ')) || h.text, LIMITS.description, notes, `Need ${i + 1} description`);
+        return { id: `s${i + 1}`, heading: h.text, description: d.text, truncated: h.truncated || d.truncated, dialogue_lines: 0 };
+      });
+      return finish({ scenes });
+    }
+    // film: screenplay headings
+    const isHeading = (l) => l.length <= 200 && HEADING_RE.test(l);
+    const at = [];
+    lines.forEach((l, i) => { if (isHeading(l.trim())) at.push(i); });
+    if (!at.length) {
+      if (nonblank.length <= LIMITS.scenes && nonblank.every((l) => l.length <= 200)) {
+        notes.push('No INT./EXT. headings found, so each line was read as one scene.');
+        return finish(legacyScenes(nonblank, notes));
+      }
+      return finish({ error: 'No scene headings found. Start each scene with INT. or EXT. (for example "INT. KITCHEN - DAY"), or write one scene per line as "Heading | description".' });
+    }
+    const before = lines.slice(0, at[0]).filter((l) => l.trim()).length;
+    if (before) notes.push(`${before} line${before === 1 ? '' : 's'} before the first heading ${before === 1 ? 'was' : 'were'} not used (title page or notes).`);
+    if (at.length > LIMITS.scenes) return finish({ error: `Max ${LIMITS.scenes} scenes (found ${at.length}). Remove or merge scenes; nothing was dropped.` });
+    const scenes = at.map((start, k) => {
+      const end = k + 1 < at.length ? at[k + 1] : lines.length, head = lines[start].trim(), p = head.indexOf('|');
+      const bodyLines = lines.slice(start + 1, end).map((l) => l.trim());
+      const headRaw = clean(p < 0 ? head : head.slice(0, p));
+      const h = cut(headRaw, LIMITS.heading, notes, `Scene ${k + 1} heading`);
+      const bodyText = clean([p < 0 ? '' : head.slice(p + 1), ...bodyLines].join(' '));
+      const d = cut(bodyText || h.text, LIMITS.description, notes, `Scene ${k + 1} description`);
+      let cues = 0;
+      bodyLines.forEach((l, i) => { if (CUE_RE.test(l) && !HEADING_RE.test(l) && bodyLines[i + 1] && !CUE_RE.test(bodyLines[i + 1])) cues++; });
+      return { id: `s${k + 1}`, heading: h.text, description: d.text, truncated: h.truncated || d.truncated, dialogue_lines: cues };
+    });
+    return finish({ scenes });
+  }
+
+  const api = { parseScript, LIMITS, sceneNeeds, fitCheck, fitSummaryText, continuity, checklist, timeOfDay, KIND_LABEL };
   if (typeof module === 'object' && module.exports) module.exports = api;
   root.TypecastChecks = api;
 })(typeof window !== 'undefined' ? window : globalThis);

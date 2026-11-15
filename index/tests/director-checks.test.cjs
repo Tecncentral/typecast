@@ -181,3 +181,73 @@ test('mixed phrases are each evaluated; estimates and missing values never becom
   assert.equal(row(gone, 'Ceiling height')[0].kind, 'unknown');
   assert.equal(JSON.stringify(need('at least 100 m2', {})).includes('measured'), false);
 });
+
+// ---- natural screenplay intake ----
+const P = (t, m = 'film') => C.parseScript(t, m);
+const heads = (r) => r.scenes.map((s) => s.heading);
+
+test('plain screenplay headings become scenes with their dialogue kept in the description', () => {
+  const r = P('FADE IN:\n\nINT. KITCHEN - DAY\n\nMARA stirs a pot.\n\nMARA\nI wrote this for you.\n\nEXT. GARDEN - NIGHT\nRain falls.\n');
+  assert.equal(r.error, null); assert.deepEqual(heads(r), ['INT. KITCHEN - DAY', 'EXT. GARDEN - NIGHT']);
+  assert.equal(r.scenes[0].description, 'MARA stirs a pot. MARA I wrote this for you.');
+  assert.equal(r.scenes[0].dialogue_lines, 1); assert.equal(r.scenes[1].description, 'Rain falls.');
+  assert.match(r.notes[0], /1 line before the first heading was not used/);              // title page is reported, not silently dropped
+  assert.deepEqual(r.scenes.map((s) => s.id), ['s1', 's2']);
+});
+
+test('CRLF, old Mac line endings, blank lines, scene numbers and INT./EXT. forms are handled', () => {
+  const crlf = P('INT. A - DAY\r\nOne.\r\n\r\n\r\nINT./EXT. CAR - NIGHT\r\nTwo.\r\n12 EXT. ROAD - DAWN\r\nThree.');
+  assert.deepEqual(heads(crlf), ['INT. A - DAY', 'INT./EXT. CAR - NIGHT', '12 EXT. ROAD - DAWN']);
+  assert.deepEqual(P('INT. A - DAY\rOne.\rI/E. B - DAY\rTwo.').scenes.map((s) => s.description), ['One.', 'Two.']);
+  assert.equal(P('INT. A - DAY').scenes[0].description, 'INT. A - DAY');                  // a heading alone describes itself
+});
+
+test('heading-like words inside body text, dialogue or lowercase are not headings', () => {
+  const r = P('INT. HALL - DAY\nShe says INT. is a keyword. The sign reads EXT. EXIT.\nint. not a heading\nINTERIOR design matters. EXTERIOR too. INTERESTING.');
+  assert.equal(r.scenes.length, 1); assert.match(r.scenes[0].description, /sign reads EXT\. EXIT/); assert.match(r.scenes[0].description, /int\. not a heading/);
+});
+
+test('a heading line may carry its own description after a pipe, and all-pipe input keeps the original format', () => {
+  assert.deepEqual(P('INT. A - DAY | bright kitchen\nher line').scenes[0].description, 'bright kitchen her line');
+  const legacy = P('INT. KITCHEN | first scene\nINT. OFFICE | second scene');
+  assert.deepEqual(heads(legacy), ['INT. KITCHEN', 'INT. OFFICE']); assert.equal(legacy.scenes[1].description, 'second scene');
+  assert.equal(P('| no heading').error, 'Scene 1 needs a heading before "|".');
+  assert.equal(P('').error, 'Add at least one scene line.'); assert.equal(P('  \n\n ').error, 'Add at least one scene line.');
+});
+
+test('limits are explicit: nine scenes is an error with the count, long text is cut with a note, nothing disappears silently', () => {
+  const nine = Array.from({ length: 9 }, (_, i) => `INT. ROOM ${i + 1} - DAY\nText.`).join('\n\n');
+  assert.match(P(nine).error, /Max 8 scenes \(found 9\)\. .*nothing was dropped/);
+  assert.equal(P(nine.split('\n\n').slice(0, 8).join('\n\n')).scenes.length, 8);
+  const long = P(`INT. HALL - DAY\n${'word '.repeat(400)}`);
+  assert.equal(long.scenes[0].description.length, 600); assert.equal(long.scenes[0].truncated, true); assert.match(long.notes.join(' '), /Scene 1 description was cut from \d+ to 600 characters/);
+  const head = P(`INT. ${'X'.repeat(300)}\nbody`);                                          // over 200 chars is not treated as a heading line
+  assert.match(head.error || head.notes.join(' '), /No scene headings|cut/);
+  assert.match(P('x'.repeat(60001)).error, /limit is 60,000/);
+  assert.equal(P('INT. ' + 'X'.repeat(150) + '\nbody').scenes[0].heading.length, 120);
+});
+
+test('malformed or heading-less prose is an explanation, not guessed scenes', () => {
+  const prose = P(Array.from({ length: 12 }, (_, i) => `This is sentence line number ${i} of a plain paragraph.`).join('\n'));
+  assert.match(prose.error, /No scene headings found\. Start each scene with INT\. or EXT\./);
+  const few = P('A kitchen at night\nA garden in rain');
+  assert.equal(few.error, null); assert.equal(few.scenes.length, 2); assert.match(few.notes[0], /No INT\.\/EXT\. headings found, so each line was read as one scene/);
+});
+
+test('control characters are removed and a very long script parses quickly and within bounds', () => {
+  const r = P('INT. A - DAY\nhe\u0000llo\u0007 world');
+  assert.equal(r.scenes[0].description, 'he llo world');
+  const big = Array.from({ length: 8 }, (_, i) => `INT. R${i} - DAY\n${'lorem ipsum '.repeat(400)}`).join('\n');
+  const t0 = Date.now(); const rb = P(big); assert.ok(Date.now() - t0 < 500); assert.equal(rb.scenes.length, 8);
+  assert.ok(rb.scenes.every((s) => s.description.length <= 600));
+});
+
+test('community needs are plain paragraphs: INT./EXT. has no meaning, blank lines separate sites', () => {
+  const r = P('Distribution hub\nlarge open floor, loading access, INT. is just text\n\nFirst aid point\nquiet room near the entrance', 'community');
+  assert.deepEqual(heads(r), ['Distribution hub', 'First aid point']); assert.match(r.scenes[0].description, /INT\. is just text/);
+  assert.deepEqual(heads(P('INT. KITCHEN - DAY\nfilm text', 'community')), ['INT. KITCHEN - DAY']);   // a pasted screenplay is one need, never parsed as film
+  assert.equal(P('INT. KITCHEN - DAY\nfilm text', 'community').scenes.length, 1);
+  assert.equal(P('Hub | open floor\nFirst aid | quiet', 'community').scenes.length, 2);               // pipe lines still work
+  assert.equal(P('', 'community').error, 'Add at least one site need.');
+  assert.match(P(Array.from({ length: 9 }, (_, i) => `Need ${i}\ntext`).join('\n\n'), 'community').error, /Max 8 needs \(found 9\)/);
+});

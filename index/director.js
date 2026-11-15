@@ -12,7 +12,7 @@ const DEMO = [
   'INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.',
   'INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.',
 ].join('\n');
-const S = { swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
+const S = { mode: 'film', swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
@@ -96,15 +96,21 @@ function sanitizeShot(s, keepOrigin = false) {
 
 // ---------- backend ----------
 function parseScenes() {
-  const lines = $('script').value.split('\n').map((l) => l.trim()).filter(Boolean);
-  if (!lines.length) throw new Error('Add at least one scene line.');
-  if (lines.length > 8) throw new Error(`Max 8 scenes (found ${lines.length}).`);
-  return lines.map((l, i) => {
-    const p = l.indexOf('|');
-  const heading = (p < 0 ? l : l.slice(0, p)).trim().slice(0, 120);
-    if (!heading) throw new Error(`Scene ${i + 1} needs a heading before "|".`);
-    return { id: `s${i + 1}`, heading, description: (p < 0 ? heading : l.slice(p + 1)).trim().slice(0, 600) || heading };
-  });
+  const r = TypecastChecks.parseScript($('script').value, S.mode);
+  if (r.error) throw new Error(r.error);
+  return r.scenes.map(({ id, heading, description }) => ({ id, heading, description }));
+}
+// A reviewable reading of the pasted text, shown before Build: what became a scene, what was cut or ignored.
+function renderParse() {
+  const box = $('parseSummary'); if (!box) return;
+  box.replaceChildren();
+  const r = TypecastChecks.parseScript($('script').value, S.mode), noun = S.mode === 'community' ? 'need' : 'scene';
+  if (r.error) { box.append(el('p', { class: 'warn', text: r.error })); return; }
+  const list = el('ol', { class: 'parse-list' }, ...r.scenes.map((sc) => el('li', {}, el('b', { text: sc.heading }),
+    el('span', { class: 'meta', text: ` · ${sc.description.length} characters${sc.dialogue_lines ? ` · ${sc.dialogue_lines} dialogue line${sc.dialogue_lines === 1 ? '' : 's'} kept in the text` : ''}${sc.truncated ? ' · cut to fit' : ''}` }))));
+  const d = el('details', { class: 'parse-details' }, el('summary', { text: `Reads as ${r.scenes.length} ${noun}${r.scenes.length === 1 ? '' : 's'}${r.notes.length ? ` · ${r.notes.length} note${r.notes.length === 1 ? '' : 's'}` : ''}` }), list,
+    ...r.notes.map((n) => el('p', { class: 'warn', text: n })));
+  box.append(d);
 }
 async function api(path, body, signal) {
   const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
@@ -1092,8 +1098,8 @@ $('impProject').addEventListener('change', (event) => importProject(event.target
 
 // ---------- events ----------
 $('build').addEventListener('click', () => build(false));
-$('script').addEventListener('input', () => { S.rev++; });
-$('demo').addEventListener('click', () => { S.rev++; $('script').value = DEMO; status('Demo script loaded. Press Build plan; the plan summary states whether results are live or mock fixtures.'); });
+$('script').addEventListener('input', () => { S.rev++; renderParse(); });
+$('demo').addEventListener('click', () => { S.rev++; $('script').value = DEMO; renderParse(); status('Demo script loaded. Press Build plan; the plan summary states whether results are live or mock fixtures.'); });
 $('planSel').addEventListener('change', (e) => {
   const prev = assignMap(); stopPlay(); cancelGen(); clearPending();
   S.planIdx = clamp(e.target.value, 0, (S.resp?.plans.length || 1) - 1, 0); noteFrameChanges(prev); renderAll();
@@ -1226,7 +1232,7 @@ $('cancelReel').addEventListener('click', () => reelCtrl && reelCtrl.abort());
 window.addEventListener('pagehide', () => { if (rec) rec.stop(); if (reelCtrl) reelCtrl.abort(); stopPlay(); });
 
 $('script').value = DEMO;
-renderAll();
+renderAll(); renderParse();
 // Canvas text uses the app's faces once they load; until then the system fallback draws.
 if (document.fonts?.load) {
   Promise.all(['600 21px Barlow', '500 19px Barlow', '500 30px Barlow', '600 34px Barlow'].map((f) => document.fonts.load(f)))

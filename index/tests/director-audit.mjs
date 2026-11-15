@@ -347,7 +347,7 @@ function createEnv({ speech = 'none' } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', parseSummary: 'div', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);
@@ -2084,4 +2084,34 @@ test('review: prototype-like scene ids, notes and links import and render withou
   job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_a', 'shot_a')]))); await drain();
   assert.equal(fresh.api.S.notes.s2.group, '__proto__');
   fresh.api.selectScene('s2'); assert.ok(fresh.$('sceneChecks').hidden === false);
+});
+
+// ---------- natural screenplay intake in the UI ----------
+test('intake: a pasted screenplay shows a reviewable reading, builds from exactly those scenes and keeps dialogue in the text', async () => {
+  const env = boot();
+  env.$('script').value = 'TITLE PAGE\r\n\r\nINT. KITCHEN - DAY\r\nMARA stirs.\r\nMARA\r\nI wrote this for you.\r\n\r\nEXT. GARDEN - NIGHT\r\nRain.';
+  env.$('script').dispatchEvent({ type: 'input' });
+  const text = env.$('parseSummary').textContent;
+  assert.match(text, /Reads as 2 scenes · 1 note/); assert.match(text, /INT\. KITCHEN - DAY.*1 dialogue line kept in the text/); assert.match(text, /1 line before the first heading was not used/);
+  env.$('build').click();
+  const job = env.take('/api/production/plan'), body = JSON.parse(job.opts.body);
+  assert.deepEqual(copied(body.scenes), [
+    { id: 's1', heading: 'INT. KITCHEN - DAY', description: 'MARA stirs. MARA I wrote this for you.' },
+    { id: 's2', heading: 'EXT. GARDEN - NIGHT', description: 'Rain.' }]);
+  assert.equal(JSON.stringify(body).includes('actors'), false, 'no actors are invented from dialogue');
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'p', 'sa'), assignment('s2', 'p', 'sb')]))); await drain();
+  assert.equal(env.api.S.scenes.length, 2);
+});
+
+test('intake: errors and cuts are visible before Build and Build refuses with the same message', async () => {
+  const env = boot();
+  env.$('script').value = Array.from({ length: 9 }, (_, i) => `INT. R${i} - DAY\ntext`).join('\n');
+  env.$('script').dispatchEvent({ type: 'input' });
+  assert.match(env.$('parseSummary').textContent, /Max 8 scenes \(found 9\)/);
+  env.$('build').click();
+  assert.match(env.$('status').textContent, /Max 8 scenes \(found 9\)/); assert.equal(env.jobs.length, 0);
+  env.$('script').value = `INT. HALL - DAY\n${'word '.repeat(300)}`; env.$('script').dispatchEvent({ type: 'input' });
+  assert.match(env.$('parseSummary').textContent, /1 note/); assert.match(env.$('parseSummary').textContent, /cut to fit/);
+  env.$('script').value = 'just some words\n'.repeat(20); env.$('script').dispatchEvent({ type: 'input' });
+  assert.match(env.$('parseSummary').textContent, /No scene headings found/);
 });

@@ -295,6 +295,10 @@ canvas.comparing { cursor: default; }
 .chk small { color: var(--muted); }
 .prod-notes label { display: block; margin-top: 8px; }
 .prod-notes textarea, .prod-notes input { width: 100%; }
+.parse-summary { margin: 6px 0 10px; font-size: 13px; }
+.parse-details > summary { cursor: pointer; color: var(--muted); min-height: 32px; padding: 6px 0; box-sizing: border-box; }
+.parse-list { margin: 4px 0 8px 18px; padding: 0; }
+.parse-list li { margin: 2px 0; }
 .sample-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px dashed var(--control-line); border-radius: 6px; }
 .sample-box p { margin-bottom: 8px; }
 

@@ -30,8 +30,9 @@
         <h2 id="h-script">Script</h2>
         <button id="demo" type="button" class="quiet">Load demo script</button>
       </div>
-      <label for="script" class="hint">One scene per line: <code>HEADING | description</code>. Up to 8 scenes.</label>
+      <label for="script" id="scriptHint" class="hint">Paste a screenplay (scenes start with INT. or EXT.) or write one scene per line: <code>HEADING | description</code>. Up to 8 scenes.</label>
       <textarea id="script" rows="6" spellcheck="false"></textarea>
+      <div id="parseSummary" class="parse-summary" aria-live="polite"></div>
       <div class="constraints">
         <label>Locations <select id="maxLoc"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
         <label>Trucks <input id="trucks" type="number" min="0" max="20" value="0" inputmode="numeric"></label>
