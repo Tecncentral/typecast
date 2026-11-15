@@ -31,7 +31,13 @@ def render_scene(shot_id: str, instruction: str):
         source.relative_to((ROOT / "cache" / "views").resolve())
         if not source.is_file():
             raise ValueError("Missing indexed image")
-    except (ValueError, KeyError, FileNotFoundError, ShotNotFoundError):
+        with Image.open(source) as original:
+            image = original.convert("RGB")
+            image.thumbnail((1536, 1536))
+            buf = io.BytesIO()
+            image.save(buf, "PNG")
+        payload = buf.getvalue()
+    except (ValueError, KeyError, FileNotFoundError, ShotNotFoundError, OSError):
         raise HTTPException(404, "Indexed source frame unavailable") from None
     if not _GATE.acquire(blocking=False):
         raise HTTPException(429, "Another image is being generated; wait before requesting another")
@@ -41,18 +47,13 @@ def render_scene(shot_id: str, instruction: str):
             client = OpenAIClient()
         except StrikeError:
             raise HTTPException(503, "Configured image provider unavailable") from None
-        with Image.open(source) as original:
-            image = original.convert("RGB")
-            image.thumbnail((1536, 1536))
-            buf = io.BytesIO()
-            image.save(buf, "PNG")
         prompt = ("Create a film director's imagined scene customization of this exact source room. "
                   "Preserve the camera position, walls, doors, windows and architecture as much as possible. "
                   "Furniture, props, character stand-ins, lighting, wardrobe, era and mood may change as requested. "
                   "This is concept art, never evidence of physical fit. No captions, logos or watermarks. "
                   "Director request: " + instruction)
         try:
-            body = client._post("/images/edits", files={"image": ("source.png", buf.getvalue(), "image/png")},
+            body = client._post("/images/edits", files={"image": ("source.png", payload, "image/png")},
                                 data={"model":os.environ.get("TYPECAST_DRESS_MODEL", EDIT_MODEL),
                                       "prompt":prompt, "size":"1024x1024", "quality":"medium", "n":"1"}, timeout=300)
             raw = base64.b64decode(body["data"][0]["b64_json"], validate=True)

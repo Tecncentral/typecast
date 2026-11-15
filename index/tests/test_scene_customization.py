@@ -54,3 +54,33 @@ def test_image_edit_is_separate_stamped_and_source_unchanged(tmp_path,monkeypatc
 
 def test_preview_path_rejects_traversal():
     with pytest.raises(HTTPException): custom.image_path('../private')
+
+
+def test_unreadable_indexed_frame_is_a_404(tmp_path, monkeypatch):
+    from strike import core
+    monkeypatch.setenv('TYPECAST_ALLOW_VISION_UPLOAD', '1')
+    monkeypatch.setenv('OPENAI_API_KEY', 'sk-test-not-real')
+    monkeypatch.setattr(custom, 'ROOT', tmp_path)
+    source = tmp_path / 'cache/views/bad.png'
+    source.parent.mkdir(parents=True)
+    source.write_bytes(b'not an image')
+    before = source.read_bytes()
+    monkeypatch.setattr(custom, 'get_active_index', lambda: SimpleNamespace(is_mock=False))
+    monkeypatch.setattr(custom, 'get_shot', lambda _: SimpleNamespace(image_path='cache/views/bad.png'))
+    posts = []
+
+    class Client:
+        def __init__(self):
+            pass
+
+        def _post(self, *args, **kwargs):
+            posts.append(args)
+            raise AssertionError('unreadable frame was uploaded')
+
+    monkeypatch.setattr(core, 'OpenAIClient', Client)
+    with pytest.raises(HTTPException) as err:
+        custom.render_scene('s', 'Add a desk')
+    assert err.value.status_code == 404
+    assert posts == []
+    assert source.read_bytes() == before
+    assert not (tmp_path / 'cache/customizations').exists()
