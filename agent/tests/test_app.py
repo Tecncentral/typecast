@@ -135,3 +135,10 @@ def test_health_reports_adapter_modes_without_secret(monkeypatch):
 def test_private_cache_paths_are_not_served():
     for path in ("threads/safe-test/requirements.json", "outbox/safe-test-1.md", "join.parquet", "records.json"):
         assert c.get(f"/cache/{path}").status_code == 404
+
+
+def test_viewer_modules_always_revalidate():
+    response = c.get("/app/utils.js")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-cache"
+    assert "etag" in response.headers

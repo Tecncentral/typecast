@@ -1,7 +1,13 @@
-import { el, button, assetUrl, formatNumber } from "./utils.js";
+import { el, button, assetUrl, formatNumber, tidyText } from "./utils.js";
 import { SCENES } from "./scenes.js";
 import { renderCards } from "./cards.js";
-import { renderMap } from "./map.js";
+import { renderMap, focusMapPick } from "./map.js";
+import {
+  parkingBar,
+  parkingSummary,
+  vehiclesOf,
+  demandText,
+} from "./parking.js";
 import { Progress } from "./progress.js";
 import { Descent } from "./descent.js";
 const $ = (selector) => document.querySelector(selector);
@@ -187,9 +193,88 @@ function renderRelaxations(data) {
   host.open = !data.picks.length;
 }
 
+function parkingChanged(before, after) {
+  const old = new Map(before.picks.map((p) => [p.property.property_id, p]));
+  return after.picks.some((pick) => {
+    const previous = old.get(pick.property.property_id);
+    return (
+      !previous ||
+      previous.logistics?.truck_spaces !== pick.logistics?.truck_spaces ||
+      previous.logistics?.car_spaces !== pick.logistics?.car_spaces
+    );
+  });
+}
+function renderParkingShift(before, after) {
+  const was = vehiclesOf(before),
+    now = vehiclesOf(after),
+    old = new Map(before.picks.map((p) => [p.property.property_id, p]));
+  const block = el("div", null, "change-parking");
+  // A lot that no longer holds the crew is the clearest picture of the change.
+  const afterIds = new Set(after.picks.map((p) => p.property.property_id));
+  const shortLeaver = before.picks.find(
+    (pick) =>
+      !afterIds.has(pick.property.property_id) &&
+      parkingSummary(pick, now).fits === false,
+  );
+  const focus = shortLeaver || after.picks[0];
+  const top = el("div", null, "change-parking__top");
+  top.append(
+    el(
+      "p",
+      was.trucks === now.trucks && was.cars === now.cars
+        ? "Parking for " + demandText(now) + " · estimated from Vexcel lots"
+        : "Crew vehicles " + demandText(was) + " → " + demandText(now),
+      "change-parking__title",
+    ),
+    button(
+      shortLeaver ? "See the short lot on the map" : "See the lots on the map",
+      () => {
+        $("#map-section").scrollIntoView({
+          block: "start",
+          behavior: matchMedia("(prefers-reduced-motion: reduce)").matches
+            ? "instant"
+            : "smooth",
+        });
+        focusMapPick($("#location-map"), focus?.property.property_id);
+      },
+      "change-parking__map",
+    ),
+  );
+  const grid = el("div", null, "change-parking__grid");
+  for (const pick of after.picks) {
+    const card = el("div", null, "change-parking__pick");
+    const previous = old.get(pick.property.property_id);
+    card.append(
+      el(
+        "p",
+        pick.rank + " · " + pick.property.address + (previous ? "" : " · new"),
+        "change-parking__name",
+      ),
+      parkingBar(parkingSummary(pick, now), {
+        previous: previous ? parkingSummary(previous, was) : undefined,
+      }),
+    );
+    grid.append(card);
+  }
+  for (const pick of before.picks) {
+    if (afterIds.has(pick.property.property_id)) continue;
+    const card = el("div", null, "change-parking__pick change-parking__pick--left");
+    card.append(
+      el("p", "Left · " + pick.property.address, "change-parking__name"),
+      parkingBar(parkingSummary(pick, now), {
+        previous: parkingSummary(pick, was),
+      }),
+    );
+    grid.append(card);
+  }
+  block.append(top, grid);
+  return block;
+}
 function renderChanges(before, after, message) {
   const host = $("#changes");
   host.replaceChildren(el("h3", "What changed · " + message));
+  const showParking = parkingChanged(before, after);
+  if (showParking) host.append(renderParkingShift(before, after));
   const list = el("ul"),
     old = new Map(before.picks.map((p) => [p.property.property_id, p])),
     ids = new Set(after.picks.map((p) => p.property.property_id));
@@ -198,15 +283,31 @@ function renderChanges(before, after, message) {
     const previous = old.get(pick.property.property_id),
       name = pick.property.address;
     if (!previous) {
-      list.append(el("li", name + " joined at rank " + pick.rank + "."));
+      // A newcomer's standing caveats are on its card, not new objections.
+      list.append(
+        el(
+          "li",
+          name +
+            " joined at rank " +
+            pick.rank +
+            "." +
+            (pick.skeptic_notes?.length
+              ? " Its " +
+                pick.skeptic_notes.length +
+                " caveats are on its card."
+              : ""),
+        ),
+      );
       moved = true;
-    } else {
-      if (previous.rank !== pick.rank) {
-        list.append(
-          el("li", name + ": rank " + previous.rank + " → " + pick.rank + "."),
-        );
-        moved = true;
-      }
+      continue;
+    }
+    if (previous.rank !== pick.rank) {
+      list.append(
+        el("li", name + ": rank " + previous.rank + " → " + pick.rank + "."),
+      );
+      moved = true;
+    }
+    if (!showParking)
       for (const [key, label] of [
         ["truck_spaces", "truck spaces"],
         ["car_spaces", "car spaces"],
@@ -225,14 +326,13 @@ function renderChanges(before, after, message) {
                 ".",
             ),
           );
-    }
     for (const note of pick.skeptic_notes || [])
       if (
         note.trim().toLowerCase() !== "no objection." &&
-        !(previous?.skeptic_notes || []).includes(note)
+        !(previous.skeptic_notes || []).includes(note)
       )
         list.append(
-          el("li", name + " · New objection: " + note, "change-objection"),
+          el("li", name + " · New objection: " + tidyText(note), "change-objection"),
         );
   }
   for (const pick of before.picks)
@@ -348,6 +448,8 @@ function showResult(data, previous, message) {
   $("#map-section").hidden = !data.picks.length;
   mapCleanup = data.picks.length
     ? renderMap($("#location-map"), data.picks, {
+        vehicles: vehiclesOf(data),
+        previous: previous ? { ...previous, message } : null,
         onSelect: (pick) => {
           const card = [
             ...document.querySelectorAll("#results .pick-card"),
