@@ -79,6 +79,7 @@
     <section class="block" data-film-only aria-labelledby="h-cost">
       <h2 id="h-cost">Production cost comparison</h2>
       <div id="costResult" aria-live="polite">Build a complete plan to compare costs.</div>
+      <p class="meta">A cost scenario is not a customer outcome. Confirm which commitments can actually be canceled before treating time value as cash potentially avoided.</p>
       <details><summary>Edit cost assumptions (USD)</summary>
         <p class="meta">Starter values are illustrative, not industry benchmarks. Replace with your production’s actual costs. Scouting travel inputs are round trip; crew drive times are one way.</p>
         <label>Scouting billing basis <select id="scoutBilling"><option value="hourly">Hourly / per visit</option><option value="daily">Billable scouting days</option></select></label>
@@ -86,7 +87,33 @@
         <button id="commercialRatePreset" type="button">Example: 5 → 2 commercial scout days</button>
         <p class="meta">Reference: <a href="https://www.ht399.org/app/uploads/2026/06/APPENDIX-A-Wage-Chart-Drivers-and-Locations-final-6.24.26.pdf" target="_blank" rel="noopener">Local 399 / AICP 2026 minimum: $957.58 per day</a> for covered location scout managers, effective June 28, 2026. This is a commercial agreement reference, not a universal studio or indie rate. Days eliminated are assumptions. No fringes or overtime included.</p>
         <div id="costInputs" class="cost-inputs"></div>
+        <label>Scouting compensation <select id="scoutCommitment"><option value="unconfirmed">Unconfirmed — cash impact unknown</option><option value="avoidable">Incremental billable labor can be avoided</option><option value="committed">Salaried / guaranteed / already committed</option></select></label>
+        <label>Cancelable scout person-days / person-hours <input id="avoidableScoutUnits" type="number" min="0" max="1000000" step="0.5" placeholder="Blank: all modeled units, only if avoidable"></label>
+        <label>Vehicle cost commitment <select id="mileageCommitment"><option value="unconfirmed">Unconfirmed — cash impact unknown</option><option value="avoidable">Variable costs can be avoided</option><option value="committed">Fixed / already committed</option></select></label>
+        <label>Rate evidence <select id="costSourceStatus"><option value="assumption">Scenario assumption</option><option value="rate_reference">Published reference, applicability unconfirmed</option><option value="producer_quote">Producer-reported rate or quote</option></select></label>
+        <label>Rate / commitment source <input id="costSourceNote" maxlength="500" placeholder="Quote, applicable contract or assumption; no keys or private URLs"></label>
         <label class="check"><input id="paidTravel" type="checkbox"> Include paid crew travel from this starting point</label>
+        <label>Crew travel compensation <select id="crewCommitment"><option value="unconfirmed">Unconfirmed — cash impact unknown</option><option value="avoidable">Incremental paid travel can be avoided</option><option value="committed">Guaranteed / already committed</option></select></label>
+      </details>
+      <details id="producerCase"><summary>Producer decision brief</summary>
+        <p class="meta">A planning record for the next physical scout. No booking, filming permission, signature or approval is created.</p>
+        <label>Project name <input id="producerName" maxlength="120" placeholder="Untitled production"></label>
+        <label>Reviewer <input id="producerReviewer" maxlength="120" placeholder="Name / production role"></label>
+        <label>Decision / reason <textarea id="producerDecision" maxlength="240" rows="3" placeholder="Why shortlist this plan? What must be checked before committing?"></textarea></label>
+        <details><summary>Prospective pilot record (optional)</summary>
+          <p class="meta">Enter actual records only when available. Baseline and outcome are producer-reported; a difference alone does not prove Typecast caused it. Leave unknown values blank.</p>
+          <label>Baseline scouting units<input id="pilotBaselineUnits" type="number" min="0" max="1000000" step="0.5"></label>
+          <label>Actual scouting units<input id="pilotActualUnits" type="number" min="0" max="1000000" step="0.5"></label>
+          <label>Baseline cost ($)<input id="pilotBaselineCost" type="number" min="0" max="1000000000" step="0.01"></label>
+          <label>Actual cost ($)<input id="pilotActualCost" type="number" min="0" max="1000000000" step="0.01"></label>
+          <label>Record source / dates<input id="pilotSource" maxlength="500" placeholder="Invoice, time sheet, estimate and dates"></label>
+          <label>Pilot notes<textarea id="pilotNotes" maxlength="1000" rows="3" placeholder="Scope changes, staffing guarantees and other explanations"></textarea></label>
+        </details>
+        <div class="row"><button id="exportProducerHtml" type="button">Download decision brief</button><button id="exportProducerJson" type="button">Save budget case JSON</button></div>
+        <label>Restore a budget case<input id="importProducerJson" type="file" accept=".json,application/json"></label>
+        <label class="check"><input id="keepProducerCase" type="checkbox"> Keep this budget case in this browser</label>
+        <button id="clearProducerCase" type="button" class="quiet">Clear stored budget case</button>
+        <p id="producerCaseStatus" class="meta" role="status"></p>
       </details>
     </section>
   </aside>
@@ -265,6 +292,7 @@
 <script src="director-checks.js"></script>
 <script src="director-project.js"></script>
 <script src="production-costs.js"></script>
+<script src="producer-brief.js"></script>
 <script src="director-planning.js"></script>
 <script src="director.js"></script>
 <script src="director-ui.js"></script>

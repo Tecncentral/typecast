@@ -1849,7 +1849,7 @@ if (typeof setInterval === 'function') setInterval(saveDraft, 1500);
 if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveDraft(); });
 window.addEventListener('pagehide', () => { saveDraft(); });
 
-window.typecastPlanningSnapshot = () => ({ plan: plan(), response: S.resp, selectedScene: S.sceneId, selectedShot: assignFor(S.sceneId)?.shot_id, assignments: S.scenes.map(s => assignFor(s.id)).filter(Boolean), sceneCount: S.scenes.length,
+window.typecastPlanningSnapshot = () => ({ plan: plan(), response: S.resp, mode:S.mode, limits:{maxLocations:$('maxLoc').value,trucks:$('trucks').value,cars:$('cars').value,requireAvailable:$('reqAvail').checked}, scenes:S.scenes.map(s=>({id:s.id,heading:s.heading})), rejected:[...S.forbidden], selectedScene: S.sceneId, selectedShot: assignFor(S.sceneId)?.shot_id, assignments: S.scenes.map(s => assignFor(s.id)).filter(Boolean), sceneCount: S.scenes.length,
   stale: anySwap() || (S.resp && (S.builtScript !== $('script').value || (PLANNING_REQUESTS.has(S.resp) && PLANNING_REQUESTS.get(S.resp) !== JSON.stringify(constraints())))) });
 $('script').value = DEMO;
 renderAll(); renderParse(); applyModeUI();

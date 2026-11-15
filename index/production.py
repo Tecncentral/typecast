@@ -396,6 +396,11 @@ def get_production_costs_js() -> FileResponse:
     return FileResponse(_STATIC_DIR / "production-costs.js", media_type="application/javascript")
 
 
+@router.get("/producer-brief.js")
+def get_producer_brief_js() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "producer-brief.js", media_type="application/javascript")
+
+
 @router.post("/api/production/plan")
 def post_production_plan(req: PlanRequest) -> dict[str, Any]:
     try:

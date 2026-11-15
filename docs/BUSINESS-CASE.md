@@ -1,5 +1,7 @@
 # Typecast: location decisions before production commits
 
+**Current product update:** after the buyer/engineering/evidence debate (`docs/BUSINESS-DECISIONS.md`), the calculator now separates projected labor capacity from avoidable cash. Unconfirmed commitments keep cash unknown; salaried/guaranteed staffing can have zero labor cash savings while tool costs remain payable. Optional cancellable-unit caps and vehicle/crew commitment gates are explicit. A current-plan producer decision brief preserves the selected frame, alternatives, assumptions and next checks; JSON imports restore inputs only and require rebuilding. Prospective baseline/outcome fields are producer-reported, never automatically causal evidence. The examples below remain conditional scenarios.
+
 Main track selected by the team: **Business/Enterprise**, superseding Entertainment/Media on November 15, 2026. Human submission is still required; this file does not change Devpost automatically.
 
 Buyer: a producer, production company or location department. User: a location manager or director preparing a physical scout. The workflow connects a script to real candidate frames, property and aerial logistics, a commute constraint, reviewed scene concepts, and a transparent cost comparison. The business outcome is a better-informed shortlist before paying for scouting days. Typecast does not book sites, obtain filming permission or replace a technical scout.

@@ -1,5 +1,11 @@
 # Contract changes
 
+## Producer recce memo / prospective pilot case — November 15, 2026
+
+`index/producer-brief.js` exposes `TypecastProducerBrief.normalizeCase`, `renderHtml`, `renderText`, `exportJson`, and `importCase` (UMD/Node). Input is a bounded allowlisted `{version:1, project:{name,reviewer,decision,date}, plan:{mode,current,fingerprint,sceneCount,covered,locations,moves,propertyIds,unknowns,constraintsSummary,sceneAssignments}, budget:{assumptions,result}, pilot:{baselineUnits,actualUnits,baselineCost,actualCost,source,notes}}`. Scene assignment keys accept camelCase or existing snake_case identifiers and normalize to camelCase. Financial fields follow the additive economics result contract; optional `assumptions.routeMinutes` records the selected one-way estimate without an origin coordinate. Rendered memos include the units, rates, mileage, travel, crew and avoidability inputs needed to interpret the projection.
+
+All exports require caller-recomputed `plan.current===true` and an opaque plan fingerprint (not raw constraints JSON). Imports are size-bounded, normalized, immutable and forcibly `plan.current=false`; importing never makes saved financial results or reported pilot outcomes source truth. Rebuild the current plan and recompute budget before rendering/export. Unknown fields, source images/raw rows and structured origin coordinates are omitted. Blank pilot values normalize to null; no causal savings percentage is inferred. Financial outputs remain projected, pilot entries remain producer-reported, and the memo explicitly leaves filming permission and post-event data rights unresolved. HTML text is escaped; recognizable credentials in allowed text are rejected without echoing values.
+
 ## Production planning / business decision additions — November 15, 2026
 
 Coordinated in PR #43, additive to the shared production router; existing agent tools reuse `PlanRequest` and old clients omit new fields unchanged. No change to Property/Shot/Logistics or dependency locks.
