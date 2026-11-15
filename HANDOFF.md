@@ -12,6 +12,7 @@ User's words: "continue what chatgpt was doing which was fixing my hackprinceton
 - **`docs/BUSINESS-STATS.md`** (new): sourced problem and cost figures from a web search on Nov 15 (FilmLA shoot days, BLS producer/director pay, union and trade scout and location-manager rates), scenario arithmetic and pitch-ready lines. Each row says whether the source was opened or only seen in a search summary.
 - Browser smoke on the merged tree (mock server on port 8011, built-in browser): `/app/` scouts and shows 3 picks with the parking map section; `/director` builds a mock plan, shows the drive slider and the $957.58 source link; no console errors.
 - Verified on the merged head (Windows, shared venv `../typecast/.venv`, `TYPECAST_USE_MOCKS=1`, fixed engine, zero provider calls): `python scripts/verify.py` **764 passed, 7 skipped**, smoke and mock E2E PASS; all Node suites **289 tests, 288 pass, 0 fail, 1 browser-only skip**.
+- Later the same night `origin/dev` `ef4c111` (PR #51 oblique search) was merged in (`2895cf3`). One conflict in `web/index.html`: kept dev's masthead nav and added the Director link to it. Re-run on that head: **779 passed, 7 skipped**, smoke/E2E PASS; Node 288 pass / 1 skip. The browser smoke was NOT repeated after this merge.
 
 ### 3. Key decisions and why
 - **Cost model merged as code only, not wired into `/director` or the pitch.** `data/cost_model.py` labels its own inputs "benchmark (supplied, unverified)" and "ASSUMPTION, needs a real quote" (set construction $40/sq ft, CGI $1,500/shot and scouting trip $400 are placeholders). Showing them as savings would break the real-data rule and contradict `docs/BUSINESS-CASE.md` ("No set-construction savings are added"). The only sourced dollar figure for the pitch remains the AICP / Teamsters Local 399 **$957.58/day** scout-manager rate and the 3-day scenario **$2,872.74**, always stated as a scenario.
@@ -27,7 +28,7 @@ User's words: "continue what chatgpt was doing which was fixing my hackprinceton
 - `data/cost_model.py` placeholders must not be quoted in the video or Devpost text.
 
 ### 5. Next steps
-1. Open a PR from `ai/claude-business-integration` to `dev` (https://github.com/Tecncentral/typecast/pull/new/ai/claude-business-integration), or fast-forward PR #43's branch to it, and check CI.
+1. PR creation is blocked: `gh` is not installed and neither Chrome nor the built-in browser is signed in to GitHub. Title and body are ready in untracked `PR-DESCRIPTION.local.md`. Open a PR from `ai/claude-business-integration` to `dev` (https://github.com/Tecncentral/typecast/pull/new/ai/claude-business-integration), or fast-forward PR #43's branch to it, and check CI.
 2. Put the `docs/BUSINESS-STATS.md` pitch lines into the video script and Devpost text (`docs/VIDEO-CLAIMS.md`, `docs/devpost.md`), keeping the scenario wording.
 3. On the demo laptop with the private cache: rehearse one real-data commute filter and the day-rate recalculation per the two-minute script in `docs/BUSINESS-CASE.md`.
 4. Record the video from `docs/VIDEO-CLAIMS.md` and `docs/VIDEO-HANDOFF.md` (content only was requested; no more generated full videos).
