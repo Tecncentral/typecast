@@ -261,7 +261,7 @@ def run_viewport(browser, args, width, height, report):
     report["checks"].append(row)
     context, page = open_page(browser, {"width": width, "height": height}, row)
     try:
-        page.goto(args.base_url + "/app/", wait_until="networkidle")
+        page.goto(args.base_url + "/app/#interior", wait_until="networkidle")
         require("WAREHOUSE" in page.locator("#scene").input_value(), "Default warehouse scene changed")
         # The mock expectations below are written for the police scene.
         page.locator("#scene").fill(POLICE_SCENE)
@@ -350,7 +350,7 @@ def run_controlled_cases(browser, args, baseline, report):
                 page.route("**/scout/stream?**", lambda route: route.fulfill(
                     content_type="text/event-stream", body=controlled_stream(result)))
                 page.route("**/mocks/img/**", lambda route: route.abort("failed"))
-            page.goto(args.base_url + "/app/", wait_until="networkidle")
+            page.goto(args.base_url + "/app/#interior", wait_until="networkidle")
             page.locator("#run-button").click()
             if case == "api-error":
                 page.locator("#api-error").wait_for(state="visible")

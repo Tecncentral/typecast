@@ -148,3 +148,212 @@ main > div + section {
     grid-template-columns: 1fr;
   }
 }
+
+/* ================= Shell: split landing + in-place modes ================= */
+.mode-pill {
+  display: none;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+body[data-mode="interior"] .mode-pill,
+body[data-mode="exterior"] .mode-pill { display: inline-flex; }
+.mode-pill button {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: 500 15px/1 var(--body);
+  cursor: pointer;
+  transition: color .2s, background .2s;
+}
+.mode-pill button[aria-selected="true"] {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.mode-pill button:hover { color: var(--text); }
+
+/* Landing */
+.home {
+  display: flex;
+  gap: 2px;
+  height: calc(100vh - 65px);
+  min-height: 460px;
+  background: var(--line);
+  view-transition-name: stage;
+}
+.home-half {
+  position: relative;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 14px;
+  padding: clamp(28px, 5vw, 72px);
+  border: 0;
+  border-radius: 0;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  transition: flex-grow .55s cubic-bezier(.2,.7,.1,1), background-color .4s;
+}
+.home-half::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: .55;
+  transition: opacity .5s, transform .8s cubic-bezier(.2,.7,.1,1);
+}
+/* Interiors: a lit room — soft light falling through a frame */
+.home-half--interior { background: #171b1c; }
+.home-half--interior::before {
+  background:
+    radial-gradient(60% 45% at 70% 25%, rgba(237,189,105,.28), transparent 70%),
+    repeating-linear-gradient(90deg, transparent 0 118px, rgba(242,239,232,.05) 118px 120px),
+    linear-gradient(180deg, transparent 55%, rgba(0,0,0,.45));
+}
+/* Exteriors: a street grid seen from above */
+.home-half--exterior { background: #151819; }
+.home-half--exterior::before {
+  background:
+    radial-gradient(55% 45% at 30% 30%, rgba(168,195,186,.18), transparent 70%),
+    repeating-linear-gradient(28deg, transparent 0 46px, rgba(242,239,232,.06) 46px 48px),
+    repeating-linear-gradient(-62deg, transparent 0 74px, rgba(242,239,232,.05) 74px 76px),
+    linear-gradient(180deg, transparent 55%, rgba(0,0,0,.45));
+}
+.home-half > * { position: relative; }
+.home:hover .home-half { flex-grow: .8; }
+.home .home-half:hover,
+.home .home-half:focus-visible { flex-grow: 1.35; }
+.home-half:hover::before { opacity: 1; transform: scale(1.04); }
+.home-half:focus-visible { outline: 2px solid var(--accent); outline-offset: -6px; }
+.home-kicker {
+  color: var(--muted);
+  font: 600 13px/1 var(--mono);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.home-title {
+  font: 700 clamp(56px, 8vw, 116px)/.9 var(--brand);
+  letter-spacing: -.01em;
+  text-transform: uppercase;
+}
+.home-copy {
+  max-width: 34ch;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.45;
+}
+.home-sources { color: var(--measured); font-size: 14px; }
+.home-cta {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 12px 20px;
+  border-radius: var(--control-radius);
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity .3s, transform .3s;
+}
+.home-half:hover .home-cta,
+.home-half:focus-visible .home-cta { opacity: 1; transform: none; }
+@media (hover: none) { .home-cta { opacity: 1; transform: none; } }
+@media (max-width: 760px) {
+  .home { flex-direction: column; height: auto; }
+  .home-half { min-height: 44vh; }
+}
+
+/* Entering a mode */
+#interior-app, #exterior-app { view-transition-name: stage; animation: rise .45s cubic-bezier(.2,.7,.1,1); }
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+body[data-mode="home"] footer { display: none; }
+body[data-mode="exterior"] footer { display: none; }
+
+/* One scene / Whole script */
+.scope-switch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+.scope-switch button {
+  min-height: 34px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font: 500 15px/1 var(--body);
+  cursor: pointer;
+}
+.scope-switch button[aria-pressed="true"] {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+#scene { transition: min-height .3s; }
+
+/* Exteriors, embedded */
+.exterior-app { height: calc(100vh - 65px); }
+.exterior-app iframe { width: 100%; height: 100%; border: 0; display: block; background: var(--bg); }
+
+/* Director's Room sheet */
+.room-sheet {
+  width: min(1500px, 96vw);
+  height: 92vh;
+  max-width: none;
+  max-height: none;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+.room-sheet[open] { display: flex; flex-direction: column; animation: sheet .35s cubic-bezier(.2,.7,.1,1); }
+@keyframes sheet { from { opacity: 0; transform: translateY(24px) scale(.985); } }
+.room-sheet::backdrop { background: rgba(0,0,0,.65); backdrop-filter: blur(4px); }
+.room-sheet-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--line);
+}
+.room-sheet-bar span { display: block; color: var(--muted); font-size: 14px; }
+.room-sheet iframe { flex: 1; width: 100%; border: 0; }
+.room-open {
+  margin: 8px 0 4px;
+  padding: 11px 18px;
+  border: 1px solid var(--accent);
+  border-radius: var(--control-radius);
+  background: none;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+.room-open:hover { background: rgba(237,189,105,.1); }
+
+/* Cards: lift and a slow push-in on hover */
+.pick-card, .plan-card {
+  transition: transform .3s cubic-bezier(.2,.7,.1,1), box-shadow .3s, border-color .3s;
+}
+.pick-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent);
+  box-shadow: 0 18px 40px rgba(0,0,0,.45);
+}
+.pick-card img, .plan-frame img { transition: transform .8s cubic-bezier(.2,.7,.1,1); }
+.pick-card:hover img, .plan-card:hover .plan-frame img { transform: scale(1.035); }
+@media (prefers-reduced-motion: reduce) {
+  .home-half, .home-half::before, .pick-card, .pick-card img, .plan-frame img { transition: none; }
+  #interior-app, #exterior-app, .room-sheet[open] { animation: none; }
+}

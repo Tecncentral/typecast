@@ -33,19 +33,39 @@
   <body>
     <a class="skip-link" href="#scene">Skip to scene</a>
     <header class="masthead">
-      <a class="wordmark" href="./" aria-label="Typecast home">TYPECAST</a>
+      <a class="wordmark" href="#" data-go="home" aria-label="Typecast home">TYPECAST</a>
+      <div class="mode-pill" role="tablist" aria-label="Search mode">
+        <button type="button" role="tab" data-go="interior">Interiors</button
+        ><button type="button" role="tab" data-go="exterior">Exteriors</button>
+      </div>
       <div class="runtime" aria-label="Data mode and engine">
         <span id="source-mode" class="mode-badge">CHECKING</span
         ><span id="engine">—</span>
       </div>
     </header>
-    <main>
+    <section id="home" class="home" aria-label="Choose what to scout">
+      <button type="button" class="home-half home-half--interior" data-go="interior">
+        <span class="home-kicker">01 · Inside real buildings</span>
+        <span class="home-title">Interiors</span>
+        <span class="home-copy">Camera frames from 3D scans, checked for shot fit, crew parking and noise. Paste one scene or a whole script.</span>
+        <span class="home-sources">Matterport · CoStar · Vexcel</span>
+        <span class="home-cta">Scout interiors →</span>
+      </button>
+      <button type="button" class="home-half home-half--exterior" data-go="exterior">
+        <span class="home-kicker">02 · Streets from the air</span>
+        <span class="home-title">Exteriors</span>
+        <span class="home-copy">Facades, streets and open ground from oblique aerial imagery. Describe the outside world of the scene.</span>
+        <span class="home-sources">Vexcel oblique imagery</span>
+        <span class="home-cta">Scout exteriors →</span>
+      </button>
+    </section>
+    <main id="interior-app">
       <section class="scene-section" aria-labelledby="scene-heading">
         <div class="brief-topline">
-          <h1 id="scene-heading">Paste a scene or a whole script.</h1>
-          <div class="search-switch" role="group" aria-label="Search mode">
-            <a href="./" aria-current="page">Interiors</a
-            ><a href="./oblique.html">Exteriors</a>
+          <h1 id="scene-heading">What does the scene need?</h1>
+          <div class="scope-switch" role="group" aria-label="Brief type">
+            <button type="button" data-scope="scene" aria-pressed="true">One scene</button
+            ><button type="button" data-scope="script" aria-pressed="false">Whole script</button>
           </div>
         </div>
         <form id="scene-form" class="scene-form">
@@ -220,11 +240,15 @@ INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial 
         </div>
       </section>
     </main>
+    <section id="exterior-app" class="exterior-app" aria-label="Exterior scouting" hidden>
+      <iframe id="exterior-frame" title="Exterior scouting" data-src="./oblique.html?embed=1"></iframe>
+    </section>
     <footer>
       <span>Typecast / From script to scout</span
       ><span>Evidence stays visible. Unknown stays unknown.</span>
     </footer>
     <script type="module" src="./app.js"></script>
+    <script type="module" src="./shell.js"></script>
     <script type="module" src="./viewfinder.js"></script>
     <script type="module" src="./viewfinder-compat.js"></script>
     <script type="module" src="./viewfinder-walk.js"></script>

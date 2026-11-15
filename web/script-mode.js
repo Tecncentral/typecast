@@ -66,6 +66,10 @@ export function renderPlan(host, data, scenes) {
   const caveat = [data.pool_note, data.optimal_within_pool ? "Best plan within the retrieved pool, not the whole catalogue." : null]
     .filter(Boolean).join(" ");
   if (caveat) host.append(el("p", caveat, "plan-caveat"));
+  const room = el("button", "Rehearse in the Director's Room", "room-open");
+  room.type = "button";
+  room.dataset.openRoom = "";
+  host.append(room);
 
   const byScene = new Map(data.scenes.map((s) => [s.id, s]));
   plan.property_ids.forEach((pid, i) => {

@@ -100,3 +100,14 @@ Verification (mock server on port 8013):
 - Before/after screenshots: cache/screens/ui-simplify/ (not committed).
 
 Recommendation: safe to demo on mocks. Not run against live data or the private index.
+
+### UI simplify v2: split landing, in-place modes (11:19 UTC)
+
+- Landing is a split screen: Interiors | Exteriors. Hovering a half widens it; clicking animates (View Transitions) into that mode. No page loads: routes are #interior / #exterior hashes, so Back and the TYPECAST wordmark (home) work.
+- Header shows an Interiors/Exteriors pill once a mode is chosen.
+- Interiors: "One scene | Whole script" toggle. Pasting 2+ INT./EXT. headings flips it on its own. Whole script runs the planner and offers "Rehearse in the Director's Room", which opens /director in a sheet over the page, prefilled with the pasted script (Build plan stays the user's click). The sheet is created on open and removed on close.
+- Exteriors: the existing oblique page is embedded in place (its duplicate header hidden). On mocks its search needs a live Vexcel key and says so.
+- Cards lift and push in slightly on hover; reduced-motion users get no motion.
+- web/tests/check_viewer.py now opens /app/#interior (the landing no longer shows the scene box first).
+- Verified on mocks: verify.py 1082 passed / 1 xfailed; web tests 24/24; check_viewer.py --mobile --failure-states 7/7; walkthrough at 1280x720 (landing, hover, interior, scout, cards, script plan, Director's Room sheet with the pasted script, exteriors, Back, home) with no JavaScript errors. Screenshots: cache/screens/ui-simplify/v2-*.png.
+- Not checked: live data, real exterior results, Director's Room behaviour beyond opening with the script.
