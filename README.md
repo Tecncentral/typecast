@@ -6,6 +6,10 @@ Typecast turns a screenplay scene into a shortlist of real Los Angeles and Houst
 
 Built at HackPrinceton Fall 2026 on CoStar property data, Matterport 3D scans and Vexcel aerial imagery.
 
+**Try it:** [typecast-2yp7.onrender.com/app/](https://typecast-2yp7.onrender.com/app/) runs the viewer on sample data, so anyone can open it. It shows fixture places labelled as synthetic, not licensed CoStar, Matterport or Vexcel data. The first load can take about a minute while the free server wakes up.
+
+**Devpost:** [devpost.com/software/typecast-vlfhio](https://devpost.com/software/typecast-vlfhio)
+
 **Screenshot placeholder:** add a human-approved screenshot of the merged viewer. Its descent and viewer checks are recorded in [lane D's acceptance report](docs/team/status-lane-d.md); the combined stage judge-path check is a separate gate. Do not publish private contacts or licensed imagery without the applicable sharing permission.
 
 ## The judging demo
@@ -129,7 +133,6 @@ Use a permitted model-processing setup for private imagery. A scene without a ci
 
 - Never commit keys or CoStar data. `.env` and `cache/` are git-ignored.
 - Approval saves a local draft under ignored `cache/outbox/`; it never sends a message.
-- The repo must be public before the Devpost submission (8:00 am Sunday, Nov 15).
 
 ## Model configuration and access checks
 
