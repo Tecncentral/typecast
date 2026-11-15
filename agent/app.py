@@ -146,9 +146,11 @@ def vexcel3d_tile(zoom: int, x: int = Query(alias="tile-x"), y: int = Query(alia
     from data.vexcel_3d import City3D, tile_params
     from data.vexcel_client import ProviderError
     try:
-        content = City3D().tile(tile_params(zoom, x, y, child_aoi))
+        params = tile_params(zoom, x, y, child_aoi)  # validate before any client or key is touched
     except ValueError:
         raise HTTPException(400, "Invalid 3D tile reference.") from None
+    try:
+        content = City3D().tile(params)
     except ProviderError as error:
         raise HTTPException(502, str(error)) from None
     return Response(content, media_type="model/gltf-binary", headers={"Cache-Control": "private, max-age=86400"})
