@@ -8,5 +8,5 @@
     "photon": "node photon.mjs",
     "test": "node --test"
   },
-  "dependencies": { "spectrum-ts": "12.16.0" }
+  "dependencies": { "@photon-ai/api": "0.6.0", "spectrum-ts": "12.16.0" }
 }
