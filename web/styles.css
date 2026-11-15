@@ -1132,3 +1132,73 @@ details[open]::details-content {
   font: 700 40px/1 var(--brand);
   letter-spacing: 0.005em;
 }
+
+/* Generating an image edit: the current picture softens and a light sweep passes over it until the
+   new version has loaded. Used by the room Edit (AI) panel and the Exteriors reimagine chat. */
+.gen-label {
+  display: none;
+}
+.is-generating {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+.is-generating > img {
+  filter: blur(18px) saturate(0.7) brightness(0.72);
+  transform: scale(1.06);
+  transition: filter 0.6s ease, transform 0.6s ease;
+}
+.is-generating::before {
+  position: absolute;
+  inset: -25%;
+  z-index: 2;
+  background: conic-gradient(from 0deg, transparent 0 18%, #edbd6955 30%, #7ad3c24d 42%, transparent 56% 100%);
+  filter: blur(42px);
+  animation: gen-spin 5s linear infinite;
+  content: "";
+  pointer-events: none;
+}
+.is-generating::after {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  background: linear-gradient(105deg, transparent 30%, #ffffff22 43%, #ffffff55 50%, #ffffff22 57%, transparent 70%);
+  background-size: 260% 100%;
+  animation: gen-sweep 1.9s ease-in-out infinite;
+  content: "";
+  pointer-events: none;
+}
+.is-generating .gen-label {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 4;
+  display: block;
+  margin: 0;
+  padding: 8px 18px;
+  border: 1px solid #edbd6966;
+  border-radius: 999px;
+  background: #0d0f10cc;
+  color: #f2efe8;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  transform: translate(-50%, -50%);
+  animation: gen-pulse 1.6s ease-in-out infinite;
+}
+@keyframes gen-sweep {
+  from { background-position: 160% 0; }
+  to { background-position: -60% 0; }
+}
+@keyframes gen-spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes gen-pulse {
+  50% { opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .is-generating::before,
+  .is-generating::after,
+  .is-generating .gen-label {
+    animation: none;
+  }
+}
