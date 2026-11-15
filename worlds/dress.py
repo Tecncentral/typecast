@@ -234,19 +234,49 @@ def splat_assets(response: dict) -> dict:
     return {"draft": draft} if isinstance(draft, dict) and draft.get("url") else {}
 
 
-def splat_scan_point(*, sweep: dict, client: AtlasClient, draft: bool = False,
+def copy_assets(*, sweep: dict, source: AtlasClient, target: AtlasClient,
+                log: Callable[[str], None] = print) -> dict:
+    """Copy a dressed set's frames and depth into another Atlas project.
+
+    Assets belong to the project of the key that made them. When the credits for a splat sit in
+    another project, its key cannot read them: the dressed frames are uploaded again from the
+    local cache and each depth map is read with the old key and stored with the new one.
+    """
+    out = scan_point_dir(sweep["model_id"], sweep["sweep_id"]) / "dressed"
+    record = json.loads((out / "dressed.json").read_text(encoding="utf-8"))
+    for face in record["faces"]:
+        if face.get("copied_from"):
+            continue  # already in the target project
+        image = target.upload_image(out / face["dressed"])
+        depth = target.upload_bytes(source.read_bytes(face["depth_asset_id"]), "image/x-exr",
+                                    pathlib.Path(face["dressed"]).stem + "-depth.exr")
+        face["copied_from"] = {"image_asset_id": face["image_asset_id"], "depth_asset_id": face["depth_asset_id"]}
+        face["image_asset_id"], face["depth_asset_id"] = image, depth
+        (out / "dressed.json").write_text(json.dumps(record, indent=2), encoding="utf-8")  # a rerun resumes here
+    log(f"frames and depth copied: {len(record['faces'])}")
+    return record
+
+
+def splat_scan_point(*, sweep: dict, client: AtlasClient, draft: bool = False, skip: tuple[str, ...] = (),
                      log: Callable[[str], None] = print) -> dict:
-    """Reconstruct the dressed frames as Gaussian splats. A draft skips refinement (500 credits)."""
+    """Reconstruct the dressed frames as Gaussian splats. A draft skips refinement (500 credits).
+
+    `skip` names dressed frames to leave out (file name prefixes): a view that disagrees with
+    the others, such as one washed out by glare, comes back as a ghost in the reconstruction.
+    """
     mode = "draft" if draft else "refined"
     out = scan_point_dir(sweep["model_id"], sweep["sweep_id"]) / "dressed"
     record = json.loads((out / "dressed.json").read_text(encoding="utf-8"))
+    used = [f for f in record["faces"] if not any(f["dressed"].startswith(prefix) for prefix in skip)]
+    if len(used) < 2:
+        raise AtlasError("A splat needs at least two frames")
     frames = [{"imageAsset": {"assetId": f["image_asset_id"]}, "camera": f["camera"],
-               "depth": {"depthAsset": {"assetId": f["depth_asset_id"]}}} for f in record["faces"]]
+               "depth": {"depthAsset": {"assetId": f["depth_asset_id"]}}} for f in used]
     body = {"posedFrames": frames, "prompt": record["prompt"][:400]}
     if draft:
         body["refine"] = False
     # The key names these exact frames, so a new look of the same scan point is a new run.
-    look = hashlib.sha1("".join(str(f["image_asset_id"]) for f in record["faces"]).encode()).hexdigest()[:10]
+    look = hashlib.sha1("".join(str(f["image_asset_id"]) for f in used).encode()).hexdigest()[:10]
     op = client.submit("posedImages2Splats", body,
                        idempotency_key=f"tc-splat-{mode}-{_safe(sweep['sweep_id'])}"[:80] + f"-{look}")
     ledger({"task": "posedImages2Splats", "operation": op.get("id"), "scene_id": record["scene_id"],
@@ -262,6 +292,7 @@ def splat_scan_point(*, sweep: dict, client: AtlasClient, draft: bool = False,
     client.download(splats[key]["url"], out / name)
     entry = {"file": name, "mode": mode, "splat_count": int(key) if str(key).isdigit() else None,
              "operation": op.get("id"), "asset_id": splats[key].get("assetId"),
+             "frames": len(used), "skipped": [f["dressed"] for f in record["faces"] if f not in used],
              "eye": record["faces"][0]["camera"]["extrinsics"]["position"],
              "coordinate_system": "atlas camera frames (rub, first frame canonical)"}
     record.setdefault("splats", {})[mode] = entry
@@ -349,7 +380,8 @@ def load_dressed(model_id: str, sweep_id: str) -> Optional[dict]:
     # The record must claim this exact scan point (genuine records always carry both ids).
     if not isinstance(record, dict) or record.get("model_id") != model_id or record.get("sweep_id") != sweep_id:
         return None
-    raw_faces = record.get("faces")
+    # A walkable set built round approved 2D faces keeps those for the 360° comparison.
+    raw_faces = record.get("wipe_faces") if isinstance(record.get("wipe_faces"), list) else record.get("faces")
     if not isinstance(raw_faces, list):
         return None
     faces = []
@@ -424,6 +456,9 @@ def main(argv=None) -> int:
     parser.add_argument("--splat", action="store_true")
     parser.add_argument("--draft", action="store_true", help="unrefined splat: 500 credits instead of 5,000")
     parser.add_argument("--allow-spend-credits", type=int, default=0)
+    parser.add_argument("--skip-frames", default="", help="with --splat: dressed frame name prefixes to leave out, comma-separated")
+    parser.add_argument("--copy-assets", action="store_true",
+                        help="copy a set's frames and depth from the project of WORLDLABS_API_KEY_PREVIOUS into the current one")
     parser.add_argument("--force", action="store_true")
     args = parser.parse_args(argv)
     client = AtlasClient()
@@ -433,6 +468,18 @@ def main(argv=None) -> int:
             parser.error("--redress needs --scene and a dressed scan point (--shot or --scene-id)")
         try:
             redress_scan_point(record=record, scene=args.scene, client=client)
+        except AtlasError as error:
+            print(f"FAILED: {str(error)[:300]}")
+            return 1
+        return 0
+    if args.copy_assets:
+        sweep = find_dressed(shot_id=args.shot) if args.shot else find_dressed(scene_id=args.scene_id)
+        if not sweep:
+            parser.error("no dressed scan point in the local cache for that id")
+        if not os.getenv("WORLDLABS_API_KEY_PREVIOUS"):
+            parser.error("set WORLDLABS_API_KEY_PREVIOUS to the key of the project that holds the frames")
+        try:
+            copy_assets(sweep=sweep, source=AtlasClient(api_key=os.getenv("WORLDLABS_API_KEY_PREVIOUS")), target=client)
         except AtlasError as error:
             print(f"FAILED: {str(error)[:300]}")
             return 1
@@ -449,7 +496,8 @@ def main(argv=None) -> int:
         if not sweep:
             parser.error("no dressed scan point in the local cache for that id")
         try:
-            splat_scan_point(sweep=sweep, client=client, draft=args.draft)
+            splat_scan_point(sweep=sweep, client=client, draft=args.draft,
+                             skip=tuple(x.strip() for x in args.skip_frames.split(",") if x.strip()))
         except AtlasError as error:
             print(f"FAILED: {str(error)[:300]}")
             return 1

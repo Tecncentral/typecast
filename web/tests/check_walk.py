@@ -78,6 +78,10 @@ def main():
         page.evaluate(OPEN, args.shot)
         page.wait_for_selector(".vf-walk:not([hidden])", timeout=15000)
         page.wait_for_timeout(700)
+        # A room opens clean: no frame lines, lens bar or shot list until Frame a shot is asked for.
+        hidden = page.evaluate("['.vf-frame', '.vf-bottom', '.vf-shotlist'].map(s => getComputedStyle(document.querySelector(s)).display)")
+        require(hidden == ["none"] * 3, f"the room did not open clean: {hidden}")
+        page.screenshot(path=str(args.screens_dir / "clean.png"))
         page.keyboard.press("e")
         page.wait_for_selector("dialog.vf.is-walking", timeout=60000)
         page.wait_for_timeout(1000)
@@ -133,6 +137,12 @@ def main():
         page.keyboard.press("d")
         require(page.evaluate("window.__vf.state.aspect.id") == aspect, "A changed the aspect while walking")
         require(page.evaluate("window.__vf.wipe") == 1, "D toggled the dressing while walking")
+        # G with the frame put away brings the frame on and grabs nothing; then it grabs.
+        page.keyboard.press("g")
+        page.wait_for_timeout(300)
+        require(page.evaluate("window.__vf.shots.length") == 0, "G grabbed a frame nobody could see")
+        require(page.evaluate("getComputedStyle(document.querySelector('.vf-frame')).display") != "none"
+                and page.get_attribute(".vf-framing", "aria-pressed") == "true", "G did not bring the frame on")
         page.keyboard.press("g")
         page.wait_for_timeout(300)
         shot = page.evaluate("window.__vf.shots[0] && {ai: window.__vf.shots[0].ai, size: window.__vf.shots[0].thumb.length}")
@@ -167,12 +177,17 @@ def main():
         page.screenshot(path=str(args.screens_dir / "card-walk.png"))
         page.keyboard.press("Escape")
         page.wait_for_timeout(900)
+        page.keyboard.press("f")  # put the frame away again: the choice holds for the page
+        page.wait_for_timeout(200)
         # Look around on the same frame afterwards opens the 360° view, not the walk.
         page.click(".shot-stage > .vf-open")
         page.wait_for_selector(".vf-walk:not([hidden])", timeout=15000)
         page.wait_for_timeout(1200)
         require(not page.evaluate("document.querySelector('dialog.vf').classList.contains('is-walking')"),
                 "Look around stepped into the set without being asked")
+        require(page.evaluate("getComputedStyle(document.querySelector('dialog.vf[open] .vf-frame')).display") == "none",
+                "the frame came back without being asked for")
+        page.screenshot(path=str(args.screens_dir / "card-look-clean.png"))
         require(not errors, f"browser errors: {errors[:3]}")
         report.update(walked_m=round(walked / k, 2), world_units_per_m=round(k, 3), chromium_version=browser.version)
         if start["room"]:

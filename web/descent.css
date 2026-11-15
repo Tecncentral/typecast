@@ -117,7 +117,39 @@
   margin: 0;
 }
 .descent-source {
-  font: 600 20px/1.3 var(--body);
+  font: 700 28px/1.15 var(--brand);
+  letter-spacing: 0.01em;
+  transition: opacity 180ms ease-out;
+}
+.descent-steps {
+  display: flex;
+  gap: 6px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.descent-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #7f8885;
+  font: 600 13px/1 var(--body);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  transition: color 400ms ease-out;
+}
+.descent-steps li + li::before {
+  content: "";
+  width: 22px;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.6;
+}
+[data-phase="map"] .descent-steps [data-step="map"],
+[data-phase="aerial"] .descent-steps [data-step="aerial"],
+[data-phase="interior"] .descent-steps [data-step="interior"],
+[data-phase="land"] .descent-steps [data-step="interior"] {
+  color: var(--accent);
 }
 .descent-note {
   margin-top: 5px !important;
@@ -133,7 +165,7 @@
   overflow: hidden;
 }
 html.descent-transition::view-transition-group(descent-frame) {
-  animation-duration: 650ms;
+  animation-duration: 950ms;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 html.descent-transition::view-transition-old(descent-frame),

@@ -25,6 +25,7 @@ const SOLID_SPLATS = 5;
 const DRAFT_SPLATS = 524288;
 const DOOR_MAX_DEPTH_M = 0.6; // a door or partition, not a desk
 const DOOR_HALF_WIDTH_M = 0.5;
+const START_CLEAR_M = 4; // how far from the start a path out is cleared
 const ICON_WALK = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
 const ICON_CAST = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="6.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 20v-4.2a4.5 4.5 0 0 1 9 0V20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="17" cy="8.5" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15.5 20v-3.6a3 3 0 0 1 4.5-2.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 const MOVE_KEYS = { w: "forward", arrowup: "forward", s: "back", arrowdown: "back", a: "left", d: "right" };
@@ -245,7 +246,54 @@ function measureRoom(mesh, splat, eye) {
       floor[iz * nx + ix] += 1;
     }
   });
-  const solidAt = Math.max(SOLID_SPLATS, Math.round((SOLID_SPLATS * total) / DRAFT_SPLATS));
+  // A hall scanned every 6 to 8 m: the reach grows to half the widest gap between neighbouring
+  // scan points, so the walk joins them up, but never past what a refined set is trusted for.
+  let widestGap = 0;
+  for (const a of points) {
+    let nearest = Infinity;
+    for (const b of points) {
+      const d = Math.hypot(a[0] - b[0], a[2] - b[2]) / scale;
+      if (d > 0.5 && d < nearest) nearest = d;
+    }
+    if (Number.isFinite(nearest)) widestGap = Math.max(widestGap, nearest);
+  }
+  const reachM = Math.min(ROOM_REACH_M.refined,
+    Math.max(ROOM_REACH_M[splat.mode === "draft" ? "draft" : "refined"], widestGap / 2 + 0.6));
+  const reachCells = reachM / ROOM_CELL_M;
+  // How dense the floor is across the set: floor splats per cell within reach of the scan points.
+  let nearFloor = 0;
+  let nearCells = 0;
+  for (let iz = 0; iz < nz; iz += 1) {
+    for (let ix = 0; ix < nx; ix += 1) {
+      const x = minX + (ix + 0.5) * cell;
+      const z = minZ + (iz + 0.5) * cell;
+      if (!points.some((p) => Math.hypot(p[0] - x, p[2] - z) <= reachM * scale)) continue;
+      nearFloor += floor[iz * nx + ix];
+      nearCells += 1;
+    }
+  }
+  const density = nearCells ? nearFloor / nearCells : 1;
+  // A big hall spreads the same splats over ten times the surface, and a glossy floor rebuilds
+  // as reflections below it. Under one floor splat per cell the floor cannot be told from noise,
+  // so a sparse set is bounded by its walls and the reach alone.
+  const sparse = density < 1;
+  const solidAt = sparse
+    ? Math.max(7, Math.round(27 * density))
+    : Math.max(SOLID_SPLATS, Math.round((SOLID_SPLATS * total) / DRAFT_SPLATS));
+  // In a sparse set single cells are noise (haze, light beams), so solidity is read over 3 x 3 cells:
+  // a wall crossing them holds about 35 times the floor's density, stray splats far fewer.
+  const bodyCount = (ix, iz) => {
+    if (!sparse) return counts[iz * nx + ix];
+    let seen = 0;
+    for (let dz = -1; dz <= 1; dz += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const jx = ix + dx;
+        const jz = iz + dz;
+        if (jx >= 0 && jz >= 0 && jx < nx && jz < nz) seen += counts[jz * nx + jx];
+      }
+    }
+    return seen;
+  };
   // You can only stand where the set has a floor: outside the walls there is nothing to stand on.
   const floorAt = Math.max(1, Math.round(solidAt / 6));
   const hasFloor = (ix, iz) => {
@@ -265,7 +313,7 @@ function measureRoom(mesh, splat, eye) {
   const door = doorways(points, counts, solidAt, { minX, minZ, cell, nx, nz });
   for (let iz = 0; iz < nz; iz += 1) {
     for (let ix = 0; ix < nx; ix += 1) {
-      if (counts[iz * nx + ix] < solidAt) continue;
+      if (bodyCount(ix, iz) < solidAt) continue;
       for (let dz = -grow; dz <= grow; dz += 1) {
         for (let dx = -grow; dx <= grow; dx += 1) {
           const jx = ix + dx;
@@ -275,7 +323,6 @@ function measureRoom(mesh, splat, eye) {
       }
     }
   }
-  const reachCells = ROOM_REACH_M[splat.mode === "draft" ? "draft" : "refined"] / ROOM_CELL_M;
   const open = new Uint8Array(nx * nz);
   for (const p of points) {
     const cx = (p[0] - minX) / cell;
@@ -284,8 +331,36 @@ function measureRoom(mesh, splat, eye) {
       for (let ix = Math.max(0, Math.floor(cx - reachCells)); ix < Math.min(nx, cx + reachCells); ix += 1) {
         const d = Math.hypot(ix + 0.5 - cx, iz + 0.5 - cz);
         // A tripod stood at every scan point, so the floor right there is free whatever the splat says.
-        const clear = (!solid[iz * nx + ix] && hasFloor(ix, iz)) || door[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M;
+        const clear = (!solid[iz * nx + ix] && (sparse || hasFloor(ix, iz))) || door[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M;
         if (d <= reachCells && clear) open[iz * nx + ix] = 1;
+      }
+    }
+  }
+  // The walk never starts hemmed in. The tripod was carried from the start to the next scan point,
+  // so when set dressing or stray splats crowd the first few metres of that line, a path a metre
+  // wide is cleared as far as the last obstruction. Further out than 4 m it is left alone.
+  let next = null;
+  for (const p of points) {
+    const d = Math.hypot(p[0] - eye[0], p[2] - eye[2]);
+    if (d > 0.5 * scale && (!next || d < next.d)) next = { p, d };
+  }
+  if (next) {
+    const ux = (next.p[0] - eye[0]) / next.d;
+    const uz = (next.p[2] - eye[2]) / next.d;
+    const cellAt = (t, side) => {
+      const ix = Math.floor((eye[0] + ux * t - uz * side - minX) / cell);
+      const iz = Math.floor((eye[2] + uz * t + ux * side - minZ) / cell);
+      return ix >= 0 && iz >= 0 && ix < nx && iz < nz ? iz * nx + ix : -1;
+    };
+    let lastBlocked = -1;
+    for (let t = 0; t <= Math.min(next.d, START_CLEAR_M * scale); t += cell / 2) {
+      const at = cellAt(t, 0);
+      if (at >= 0 && !open[at]) lastBlocked = t;
+    }
+    for (let t = 0; lastBlocked >= 0 && t <= lastBlocked + BODY_M * scale; t += cell / 2) {
+      for (let side = -0.5 * scale; side <= 0.5 * scale; side += cell / 2) {
+        const at = cellAt(t, side);
+        if (at >= 0) open[at] = 1;
       }
     }
   }
@@ -309,7 +384,7 @@ function measureRoom(mesh, splat, eye) {
       }
     }
   }
-  return { scale, free: null, grid: { minX, minZ, cell, nx, nz, walk, cells: tail, points, splats: total, solidAt } };
+  return { scale, free: null, grid: { minX, minZ, cell, nx, nz, walk, cells: tail, points, splats: total, solidAt, density } };
 }
 
 // The scan was walked from point to point, so neighbouring scan points are joined by a real

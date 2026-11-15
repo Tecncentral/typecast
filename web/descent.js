@@ -5,6 +5,13 @@ const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 const SVG = "http://www.w3.org/2000/svg";
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
+// Phase timings (ms). Slow enough that a viewer can read each source change: CoStar property on the
+// map, then the Vexcel aerial, then the Matterport room, then the card. About 6.5 s in total.
+const T = {
+  mapFly: 2000, mapHold: 2100,
+  aerialFade: 600, outlineDraw: 1500, aerialHold: 2000,
+  zoom: 1500, interiorFade: 900, interiorDelay: 450, interiorHold: 1700,
+};
 function wait(ms, signal) {
   return new Promise((resolve) => {
     const done = () => {
@@ -272,6 +279,17 @@ export class Descent {
       note = el("p", "", "descent-note");
     source.setAttribute("aria-live", "polite");
     caption.append(source, note);
+    if (actual) {
+      const steps = el("ol", null, "descent-steps");
+      steps.setAttribute("aria-hidden", "true");
+      const items = [["map", "CoStar listing"], ...(aerial ? [["aerial", "Vexcel aerial"]] : []), ["interior", "Matterport scan"]];
+      for (const [phase, text] of items) {
+        const li = el("li", text);
+        li.dataset.step = phase;
+        steps.append(li);
+      }
+      caption.prepend(steps);
+    }
     const label = (layer, explanation) => {
       source.textContent = layer;
       note.textContent = explanation;
@@ -304,40 +322,42 @@ export class Descent {
     if (actual)
       run.borrowed = stageMap(this.mapHost, mapLayer, run.pick, {
         reducedMotion: run.reduced,
+        duration: T.mapFly,
       });
     if (run.borrowed) {
-      label("Property location", "Click or press any key to skip");
+      const where = [run.pick.property?.city, run.pick.property?.type].filter(Boolean).join(" · ");
+      label("CoStar listing", where || "Property location");
       this.notify(run, "map");
       await new Promise((resolve) => requestAnimationFrame(resolve));
       if (signal.aborted) return;
       if (!run.reduced) run.borrowed.fly();
-      await wait(run.reduced ? 200 : 900, signal);
+      await wait(run.reduced ? 200 : T.mapHold, signal);
     }
     if (signal.aborted) return;
     if (aerial) {
       const parking =
         run.pick.logistics?.parking_status ||
         (run.pick.logistics?.estimated === true ? "estimated" : "unknown");
-      label("Vexcel aerial", `Parking ${parking} · aerial view`);
+      label("Vexcel aerial", `Parking ${parking} · outline traced from the aerial`);
       this.notify(run, "aerial", { geometry: aerial.kind });
       this.animate(run, aerialLayer, [{ opacity: 0 }, { opacity: 1 }], {
-        duration: 200,
+        duration: run.reduced ? 200 : T.aerialFade,
       });
       if (outline)
         this.animate(
           run,
           outline,
           [{ strokeDashoffset: "1000" }, { strokeDashoffset: "0" }],
-          { duration: run.reduced ? 1 : 650, easing: "linear" },
+          { duration: run.reduced ? 1 : T.outlineDraw, easing: "cubic-bezier(0.65, 0, 0.35, 1)" },
         );
       else if (!run.reduced)
         this.animate(
           run,
           plane,
           [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }],
-          { duration: 650 },
+          { duration: T.outlineDraw },
         );
-      await wait(run.reduced ? 200 : 700, signal);
+      await wait(run.reduced ? 200 : T.aerialHold, signal);
     }
     if (signal.aborted) return;
     label(
@@ -347,7 +367,7 @@ export class Descent {
           : "Matterport scan"
         : "MOCK · Synthetic frame",
       actual
-        ? "The real scan point · image heading alignment unverified"
+        ? "The real room, as scanned"
         : "Fixture preview · no live aerial evidence",
     );
     this.notify(run, "interior");
@@ -360,26 +380,23 @@ export class Descent {
             { transform: "scale(1)", filter: "blur(0px)" },
             { transform: "scale(2.4)", filter: "blur(7px)" },
           ],
-          { duration: 650 },
+          { duration: T.zoom },
         );
       this.animate(
         run,
         interior,
         [{ transform: "scale(1.12)" }, { transform: "scale(1)" }],
-        { duration: 650 },
+        { duration: T.zoom },
       );
     }
     this.animate(run, interiorLayer, [{ opacity: 0 }, { opacity: 1 }], {
-      duration: run.reduced || !actual ? 200 : 470,
-      delay: run.reduced || !actual ? 0 : 180,
+      duration: run.reduced || !actual ? 200 : T.interiorFade,
+      delay: run.reduced || !actual ? 0 : T.interiorDelay,
     });
-    await wait(run.reduced || !actual ? 200 : 650, signal);
+    await wait(run.reduced || !actual ? 200 : T.interiorHold, signal);
     if (signal.aborted) return;
     if (actual)
-      label(
-        "Matterport scan",
-        "The real scan point · image heading alignment unverified",
-      );
+      label("Matterport scan", "The real room, as scanned");
     await this.land(run, interior, actual);
   }
   async land(run, interior, actual) {

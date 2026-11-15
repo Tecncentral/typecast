@@ -383,7 +383,8 @@ def struck_frames(shot_id: str):
         raise HTTPException(503, "Shot index unavailable") from None
     record = load_strike(shot.model_id, shot.sweep_id)
     if not record or not any(f["struck_url"] for f in record["faces"]):
-        raise HTTPException(404, "No struck frames for this scan point")
+        # Most frames have nothing to strike; that is an answer, not an error (no console noise per card).
+        return {"shot_id": shot.shot_id, "label": None, "face": None, "faces": []}
     heading = round(shot.heading_deg) % 360
     face = next((f for f in record["faces"] if f["heading_deg"] == heading), None)
     return {"shot_id": shot.shot_id, "heading_deg": heading, "label": record["label"],
