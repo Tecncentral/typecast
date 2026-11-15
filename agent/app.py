@@ -419,12 +419,21 @@ class CachedImages(StaticFiles):
         return await super().get_response(path, scope)
 
 
+class ViewerFiles(StaticFiles):
+    """Viewer modules always revalidate (cheap 304s), so an update never runs
+    new modules against a stale cached import such as utils.js."""
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 _ROOT = pathlib.Path(__file__).resolve().parents[1]
 for _url, _dir, _cls in (("/mocks", "mocks", StaticFiles), ("/cache", "cache", CachedImages)):
     if _dir == "cache" or (_ROOT / _dir).is_dir():
         app.mount(_url, _cls(directory=_ROOT / _dir, check_dir=False), name=_dir)
 if (_ROOT / "web" / "index.html").exists():
-    app.mount("/app", StaticFiles(directory=_ROOT / "web", html=True), name="web")
+    app.mount("/app", ViewerFiles(directory=_ROOT / "web", html=True), name="web")
 
 
 @app.get("/", include_in_schema=False)

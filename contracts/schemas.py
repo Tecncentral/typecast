@@ -35,6 +35,7 @@ class Property(BaseModel):
     availability_reason: Optional[str] = None
     parking_flags: dict[str, bool] = Field(default_factory=dict)
     listing_types: list[Literal["lease", "sale", "auction"]] = Field(default_factory=list)
+    parking_spaces: dict[str, int] = Field(default_factory=dict)  # CoStar recorded spaces by type
 
 
 class Evidence(BaseModel):
@@ -106,6 +107,12 @@ class Event(BaseModel):
     engine: Optional[Literal["fixed", "deep"]] = None
 
 
+class Vehicles(BaseModel):
+    """Crew vehicles the returned picks were checked against (one truck = four car equivalents)."""
+    trucks: int = Field(ge=0)
+    cars: int = Field(ge=0)
+
+
 class ScoutResponse(BaseModel):
     thread_id: str
     picks: list[Pick]
@@ -116,3 +123,4 @@ class ScoutResponse(BaseModel):
     source_mode: Literal["mock", "live"] = "mock"
     trace_url: Optional[str] = None
     timings: dict[str, float] = Field(default_factory=dict)
+    vehicles: Optional[Vehicles] = None

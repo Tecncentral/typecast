@@ -32,3 +32,30 @@ export function formatNumber(value, maxDecimals = 1) {
     ? value.toLocaleString("en-US", { maximumFractionDigits: maxDecimals })
     : "unknown";
 }
+
+/**
+ * Readable source text: round over-precise measurements, write m², drop a
+ * midnight timestamp. Coordinates and counts without units are untouched.
+ */
+export function tidyText(text) {
+  if (typeof text !== "string") return text;
+  return text
+    .replace(
+      /(\d+\.\d{2,})(\s?)(m²|m2|m\b|sq ?ft|sf\b)/g,
+      (_, value, space, unit) => {
+        const number = Number(value);
+        const rounded = number >= 100 ? Math.round(number) : Math.round(number * 10) / 10;
+        return rounded.toLocaleString("en-US") + (space || " ") + unit;
+      },
+    )
+    .replace(/(\d)(\s?)m2\b/g, "$1$2m²")
+    .replace(/(\d{4}-\d{2}-\d{2})T00:00:00(?:\.0+)?/g, "$1");
+}
+
+/** The pipeline prefixes picks with open blockers; say what that means. */
+export function readableReason(reason) {
+  if (typeof reason !== "string" || !reason) return reason;
+  return tidyText(
+    reason.replace(/^Blocked alternative;\s*/, "Open checks before booking (see caveats). "),
+  );
+}

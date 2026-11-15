@@ -104,7 +104,6 @@ or out-of-bounds geometry and falls back to revealing the supplied annotated
 aerial unchanged. No new polygon or building-centroid claim is inferred. No
 existing response schema or endpoint behavior changes.
 
-
 ## Director project JSON: production decisions (client-only, additive) - 2026-11-14
 
 Owner: lane-a (Director). Producer and consumer: `index/director.js` and `index/director-project.js`; no backend, `contracts/schemas.py` or TypeScript change, no coordinate or unit change.
@@ -140,3 +139,17 @@ Owner: lane-a (Director). Producer/consumer: `index/director.js`, `index/directo
   - `before` / `after`: `null` or `{ shot_id, property_id, parking_status ('measured'|'estimated'|'unknown'), enough_parking (boolean|null), availability ('available'|'not_available'|'unknown'), area_m2 (number|null), ceiling_m (number|null), similarity (number 0..1|null) }`
   - `scope`: `'whole_plan'`, `totals_recalculated`: boolean, `moved_scenes`: int `0..8`, `differences`: array of `<= 8` strings (`<= 240` chars), `unresolved`: array of `<= 8` strings (`<= 200` chars).
 - **Trust Boundary:** Treated strictly as a historical review note in UI and Shoot pack exports; re-importing re-queries `/api/production/plan` and never promotes cached `decision` fields into current source evidence.
+
+## Crew vehicles and CoStar recorded parking — 2026-11-14
+
+Additive, optional; consumer: viewer map and change summary.
+- `ScoutResponse.vehicles: {trucks, cars} | null` is the crew demand the picks were
+  checked against (both engines). The viewer draws demand against each lot with it;
+  without it the viewer shows trucks from the allocation and leaves the fit unconfirmed.
+- `Property.parking_spaces: {type: count}` is CoStar's recorded `parking[].totalSpaces`
+  by labelled `ParkingType` (e.g. `{"Surface": 73, "Covered": 129}`), read from the
+  private extract `cache/costar-parking.json` (`python -m data.costar_parking`, about
+  1 s). Absent file or record means `{}`. The pipeline adds it as CoStar evidence and,
+  when trucks are requested and recorded surface spaces are below the demand, a
+  caveat that is not a blocker.
+No existing field or endpoint behavior changes.

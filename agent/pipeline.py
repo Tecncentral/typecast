@@ -7,9 +7,9 @@ import uuid
 
 from agent import parse, rerank, state as working_memory
 from agent.interfaces import Requirements, RunContext, timed
-from contracts.schemas import Evidence, Event, Logistics, Pick, Property, ScoutResponse, Shot, ShotFit
+from contracts.schemas import Evidence, Event, Logistics, Pick, Property, ScoutResponse, Shot, ShotFit, Vehicles
 from data.costar_tools import get_property, search_costar
-from data.vexcel_tools import enough_parking, plan_logistics
+from data.vexcel_tools import CARS_PER_TRUCK, enough_parking, plan_logistics
 from index.search import check_shot, get_shot, search_shots
 from index.geometry import needed_depth_m
 
@@ -135,6 +135,9 @@ def _evidence(prop: Property, shot: Shot, fit: ShotFit, logi: Logistics) -> list
     ]
     evidence.extend(item("costar", f"Recorded parking flag {name}: {str(value).lower()}.", value)
                     for name, value in sorted(prop.parking_flags.items()))
+    if prop.parking_spaces:
+        recorded = " and ".join(f"{count:,} {kind.lower()}" for kind, count in sorted(prop.parking_spaces.items()))
+        evidence.append(item("costar", f"CoStar records {recorded} parking spaces at the property.", True))
     evidence.extend(logi.source_evidence)
     return list({(e.source, e.claim, e.status): e for e in evidence}.values())
 
@@ -177,6 +180,12 @@ def _skeptic(prop: Property, fit: ShotFit, logi: Logistics, req: Requirements) -
         notes.append("Parking walk distance is unknown; measure on site.")
         if req.trucks or req.cars:
             blockers += 1
+    surface = sum(count for kind, count in prop.parking_spaces.items() if kind.lower().startswith("surface"))
+    needed = req.trucks * CARS_PER_TRUCK + req.cars
+    if prop.parking_spaces and req.trucks and surface < needed:
+        # Trucks need open ground; covered decks rarely clear them. A note, not a blocker.
+        notes.append(f"CoStar records {surface:,} surface spaces at the property; the crew needs about "
+                     f"{needed} car equivalents, so plan on the nearby lot and confirm truck access.")
     notes.extend(f"Noise: {noise}." for noise in logi.noise_flags)
     if logi.noise_status == "unknown":
         notes.append("Nearby noise sources are unverified; no sound-level claim is possible.")
@@ -299,7 +308,8 @@ def _rank(ctx: RunContext, req: Requirements, candidates: list[_Candidate]) -> t
         for note in pick.skeptic_notes:
             _event(ctx, "skeptic", f"Rank {pick.rank}, {pick.property.address}: {note}", "skeptic")
     blocked = sum(p.reason.startswith("Blocked alternative;") for p in picks)
-    _event(ctx, "final", f"{len(picks)} picks: {len(picks) - blocked} viable and {blocked} explicitly blocked alternatives.")
+    _event(ctx, "final", f"{len(picks)} picks: {len(picks) - blocked} clear and {blocked} with open checks "
+           "(unknown or failed items) to confirm before booking.")
     return picks, gave_up
 
 
@@ -311,9 +321,11 @@ def _persist(ctx: RunContext, req: Requirements, shots: list[Shot], state: Optio
     _call(ctx, "state.save.candidates", working_memory.save, ctx.thread_id, "candidates", shots)
 
 
-def _response(ctx: RunContext, picks: list[Pick], gave_up: list[str], events: list[Event]) -> ScoutResponse:
+def _response(ctx: RunContext, picks: list[Pick], gave_up: list[str], events: list[Event],
+              req: Requirements) -> ScoutResponse:
     return ScoutResponse(thread_id=ctx.thread_id, picks=picks, gave_up=gave_up, events=events,
-                         engine="fixed", source_mode=ctx.source_mode, timings=dict(ctx.timings))
+                         engine="fixed", source_mode=ctx.source_mode, timings=dict(ctx.timings),
+                         vehicles=Vehicles(trucks=req.trucks, cars=req.cars))
 
 
 def _rerank(ctx: RunContext, req: Requirements, shots: list[Shot]) -> list[Shot]:
@@ -364,7 +376,7 @@ def scout(ctx=None, req_or_example=None, thread_id=None, **kwargs) -> ScoutRespo
     candidates = _evaluate(ctx, req, shots, {p.property_id: p for p in properties})
     _persist(ctx, req, shots)
     picks, gave_up = _rank(ctx, req, candidates)
-    return _response(ctx, picks, gave_up, events)
+    return _response(ctx, picks, gave_up, events, req)
 
 
 def refine(ctx, state, message=None) -> ScoutResponse:
@@ -387,8 +399,14 @@ def refine(ctx, state, message=None) -> ScoutResponse:
     req = Requirements.model_validate({**req.model_dump(), **changes})
     cached = state.get("candidates", state.get("shots", []))
     shots = [shot if isinstance(shot, Shot) else Shot.model_validate(shot) for shot in cached]
-    shots = _rerank(ctx, req, shots)
+    # A crew-vehicle change says nothing about how the rooms look. Keep the saved
+    # visual order so picks move only for parking reasons, with no new image scoring.
+    if update.explicit_fields and update.explicit_fields <= {"trucks", "cars"}:
+        _event(ctx, "subagent_result", "Vehicle-only follow-up: kept the saved visual ranking; "
+               "only parking is rechecked.", "interior_scout")
+    else:
+        shots = _rerank(ctx, req, shots)
     candidates = _evaluate(ctx, req, shots)
     _persist(ctx, req, shots, state)
     picks, gave_up = _rank(ctx, req, candidates)
-    return _response(ctx, picks, gave_up, events)
+    return _response(ctx, picks, gave_up, events, req)

@@ -667,6 +667,62 @@ textarea {
 .changes .change-objection {
   color: var(--warning);
 }
+.change-parking {
+  display: grid;
+  gap: 14px;
+  margin: 4px 0 16px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid #4a4231;
+}
+.change-parking__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 20px;
+}
+.change-parking__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.change-parking__map {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--control-radius);
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.change-parking__map:hover {
+  background: #2e2a20;
+}
+.change-parking__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px 28px;
+}
+.change-parking__pick {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.change-parking__pick--left .change-parking__name {
+  color: var(--muted);
+}
+.change-parking__name {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+@media (max-width: 900px) {
+  .change-parking__grid {
+    grid-template-columns: 1fr;
+  }
+}
 .draft-status {
   margin: 16px 0 0;
   padding: 12px 16px;

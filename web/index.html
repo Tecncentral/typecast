@@ -60,7 +60,7 @@
             maxlength="12000"
             spellcheck="false"
           >
-INT. 1980s POLICE STATION, NIGHT. Big open room, drop ceiling, windows on one wall. Parking for 3 trucks and 30 crew cars.</textarea>
+INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial warehouse with exposed roof structure, a concrete floor and an open aisle; stored boxes or pallets can remain at the sides. Daylight from high openings. Parking for 2 trucks and 10 crew cars. No required building age.</textarea>
           <button id="run-button" class="primary" type="submit">
             Scout locations
           </button>
@@ -129,6 +129,18 @@ INT. 1980s POLICE STATION, NIGHT. Big open room, drop ceiling, windows on one wa
         <p id="draft-status" class="draft-status" role="status" hidden></p>
       </section>
       <section
+        id="map-section"
+        class="map-section"
+        aria-labelledby="map-heading"
+        hidden
+      >
+        <div class="section-topline">
+          <div><h2 id="map-heading">The location, in context.</h2></div>
+          <span class="section-note">Property pins and aerial evidence</span>
+        </div>
+        <div id="location-map"></div>
+      </section>
+      <section
         id="refine-section"
         class="refine-section"
         aria-labelledby="refine-heading"
@@ -164,18 +176,6 @@ INT. 1980s POLICE STATION, NIGHT. Big open room, drop ceiling, windows on one wa
           <span class="section-note">Original frames, kept for comparison</span>
         </div>
         <div id="previous-results"></div>
-      </section>
-      <section
-        id="map-section"
-        class="map-section"
-        aria-labelledby="map-heading"
-        hidden
-      >
-        <div class="section-topline">
-          <div><h2 id="map-heading">The location, in context.</h2></div>
-          <span class="section-note">Property pins and aerial evidence</span>
-        </div>
-        <div id="location-map"></div>
       </section>
       <section id="welcome" class="welcome" aria-label="Getting started">
         <h2>A frame is only the beginning.</h2>
