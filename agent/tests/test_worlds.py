@@ -129,6 +129,20 @@ def test_dressed_route_returns_labelled_faces(dressed_client):
     assert body["splat_url"] is None
 
 
+def test_walkable_route_lists_only_frames_with_a_splat(dressed_client, monkeypatch, tmp_path):
+    assert dressed_client.get("/api/walkable").json() == {"sets": []}  # dressed, but nothing to walk
+    record = tmp_path / "m1" / "s1" / "dressed" / "dressed.json"
+    data = json.loads(record.read_text())
+    data["splat"] = {"file": "dressed.spz", "mode": "refined", "splat_count": 10, "eye": [0, 0, 0]}
+    record.write_text(json.dumps(data))
+    assert dressed_client.get("/api/walkable").json() == {"sets": []}  # the splat file itself is missing
+    (record.parent / "dressed.spz").write_bytes(b"SYNTHETIC-QA")
+    assert dressed_client.get("/api/walkable").json() == {
+        "sets": [{"shot_ids": ["p1-m1-s1-0.000-abc"], "mode": "refined", "room": False}]}
+    monkeypatch.setenv("TYPECAST_ENABLE_DRESSED", "0")
+    assert dressed_client.get("/api/walkable").json() == {"sets": []}
+
+
 def test_dressed_route_404_422_and_disable_flag(dressed_client, monkeypatch, tmp_path):
     assert dressed_client.get("/api/dressed/bad%20id").status_code == 422
     assert dressed_client.get("/api/dressed/p1-m1-s9-0.000-abc").status_code == 404

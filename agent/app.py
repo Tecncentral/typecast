@@ -339,6 +339,29 @@ def dressed_set(shot_id: str):
     }
 
 
+@app.get("/api/walkable")
+def walkable_sets():
+    """Frames whose scan point has a walkable AI-dressed set, so a card can offer to walk it.
+
+    One list for the whole page: cards ask once instead of probing every frame.
+    """
+    if os.getenv("TYPECAST_ENABLE_DRESSED", "1") == "0":
+        return {"sets": []}
+    from index.search import get_active_index
+    from worlds.dress import walkable_scan_points
+    try:
+        points = {(p["model_id"], p["sweep_id"]): {"shot_ids": [], "mode": p["mode"], "room": p["room"]}
+                  for p in walkable_scan_points()}
+        if points:
+            for shot in get_active_index().shots:
+                entry = points.get((shot.model_id, shot.sweep_id))
+                if entry is not None and _SHOT_ID.fullmatch(shot.shot_id) and len(entry["shot_ids"]) < 16:
+                    entry["shot_ids"].append(shot.shot_id)
+    except Exception:
+        return {"sets": []}
+    return {"sets": [entry for entry in points.values() if entry["shot_ids"]]}
+
+
 @app.get("/api/strike/{shot_id}")
 def struck_frames(shot_id: str):
     """AI furniture removal for the shot's scan point, if it was precomputed with `python -m strike`.
