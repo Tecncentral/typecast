@@ -23,6 +23,7 @@
   </div>
 </header>
 <p id="status" class="status" role="status" aria-live="polite"></p>
+<div id="draftNotice" class="notice" hidden role="status"></div>
 <p id="commBanner" class="comm-banner" data-community-only role="note"><strong>Preparedness planning.</strong> Candidate-site review for volunteer and supply coordination before an incident. Not for real-time evacuation or emergency routing. Nothing here approves a site, shelter or capacity.</p>
 <main class="room">
   <aside class="col col-script" aria-label="Script and plan">
@@ -210,6 +211,10 @@
         <label for="briefDate">Review date</label><input id="briefDate" maxlength="20" placeholder="e.g. 2026-11-14" autocomplete="off">
         <label for="briefNotes">Overall notes <small>600 characters</small></label><textarea id="briefNotes" rows="3" maxlength="600"></textarea>
       </div>
+      <h3>Local draft</h3>
+      <label class="check"><input id="draftOpt" type="checkbox" checked> Keep a local draft in this browser</label>
+      <button id="draftClear" type="button" class="quiet">Clear saved draft</button>
+      <p id="draftNote" class="meta"></p>
       <h3>Open a saved project</h3>
       <label for="impProject" class="hint">Project JSON. Evidence is rebuilt with the current constraints.</label>
       <input id="impProject" type="file" accept=".json,application/json">

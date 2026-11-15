@@ -27,7 +27,7 @@ const DIRECTOR_HTML = readFileSync(join(DIR, '..', 'director.html'), 'utf8');
 const FOOTER = `
 globalThis.__director = {
   S, frameAt, shotData, sanitizeShot, exportSnapshot, provText, drawStage,
-  selectScene, setVariant, BADGE, safeId, setMode, swapLocation, altChoices, validSwap, fitFor, continuityMap, decisionFor, viewShot, undoSwap, backToPlanned,
+  selectScene, setVariant, BADGE, safeId, setMode, saveDraft, restoreDraft, draftState, initDraft, draftKey, swapLocation, altChoices, validSwap, fitFor, continuityMap, decisionFor, viewShot, undoSwap, backToPlanned,
 };
 `;
 
@@ -43,7 +43,7 @@ function escapeAttr(value) {
   return escapeText(value).replace(/"/g, '&quot;');
 }
 
-function createEnv({ speech = 'none' } = {}) {
+function createEnv({ speech = 'none', storage = null } = {}) {
   const env = {
     jobs: [],
     downloads: [],
@@ -347,7 +347,7 @@ function createEnv({ speech = 'none' } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', parseSummary: 'div', modeFilm: 'button', modeComm: 'button', modeHint: 'p', lblTrucks: 'span', lblCars: 'span', stageCaption: 'p', commBanner: 'p', 'h-script': 'h2', 'h-plan': 'h2', 'h-scenes': 'h2', 'h-stage': 'h1', scriptHint: 'label', 'panel-site': 'section', siteTitle: 'h2', siteReq: 'input', siteChecksSummary: 'summary', siteChecks: 'div', siteTasks: 'div', taskAdd: 'button', siteNote: 'textarea', siteCap: 'input', siteCapSrc: 'input', briefReviewer: 'input', briefDate: 'input', briefNotes: 'textarea', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', parseSummary: 'div', draftNotice: 'div', draftOpt: 'input', draftClear: 'button', draftNote: 'p', modeFilm: 'button', modeComm: 'button', modeHint: 'p', lblTrucks: 'span', lblCars: 'span', stageCaption: 'p', commBanner: 'p', 'h-script': 'h2', 'h-plan': 'h2', 'h-scenes': 'h2', 'h-stage': 'h1', scriptHint: 'label', 'panel-site': 'section', siteTitle: 'h2', siteReq: 'input', siteChecksSummary: 'summary', siteChecks: 'div', siteTasks: 'div', taskAdd: 'button', siteNote: 'textarea', siteCap: 'input', siteCapSrc: 'input', briefReviewer: 'input', briefDate: 'input', briefNotes: 'textarea', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);
@@ -456,6 +456,8 @@ function createEnv({ speech = 'none' } = {}) {
     addEventListener() {},
   };
   sandbox.window = sandbox;
+  if (storage === 'blocked') Object.defineProperty(sandbox, 'localStorage', { get() { throw new Error('SecurityError'); } });
+  else if (storage) sandbox.localStorage = storage;
   if (speech !== 'none') sandbox.SpeechRecognition = FakeRecognition;
   const context = vm.createContext(sandbox);
   context.URL = class extends URL {
@@ -512,7 +514,10 @@ async function drain() {
 }
 function boot(options) {
   const env = createEnv(options);
+  // Draft restore runs the strict project validator, which needs the context's own Object/Array/JSON (as startImport does).
+  if (options && options.storage) for (const name of ['Object', 'Array', 'JSON']) delete env.context[name];
   vm.runInContext(CHECKS_JS, env.context, { filename: 'director-checks.js' });
+  vm.runInContext(PROJECT_JS, env.context, { filename: 'director-project.js' });
   vm.runInContext(`${DIRECTOR_JS}\n${FOOTER}`, env.context, { filename: 'director.js' });
   env.api = env.context.__director;
   return env;
@@ -2319,4 +2324,164 @@ test('community: prototype-like need ids and notes cannot corrupt state', async 
   env.api.S.comm['need:__proto__'] = { requested: 1, note: '' }; env.api.S.comm['site:constructor::toString'] = { checks: {}, verified: null, tasks: [] };
   env.$('expJson').click(); const saved = JSON.parse(await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob));
   assert.equal(saved.needs.some((n) => n.scene_id === '__proto__'), false); assert.equal(saved.sites.some((x) => x.scene_id === 'constructor'), false);   // only real scene ids are exported
+});
+
+// ---------- local draft recovery ----------
+function memStore() {
+  const m = new Map();
+  const st = { m, writes: 0, failWrites: false, getItem: (k) => (m.has(k) ? m.get(k) : null),
+    setItem(k, v) { if (st.failWrites) throw new Error('QuotaExceededError'); m.set(k, String(v)); st.writes += 1; }, removeItem: (k) => { m.delete(k); } };
+  return st;
+}
+const SCREENPLAY = 'INT. KITCHEN - DAY\nMARA stirs a pot.\n\nEXT. GARDEN - NIGHT\nRain falls.';
+const DROWS = () => [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_a', 'shot_a2')];
+async function bootWith(storage) { const env = boot({ storage }); await drain(); return env; }
+async function stagedDraft(storage, extra = {}) {
+  const env = await bootWith(storage);
+  await buildScript(env, SCREENPLAY, DROWS(), extra);
+  env.api.selectScene('s1'); env.$('addActor').click(); env.$('dlg').value = 'MARA: hello'; env.$('dlg').dispatchEvent({ type: 'input' });
+  env.$('noteDressing').value = 'keep the plant'; env.$('noteDressing').dispatchEvent({ type: 'input' });
+  env.$('trucks').value = '2';
+  assert.equal(env.api.saveDraft(), true);
+  return env;
+}
+async function resolveRestore(env, rows = DROWS(), extra = {}) {
+  const job = env.take('/api/production/plan'); job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), rows, extra))); await drain();
+}
+
+test('drafts: a refresh restores script text exactly, constraints, takes and notes, with an explicit local-browser message', async () => {
+  const st = memStore(); await stagedDraft(st);
+  const env = boot({ storage: st }); await drain();
+  assert.equal(env.$('script').value, SCREENPLAY, 'the pasted text is kept as typed, not re-joined');
+  assert.equal(env.$('trucks').value, '2'); assert.equal(env.api.draftState.ready, false, 'autosave stays off until restore settles');
+  await resolveRestore(env);
+  assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello'); assert.equal(env.api.S.notes.s1.dressing, 'keep the plant'); assert.equal(env.api.S.scenes.length, 2);
+  assert.equal(env.api.draftState.ready, true); assert.equal(env.api.draftState.hold, false);
+  const note = env.$('draftNotice').textContent;
+  assert.match(note, /Restored your local draft from .* \(this browser only\)\. Evidence was rebuilt from the current data/); assert.match(note, /Discard this draft/); assert.match(note, /Stop keeping drafts/);
+  assert.equal(env.$('draftNotice').hidden, false);
+  assert.match(env.$('draftNote').textContent, /Kept only in this browser.*not encrypted or synced; clear it on a shared computer/);
+});
+
+test('drafts: only necessary fields are stored: no images, keys, source rows, contacts, paths or availability', async () => {
+  const st = memStore(); await stagedDraft(st, { evidence: { property: { availability_status: 'available' }, logistics: { parking_status: 'measured', truck_spaces: 4, enough_parking: true } } });
+  const raw = st.m.get('typecast.director.draft.v1.film');
+  for (const leak of ['FAKE', 'sk-live', 'licensed.jpg', '/Users/demo', 'listing contact', 'aerial', 'parking_polygon', 'availability', 'truck_spaces', 'room_area', 'image_path', 'honesty', 'data:image']) assert.equal(raw.includes(leak), false, leak);
+  const d = JSON.parse(raw);
+  assert.deepEqual(Object.keys(d).sort(), ['constraints', 'mode', 'project', 'saved_at', 'script', 'v']);
+  assert.deepEqual(copied(d.project.scenes[0].evidence), { frame: { shot_id: 'shot_a', property_id: 'prop_a' } });
+  assert.ok(raw.length < 20000);
+  // a restore cannot bring availability back: the fresh response decides
+  const env = boot({ storage: st }); await drain();
+  await resolveRestore(env, DROWS(), { evidence: { property: { availability_status: 'not_available' } } });
+  assert.equal(env.api.exportSnapshot().scenes[0].evidence.property.availability_status, 'not_available');
+});
+
+test('drafts: frames that no longer match become review drafts, never silently applied', async () => {
+  const st = memStore(); await stagedDraft(st);
+  const env = boot({ storage: st }); await drain();
+  await resolveRestore(env, [assignment('s1', 'prop_z', 'shot_z'), assignment('s2', 'prop_z', 'shot_z2')]);
+  assert.equal(env.api.S.importReview.length, 2); assert.ok(env.api.S.importReview.some((d) => d.variants.A.dialogue === 'MARA: hello'), 'the saved takes are kept for review');
+  assert.equal(env.api.shotData('s1').dialogue, '', 'and not applied to the different frame');
+  assert.match(env.$('projectReview').textContent, /Saved staging needs review/); assert.equal(env.api.S.scenes.length, 2);
+});
+
+test('drafts: film and community drafts are separate; each mode restores its own and leaves the other alone', async () => {
+  const st = memStore(); const a = await stagedDraft(st);
+  a.$('modeComm').click(); await buildScript(a, NEEDS, CROWS(), { candidates: CPOOL() }); a.api.selectScene('s1');
+  a.$('siteReq').value = '40'; a.$('siteReq').dispatchEvent({ type: 'input' }); setCheck(a, 0, 'ok');
+  assert.equal(a.api.saveDraft(), true);
+  const keys = [...st.m.keys()].sort(); assert.deepEqual(keys, ['typecast.director.draft.v1.community', 'typecast.director.draft.v1.film']);
+  const env = boot({ storage: st }); await drain();
+  await resolveRestore(env);                                           // page load restores film only
+  assert.equal(env.api.S.mode, 'film'); assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello'); assert.equal(Object.keys(env.api.S.comm).length, 0);
+  env.$('modeComm').click(); await drain();                            // first visit to community: its own draft
+  assert.equal(env.$('script').value, NEEDS);
+  await resolveRestore(env, CROWS(), { candidates: CPOOL() });
+  assert.equal(env.api.S.mode, 'community'); assert.equal(env.api.S.comm['need:s1'].requested, 40);
+  assert.equal(env.api.S.comm['site:s1::prop_a'].checks.permission.stale, true); assert.match(env.$('draftNotice').textContent, /anything you marked OK still needs re-verifying/);
+  env.$('modeFilm').click(); assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello'); assert.equal(env.$('script').value, SCREENPLAY);
+});
+
+test('drafts: corrupt, oversized, foreign or hostile saved data is discarded safely and the editor still works', async () => {
+  const good = JSON.stringify({ v: 1, mode: 'film', script: 'INT. A - DAY | a', constraints: { maxLoc: 3, trucks: 0, cars: 0, reqAvail: false }, project: null, saved_at: new Date().toISOString() });
+  const mk = (o) => JSON.stringify({ ...JSON.parse(good), ...o });
+  const hostile = { app: 'Typecast Director', variant: 'A', scenes: [{ id: 'constructor', heading: 'h', description: 'd' }] };
+  const cases = ['{not json', '[]', 'null', '42', mk({ v: 2 }), mk({ mode: 'community' }), mk({ script: 7 }), mk({ constraints: null }), mk({ script: 'x'.repeat(70000) }),
+    'x'.repeat(400000), mk({ project: hostile }), mk({ project: { app: 'other' } }), mk({ project: { app: 'Typecast Director', variant: 'A', mode: 'film', scenes: [], extra: 1 } })];
+  for (const raw of cases) {
+    const st = memStore(); st.m.set('typecast.director.draft.v1.film', raw);
+    const env = await bootWith(st);
+    assert.match(env.$('draftNotice').textContent, /A saved local draft was unreadable \(.*\) and was discarded\. Nothing else was changed\./, raw.slice(0, 30));
+    assert.equal(st.m.has('typecast.director.draft.v1.film'), false, 'the bad draft is removed'); assert.equal(env.api.draftState.ready, true);
+    assert.match(env.$('script').value, /^INT\. HOUSTON/);              // the normal demo script, untouched
+    env.$('script').value = 'INT. A - DAY | a'; env.$('build').click(); assert.ok(env.take('/api/production/plan'));
+  }
+});
+
+test('drafts: quota errors and blocked storage never break the editor and are reported once', async () => {
+  const st = memStore(); st.failWrites = true;
+  const env = await bootWith(st);
+  await buildScript(env, SCREENPLAY, DROWS());
+  assert.equal(env.api.saveDraft(), false); assert.match(env.$('status').textContent, /Local draft could not be saved \(browser storage is full or blocked\)/);
+  env.$('status').textContent = 'other'; assert.equal(env.api.saveDraft(), false); assert.equal(env.$('status').textContent, 'other', 'reported once, not on every tick');
+  env.$('dlg').value = 'still editable'; env.$('dlg').dispatchEvent({ type: 'input' }); assert.equal(env.api.shotData('s1').dialogue, 'still editable');
+  st.failWrites = false; assert.equal(env.api.saveDraft(), true); assert.equal(st.writes, 1);
+  const blocked = boot({ storage: 'blocked' }); await drain();
+  assert.equal(blocked.api.draftState.unavailable, true); assert.match(blocked.$('draftNote').textContent, /Local drafts are unavailable in this browser/);
+  assert.equal(blocked.$('draftOpt').disabled, true);
+  await buildScript(blocked, SCREENPLAY, DROWS()); assert.equal(blocked.api.saveDraft(), false); assert.equal(blocked.api.S.scenes.length, 2);
+  const none = boot(); await drain(); assert.equal(none.api.draftState.unavailable, true);           // no localStorage at all
+});
+
+test('drafts: autosave writes only on change, never for pristine state, never while a plan loads', async () => {
+  const st = memStore(); const env = await bootWith(st);
+  assert.equal(env.api.saveDraft(), false); assert.equal(st.writes, 0, 'the untouched demo script is not a draft');
+  env.$('script').value = SCREENPLAY; env.$('script').dispatchEvent({ type: 'input' });
+  env.$('build').click(); const job = env.take('/api/production/plan');
+  assert.equal(env.api.saveDraft(), false, 'no save while the plan request is in flight');
+  job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), DROWS()))); await drain();
+  assert.equal(env.api.saveDraft(), true); assert.equal(env.api.saveDraft(), false); assert.equal(st.writes, 1);
+  env.$('trucks').value = '4'; assert.equal(env.api.saveDraft(), true); assert.equal(st.writes, 2);
+});
+
+test('drafts: a failed or interrupted restore keeps the saved draft and pauses autosave until the user decides', async () => {
+  const st = memStore(); await stagedDraft(st);
+  const saved = st.m.get('typecast.director.draft.v1.film');
+  const env = boot({ storage: st }); await drain();
+  env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();       // evidence cannot be rebuilt
+  assert.equal(env.$('script').value, SCREENPLAY); assert.match(env.$('draftNotice').textContent, /could not be rebuilt yet\. The saved draft is kept and autosave is paused/);
+  assert.equal(env.api.draftState.hold, true); assert.equal(env.api.draftState.ready, true);
+  env.$('script').value = 'INT. NEW - DAY | typed meanwhile'; env.$('script').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.saveDraft(), false); assert.equal(st.m.get('typecast.director.draft.v1.film'), saved, 'the good draft was not overwritten');
+  env.$('draftNotice').querySelectorAll('button').find((b) => /Retry/.test(b.textContent)).click(); await drain();
+  const job = env.take('/api/production/plan'); job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), DROWS()))); await drain();
+  assert.equal(env.api.draftState.hold, false); assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello');
+  // an edit made while the restore request is loading refuses the restore instead of being overwritten
+  const env2 = boot({ storage: st }); await drain();
+  env2.$('script').value = 'INT. TYPED - DAY | during restore'; env2.$('script').dispatchEvent({ type: 'input' });
+  const j2 = env2.take('/api/production/plan'); j2.resolve(jsonResponse(planFor(JSON.parse(j2.opts.body), DROWS()))); await drain();
+  assert.match(env2.$('status').textContent, /nothing was replaced/); assert.equal(env2.api.draftState.hold, true);
+  assert.equal(env2.api.saveDraft(), false); assert.equal(JSON.parse(st.m.get('typecast.director.draft.v1.film')).project.scenes.length, 2);
+});
+
+test('drafts: discard, clear and opt-out controls remove stored data and stop saving', async () => {
+  const st = memStore(); const a = await stagedDraft(st);
+  a.$('draftClear').click(); assert.equal(st.m.has('typecast.director.draft.v1.film'), false); assert.equal(a.api.S.scenes.length, 2, 'clearing the saved copy never touches open work');
+  assert.equal(a.api.saveDraft(), true);
+  a.$('draftOpt').checked = false; a.$('draftOpt').dispatchEvent({ type: 'change' });
+  assert.equal(st.m.has('typecast.director.draft.v1.film'), false); assert.equal(st.m.get('typecast.director.draft.optout'), '1'); assert.equal(a.api.saveDraft(), false);
+  const off = boot({ storage: st }); await drain(); assert.equal(off.$('draftOpt').checked, false); assert.equal(off.api.draftState.ready, true);
+  off.$('draftOpt').checked = true; off.$('draftOpt').dispatchEvent({ type: 'change' }); assert.equal(st.m.has('typecast.director.draft.optout'), false);
+  // discard resets the open mode and removes its draft
+  const st2 = memStore(); await stagedDraft(st2);
+  const env = boot({ storage: st2 }); await drain(); await resolveRestore(env);
+  env.$('draftNotice').querySelectorAll('button').find((b) => /Discard this draft/.test(b.textContent)).click();
+  assert.equal(st2.m.has('typecast.director.draft.v1.film'), false); assert.equal(env.api.S.scenes.length, 0); assert.match(env.$('script').value, /^INT\. HOUSTON/); assert.equal(env.$('draftNotice').hidden, true);
+  // stop keeping drafts removes every mode's draft
+  const st3 = memStore(); const b = await stagedDraft(st3); b.$('modeComm').click(); await buildScript(b, NEEDS, CROWS()); b.api.saveDraft();
+  assert.equal(st3.m.size, 2);
+  const e3 = boot({ storage: st3 }); await drain(); await resolveRestore(e3);
+  e3.$('draftNotice').querySelectorAll('button').find((x) => /Stop keeping drafts/.test(x.textContent)).click();
+  assert.equal([...st3.m.keys()].some((k) => k.includes('.draft.v1.')), false); assert.equal(e3.$('draftOpt').checked, false);
 });

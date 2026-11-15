@@ -1306,8 +1306,10 @@ function setMode(m, opts = {}) {
   if (!opts.force && (S.planBusy || reelCtrl)) { status('Wait for the plan or reel to finish before switching mode.', true); return false; }
   stopPlay(); cancelGen(); clearPending(); endDrag();
   MODES[S.mode] = captureMode();                           // film work is stashed whole, never edited by community mode
+  const had = !!MODES[m];
   S.mode = m; applyModeState(MODES[m] || freshMode(m)); MODES[m] = null; S.rev++;
   applyModeUI(); renderAll(); renderParse();
+  if (!had && draftState.ready && !opts.force) restoreDraft(m);          // first visit to this mode: offer its own saved draft
   status(m === 'community' ? 'Community planning: candidate-site review for volunteer and supply coordination. Your film work is kept separately.' : 'Film production. Your community planning draft is kept separately.');
   return true;
 }
@@ -1480,6 +1482,108 @@ async function exportBrief() {
   } catch (e) { status(`Site brief export failed: ${e.message}`, true); } finally { $('expPack').disabled = !plan(); }
 }
 
+// ================= local draft recovery (per mode, this browser only) =================
+// Stores the script, the constraints and a validated project snapshot (takes, notes, coordinator reports, identifiers).
+// Never images, keys, provider responses or source rows. Restoring always rebuilds evidence from the current pool through the
+// same validation as a file import, so a draft can never bring back availability or safety claims, and stale frames become
+// review drafts. Autosave is held while a saved draft is not reflected on screen, so it cannot overwrite a good draft.
+const DRAFT_V = 1, DRAFT_MAX = 300000, DRAFT_OPT = 'typecast.director.draft.optout';
+const draftKey = (m) => `typecast.director.draft.v${DRAFT_V}.${m}`;
+const draftState = { ready: false, hold: false, last: '', failed: false, unavailable: false };
+function lstore() { try { return window.localStorage || null; } catch { return null; } }
+function lget(k) { try { return lstore()?.getItem(k) ?? null; } catch { return null; } }
+function ldel(k) { try { lstore()?.removeItem(k); } catch { /* storage may be blocked */ } }
+const draftOn = () => !!lstore() && lget(DRAFT_OPT) !== '1';
+function draftEnvelope() {
+  const pristine = !S.resp && ($('script').value === (S.mode === 'film' ? DEMO : ''));
+  if (pristine && !Object.keys(S.comm).length) return null;                                  // nothing of the user's to keep
+  const c = constraints();
+  return { v: DRAFT_V, mode: S.mode, script: $('script').value.slice(0, TypecastChecks.LIMITS.chars),
+    constraints: { maxLoc: c.max_locations, trucks: c.trucks, cars: c.cars, reqAvail: c.require_available },
+    project: S.resp && S.scenes.length ? draftProject() : null };
+}
+// The saved project keeps only what is needed to rebuild: scene text, takes, notes, reports and frame identifiers. Source facts are re-fetched.
+function draftProject() {
+  const p = exportSnapshot();
+  return { app: p.app, variant: p.variant, ...(p.mode ? { mode: p.mode, brief: p.brief, needs: p.needs, sites: p.sites } : {}),
+    scenes: p.scenes.map(({ id, heading, description, variants, location_choice, notes, evidence }) => ({ id, heading, description, evidence: evidence?.frame ? { frame: { shot_id: evidence.frame.shot_id, property_id: evidence.frame.property_id } } : null,
+      variants, ...(location_choice ? { location_choice } : {}), ...(notes ? { notes } : {}) })) };
+}
+function saveDraft() {
+  if (!draftState.ready || draftState.hold || S.planBusy || !draftOn()) return false;
+  const env = draftEnvelope();
+  if (!env) return false;
+  const body = JSON.stringify(env);
+  if (body === draftState.last) return false;
+  if (body.length > DRAFT_MAX) { if (!draftState.failed) { draftState.failed = true; status('Local draft not saved: the project is too large to keep in this browser. Export Project JSON instead.', true); } return false; }
+  try {
+    lstore().setItem(draftKey(S.mode), JSON.stringify({ ...env, saved_at: new Date().toISOString() }));
+    draftState.last = body; draftState.failed = false; return true;
+  } catch {
+    if (!draftState.failed) { draftState.failed = true; status('Local draft could not be saved (browser storage is full or blocked). Your work is still open; export Project JSON to keep it.', true); }
+    return false;
+  }
+}
+function showDraftNotice(msg, buttons = []) {
+  const n = $('draftNotice'); n.replaceChildren();
+  if (!msg) { n.hidden = true; return; }
+  n.append(el('p', { text: msg }), el('div', { class: 'row' }, ...buttons)); n.hidden = false;
+}
+function draftButton(text, fn, primary) { const b = el('button', { type: 'button', text, ...(primary ? { class: 'primary' } : {}) }); b.addEventListener('click', fn); return b; }
+function discardDraft(m = S.mode) { ldel(draftKey(m)); draftState.hold = false; draftState.last = ''; }
+function readDraft(m) {
+  const raw = lget(draftKey(m));
+  if (raw == null) return null;
+  const bad = (why) => { ldel(draftKey(m)); showDraftNotice(`A saved local draft was unreadable (${why}) and was discarded. Nothing else was changed.`, [draftButton('Dismiss', () => showDraftNotice(''))]); return null; };
+  if (typeof raw !== 'string' || raw.length > DRAFT_MAX * 1.2) return bad('too large');
+  let d; try { d = JSON.parse(raw); } catch { return bad('not valid data'); }
+  if (!d || typeof d !== 'object' || Array.isArray(d) || d.v !== DRAFT_V || d.mode !== m) return bad('unknown version or mode');
+  if (typeof d.script !== 'string' || d.script.length > TypecastChecks.LIMITS.chars) return bad('bad script');
+  const c = d.constraints; if (!c || typeof c !== 'object') return bad('bad constraints');
+  let projectText = null;
+  if (d.project != null) {
+    try { projectText = JSON.stringify(d.project); const p = TypecastProject.normalizeProject(projectText); if ((p.mode || 'film') !== m) throw new Error('mode'); } catch { return bad('invalid project'); }
+  }
+  return { d, projectText, savedAt: typeof d.saved_at === 'string' ? d.saved_at.slice(0, 40) : '' };
+}
+async function restoreDraft(m = S.mode) {
+  if (!lstore() || !draftOn()) return false;
+  const r = readDraft(m);
+  if (!r) return false;
+  draftState.hold = true;                                                 // a saved draft exists that the screen does not reflect yet
+  const c = r.d.constraints, clampN = (v, lo, hi, d0) => { const n = Math.floor(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d0; };
+  $('script').value = r.d.script; $('maxLoc').value = String(clampN(c.maxLoc, 1, 4, 3)); $('trucks').value = String(clampN(c.trucks, 0, 20, 0));
+  $('cars').value = String(clampN(c.cars, 0, 50, 0)); $('reqAvail').checked = c.reqAvail === true; renderParse();
+  const when = r.savedAt ? ` from ${new Date(r.savedAt).toLocaleString()}` : '';
+  const buttons = (retry) => [...(retry ? [draftButton('Retry rebuilding evidence', () => restoreDraft(m), true)] : []),
+    draftButton('Discard this draft', () => { discardDraft(m); if (S.mode === m) { applyModeState(freshMode(m)); applyModeUI(); renderAll(); renderParse(); } showDraftNotice(''); status('Local draft discarded.'); }),
+    draftButton('Stop keeping drafts', () => { try { lstore().setItem(DRAFT_OPT, '1'); } catch { /* ignore */ } ldel(draftKey('film')); ldel(draftKey('community')); draftState.hold = false; $('draftOpt').checked = false; showDraftNotice(''); status('Local drafts are off and saved drafts were removed.'); })];
+  if (!r.projectText) { draftState.hold = false; showDraftNotice(`Restored your local draft${when} (this browser only): your text and settings. No plan had been built.`, buttons(false)); return true; }
+  const file = { size: r.projectText.length, text: async () => r.projectText };
+  await importProject(file);
+  const ok = !!S.resp && S.scenes.length > 0 && /Project loaded with fresh evidence/.test($('status').textContent);
+  if (ok) {
+    $('script').value = r.d.script; renderParse();                      // keep exactly what was typed, not the re-joined scene lines
+    draftState.hold = false; draftState.last = ''; showDraftNotice(`Restored your local draft${when} (this browser only). Evidence was rebuilt from the current data; frames that no longer match are kept for review, and anything you marked OK still needs re-verifying.`, buttons(false));
+  } else showDraftNotice(`Restored the text of your local draft${when}, but its plan could not be rebuilt yet. The saved draft is kept and autosave is paused so it cannot be overwritten.`, buttons(true));
+  return ok;
+}
+async function initDraft() {
+  const note = $('draftNote');
+  if (!lstore()) { draftState.unavailable = true; note.textContent = 'Local drafts are unavailable in this browser, so your work is not being kept. Export Project JSON to save it.'; $('draftOpt').disabled = true; $('draftClear').disabled = true; return; }
+  $('draftOpt').checked = draftOn();
+  note.textContent = 'Kept only in this browser, as readable text in its local storage: your script, notes, takes or coordinator reports, and identifiers. It never holds images, keys or provider data. It is not encrypted or synced; clear it on a shared computer.';
+  try { await restoreDraft('film'); } finally { draftState.ready = true; }
+}
+$('draftOpt').addEventListener('change', (e) => {
+  if (e.target.checked) { try { lstore().removeItem(DRAFT_OPT); } catch { /* ignore */ } status('Local drafts are on for this browser.'); }
+  else { try { lstore().setItem(DRAFT_OPT, '1'); } catch { /* ignore */ } ldel(draftKey('film')); ldel(draftKey('community')); draftState.hold = false; draftState.last = ''; showDraftNotice(''); status('Local drafts are off and saved drafts were removed.'); }
+});
+$('draftClear').addEventListener('click', () => { ldel(draftKey(S.mode)); draftState.hold = false; draftState.last = ''; showDraftNotice(''); status(`Saved ${S.mode === 'community' ? 'community' : 'film'} draft cleared. Your open work is unchanged.`); });
+if (typeof setInterval === 'function') setInterval(saveDraft, 1500);
+if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveDraft(); });
+window.addEventListener('pagehide', () => { saveDraft(); });
+
 $('script').value = DEMO;
 renderAll(); renderParse(); applyModeUI();
 // Canvas text uses the app's faces once they load; until then the system fallback draws.
@@ -1488,3 +1592,4 @@ if (document.fonts?.load) {
     .then(() => { if (!S.play.on) draw(); }).catch(() => {});
 }
 status('Edit the script, then Build plan. Nothing appears on the stage until the backend returns a plan; check its mode label.');
+initDraft();
