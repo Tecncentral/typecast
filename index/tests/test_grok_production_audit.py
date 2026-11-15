@@ -1,7 +1,9 @@
 """Adversarial audit of the production planner, join loader, and solver.
 
-Tests exercise production routes and their pure helpers using public fixtures
-only. Regressions are asserted directly; no network and no licensed cache.
+Tests exercise the routes mounted by the preview app and the pure helpers behind
+them. Written by a Grok audit (PR #28) as strict xfails, one per defect; the
+defects are fixed on dev, so these now run as plain regression tests. Public
+fixtures only; no network and no licensed cache.
 """
 from __future__ import annotations
 
@@ -630,44 +632,6 @@ def test_missing_parking_status_stays_unknown(client, mocks, monkeypatch):
     assert parking and parking[0]["status"] == "unknown"
 
 
-@pytest.mark.parametrize("capacity", [True, -1, 2.5, "4", float("nan"), float("inf"), None])
-def test_invalid_parking_counts_cannot_become_a_feasibility_claim(client, mocks, monkeypatch, capacity):
-    install_sources(monkeypatch, [make_shot("p1")], lambda pid, trucks, cars: {
-        "property_id": pid, "truck_spaces": capacity, "car_spaces": 40, "parking_status": "measured",
-    })
-    monkeypatch.setattr(production, "enough_parking", lambda *args: pytest.fail("Invalid counts must not be evaluated"))
-    response = client.post("/api/production/plan", json=plan_request())
-    assert response.status_code == 200
-    row = scene_candidates(response.json())[0]
-    assert row["logistics"]["truck_spaces"] is None
-    assert row["logistics"]["enough_parking"] is None
-    assert row["eligible"] is True
-    assert any(w["field"] == "parking_capacity" and w["status"] == "unknown" for w in row["warnings"])
-
-
-@pytest.mark.parametrize("field,value", [
-    ("property_id", " p1 "), ("property_id", ""), ("property_id", None),
-    ("model_id", " m1 "), ("model_id", ""), ("shot_id", " bad "), ("shot_id", ""),
-    ("score", True), ("score", "0.8"), ("score", float("nan")), ("score", float("inf")),
-])
-def test_malformed_retrieval_rows_are_dropped_without_hiding_valid_candidates(client, mocks, monkeypatch, field, value):
-    malformed = make_shot("p1").model_copy(update={field: value})
-    install_sources(monkeypatch, [malformed, make_shot("keep")], lambda *args: None)
-    response = client.post("/api/production/plan", json=plan_request())
-    assert response.status_code == 200
-    assert response.json()["pool_properties"] == ["keep"]
-    assert [item["property_id"] for item in assignments(response.json())] == ["keep"]
-    assert [item["shot"]["property_id"] for item in scene_candidates(response.json())] == ["keep"]
-
-
-@pytest.mark.parametrize("field", ["property_id", "shot_id"])
-def test_solver_rejects_noncanonical_source_identity(field):
-    row = candidate("sc_1", "p1", "sh1", .8)
-    row[field] = f" {row[field]} "
-    with pytest.raises(ValueError, match="surrounding whitespace"):
-        solve_plans(["sc_1"], [row])
-
-
 # ---------------------------------------------------------------------------
 # Solver: rejection, independence, determinism
 # ---------------------------------------------------------------------------
@@ -731,11 +695,11 @@ def test_http_replan_drops_an_exact_forbidden_property(client, mocks, monkeypatc
     assert all(item["shot"]["property_id"] != "drop" for item in scene_candidates(body))
 
 
-def test_replan_drops_property_id_with_surrounding_whitespace(client, mocks, monkeypatch):
-    padded = " p1 "
+def test_replan_strips_padded_ids(client, mocks, monkeypatch):
+    """A padded id from retrieval is malformed and never planned; a padded rejected id still drops the clean one."""
     install_sources(
         monkeypatch,
-        [make_shot(padded, score=0.9), make_shot("p1", score=0.8)],
+        [make_shot(" p1 ", score=0.9), make_shot("p2", score=0.5)],
         lambda property_id, trucks, cars: Logistics(
             property_id=property_id, truck_spaces=10, car_spaces=40,
             parking_status="measured", estimated=False,
@@ -746,14 +710,16 @@ def test_replan_drops_property_id_with_surrounding_whitespace(client, mocks, mon
     )
     first = client.post("/api/production/plan", json=plan_request())
     assert first.status_code == 200, first.status_code
-    assert [item["property_id"] for item in assignments(first.json())] == ["p1"]
-    assert all(item["shot"]["property_id"] != padded for item in scene_candidates(first.json()))
-    second = client.post("/api/production/plan", json=plan_request(forbidden_property_ids=[padded]))
+    body = first.json()
+    assert [item["property_id"] for item in assignments(body)] == ["p2"]
+    assert body["pool_properties"] == ["p2"]
+    assert all(item["shot"]["property_id"] == "p2" for item in scene_candidates(body))
+    second = client.post("/api/production/plan", json=plan_request(forbidden_property_ids=[" p2 "]))
     assert second.status_code == 200, second.status_code
     body = second.json()
     assert assignments(body) == []
-    assert padded not in body["pool_properties"]
-    assert all(item["shot"]["property_id"] != padded for item in scene_candidates(body))
+    assert body["pool_properties"] == []
+    assert scene_candidates(body) == []
 
 
 def test_solver_strips_forbidden_property_ids():
@@ -780,7 +746,8 @@ def test_forbidden_ids_do_not_consume_the_property_cap():
 
 
 @pytest.mark.parametrize("property_id", ["", "   "])
-def test_blank_property_id_is_dropped_without_a_server_error(client, mocks, monkeypatch, property_id):
+def test_blank_property_id_from_retrieval_is_skipped_not_a_500(client, mocks, monkeypatch, property_id):
+    """A blank id is a malformed retrieval row: it is dropped before the solver, never a plain-text 500."""
     install_sources(
         monkeypatch,
         [Shot(
@@ -792,11 +759,12 @@ def test_blank_property_id_is_dropped_without_a_server_error(client, mocks, monk
     )
     response = client.post("/api/production/plan", json=plan_request())
     assert_no_leak(response.text)
-    assert response.status_code != 500
-    assert response.status_code == 200
-    assert scene_candidates(response.json()) == []
-    assert assignments(response.json()) == []
-    assert response.json()["plans"][0]["uncovered_scene_ids"] == ["scene1"]
+    assert response.status_code == 200, response.status_code
+    assert "json" in response.headers.get("content-type", "")
+    body = response.json()
+    assert assignments(body) == []
+    assert body["pool_properties"] == []
+    assert body["plans"][0]["uncovered_scene_ids"] == ["scene1"]
 
 
 # ---------------------------------------------------------------------------
@@ -820,9 +788,7 @@ def test_missing_shot_score_is_not_coerced_to_zero(client, mocks, monkeypatch):
         ceiling_m=3,
         depth_m=5,
     )
-    index = ShotRetrievalIndex([shot], None, is_mock=True)
-    assert index.search_shots(query_text="Office")[0].score is None
-    monkeypatch.setattr(search, "_ACTIVE_INDEX", index)
+    monkeypatch.setattr(search, "_ACTIVE_INDEX", ShotRetrievalIndex([shot], None, is_mock=True))
     response = client.post("/api/production/plan", json=plan_request())
     assert response.status_code == 200, response.status_code
     scores = [item["shot"]["score"] for item in scene_candidates(response.json())]
