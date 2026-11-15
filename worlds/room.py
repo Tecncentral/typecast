@@ -375,7 +375,8 @@ def approved_faces(record: dict, manifest: dict, out: pathlib.Path) -> dict[int,
     handed to Atlas as a context photograph and the walk then carries that look.
     """
     found: dict[int, dict] = {}
-    for face in record.get("faces") or []:
+    # A set already built round approved faces keeps them as wipe_faces; a new look reuses them.
+    for face in record.get("wipe_faces") or record.get("faces") or []:
         if face.get("tan_h") != 1.0 or face.get("tan_v") != 1.0 or face.get("pitch_deg") != 0.0:
             continue
         if not isinstance(face.get("dressed"), str) or not (out / face["dressed"]).is_file():
