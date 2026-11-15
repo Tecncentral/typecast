@@ -59,6 +59,8 @@ def main(argv=None) -> int:
     parser.add_argument("--shot", action="append", default=[])
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--retry-rejected", action="store_true",
+                        help="one more edit for faces the decision model rejected")
     parser.add_argument("--max-scan-points", type=int, default=14)
     args = parser.parse_args(argv)
     shots = list(args.shot)
@@ -78,7 +80,8 @@ def main(argv=None) -> int:
             seen.add(key)
             sweeps.append(sweep)
     sweeps = sweeps[: args.max_scan_points]
-    todo = [s for s in sweeps if args.force or not (scan_point_dir(s["model_id"], s["sweep_id"]) / "strike.json").is_file()]
+    done = lambda s: (scan_point_dir(s["model_id"], s["sweep_id"]) / "strike.json").is_file()
+    todo = [s for s in sweeps if args.force or args.retry_rejected and done(s) or not done(s)]
     print(f"{len(sweeps)} scan points, {len(todo)} to strike ({len(todo) * 4} faces at most)")
     if args.dry_run:
         return 0
@@ -87,7 +90,8 @@ def main(argv=None) -> int:
     for n, sweep in enumerate(todo, 1):
         print(f"scan point {n}/{len(todo)}")
         try:
-            record = strike_scan_point(sweep, client, log=lambda m: print("  " + m), force=args.force)
+            record = strike_scan_point(sweep, client, log=lambda m: print("  " + m), force=args.force,
+                                       retry_rejected=args.retry_rejected)
         except StrikeError as error:
             print(f"  FAILED: {error}")
             if "429" in str(error) or "insufficient" in str(error).lower():

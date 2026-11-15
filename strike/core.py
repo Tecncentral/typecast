@@ -215,19 +215,33 @@ def strike_face(original: Image.Image, client: OpenAIClient, *, force: bool = Fa
 
 
 def strike_scan_point(sweep: dict, client: OpenAIClient, *, log: Callable[[str], None] = print,
-                      force: bool = False) -> dict:
-    """All horizon faces at one scan point -> cache/strike/<model>/<sweep>/strike.json + struck_<heading>.jpg."""
+                      force: bool = False, retry_rejected: bool = False) -> dict:
+    """All horizon faces at one scan point -> cache/strike/<model>/<sweep>/strike.json + struck_<heading>.jpg.
+
+    With retry_rejected, faces already struck or empty are kept and only rejected faces get one new edit.
+    """
     out = scan_point_dir(sweep["model_id"], sweep["sweep_id"])
     out.mkdir(parents=True, exist_ok=True)
+    previous = {}
+    if retry_rejected and (out / "strike.json").is_file():
+        try:
+            previous = {f["heading_deg"]: f for f in json.loads((out / "strike.json").read_text(encoding="utf-8"))["faces"]}
+        except (OSError, ValueError, KeyError, TypeError):
+            previous = {}
     faces = []
     for face in sorted(sweep["faces"], key=lambda f: f["heading_deg"]):
         heading = int(round(float(face["heading_deg"]))) % 360
+        if previous.get(heading, {}).get("status") in {"struck", "already_empty"}:
+            faces.append(previous[heading])
+            continue
+        # A rejected face was already judged furnished, so it goes straight to a new edit.
+        face_force = force or (retry_rejected and previous.get(heading, {}).get("status") == "rejected")
         path = ROOT / str(face["image_path"]).lstrip("/")
         if not path.is_file():
             faces.append({"heading_deg": heading, "status": "missing_source"})
             continue
         started = time.time()
-        result = strike_face(Image.open(path).convert("RGB"), client, force=force)
+        result = strike_face(Image.open(path).convert("RGB"), client, force=face_force)
         image = result.pop("image", None)
         record = {"heading_deg": heading, **result, "seconds": round(time.time() - started, 1)}
         if image is not None:
