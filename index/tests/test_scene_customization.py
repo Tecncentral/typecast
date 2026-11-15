@@ -84,3 +84,27 @@ def test_unreadable_indexed_frame_is_a_404(tmp_path, monkeypatch):
     assert posts == []
     assert source.read_bytes() == before
     assert not (tmp_path / 'cache/customizations').exists()
+
+
+def test_gemini_provider_setting_routes_the_edit_to_gemini(tmp_path, monkeypatch):
+    from agent import image_edit
+    from strike import core
+    monkeypatch.setenv('TYPECAST_ALLOW_VISION_UPLOAD', '1')
+    monkeypatch.setenv('TYPECAST_IMAGE_PROVIDER', 'gemini')
+    monkeypatch.setattr(custom, 'ROOT', tmp_path)
+    source = tmp_path / 'cache/views/source.png'; source.parent.mkdir(parents=True)
+    Image.new('RGB', (1024, 768), 'blue').save(source)
+    monkeypatch.setattr(custom, 'get_active_index', lambda: SimpleNamespace(is_mock=False))
+    monkeypatch.setattr(custom, 'get_shot', lambda _: SimpleNamespace(image_path='cache/views/source.png'))
+    monkeypatch.setattr(core, 'OpenAIClient', lambda: pytest.fail('OpenAI must not be called when Gemini is selected'))
+    buffer = io.BytesIO(); Image.new('RGB', (1024, 1024), 'green').save(buffer, 'PNG')
+    calls = []
+    monkeypatch.setattr(image_edit, '_gemini', lambda png, prompt, size, model: calls.append((prompt, size)) or buffer.getvalue())
+    response = custom.render_scene('s', 'Add a desk')
+    assert calls and 'Add a desk' in calls[0][0] and calls[0][1] == '1024x1024'
+    with Image.open(custom.image_path(response['image_url'].split('/')[-1][:-4])) as image:
+        assert image.getpixel((0, 50)) == (0, 128, 0)
+    monkeypatch.setattr(image_edit, '_gemini', lambda *a: (_ for _ in ()).throw(image_edit.ImageEditError('Gemini HTTP 500')))
+    with pytest.raises(HTTPException) as err:
+        custom.render_scene('s', 'Add a desk')
+    assert err.value.status_code == 502

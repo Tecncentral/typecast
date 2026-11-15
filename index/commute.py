@@ -84,7 +84,7 @@ def route_commutes(origin, properties, *, mock=False):
         try:
             response = httpx.get(f"{base}/table/v1/driving/{coords}",
                                  params={"sources": "0", "annotations": "duration,distance"},
-                                 headers={"User-Agent": "Typecast-HackPrinceton/1.0 (https://github.com/Tecncentral/typecast)"},
+                                 headers={"User-Agent": "route-table-client/1.0"},
                                  timeout=12, follow_redirects=False)
             response.raise_for_status()
             data = response.json()

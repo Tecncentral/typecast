@@ -43,25 +43,34 @@ def render_scene(shot_id: str, instruction: str):
         raise HTTPException(429, "Another image is being generated; wait before requesting another")
     try:
         from strike.core import OpenAIClient, StrikeError, EDIT_MODEL
-        try:
-            client = OpenAIClient()
-        except StrikeError:
-            raise HTTPException(503, "Configured image provider unavailable") from None
+        from agent import image_edit
+        # Follow the app-wide image provider: with TYPECAST_IMAGE_PROVIDER=gemini the edit goes to Gemini,
+        # like the other reimagine chats; otherwise OpenAI with TYPECAST_DRESS_MODEL as before.
+        gemini = image_edit.provider() == "gemini"
+        client = None
+        if not gemini:
+            try:
+                client = OpenAIClient()
+            except StrikeError:
+                raise HTTPException(503, "Configured image provider unavailable") from None
         prompt = ("Create a film director's imagined scene customization of this exact source room. "
                   "Preserve the camera position, walls, doors, windows and architecture as much as possible. "
                   "Furniture, props, character stand-ins, lighting, wardrobe, era and mood may change as requested. "
                   "This is concept art, never evidence of physical fit. No captions, logos or watermarks. "
                   "Director request: " + instruction)
         try:
-            body = client._post("/images/edits", files={"image": ("source.png", payload, "image/png")},
-                                data={"model":os.environ.get("TYPECAST_DRESS_MODEL", EDIT_MODEL),
-                                      "prompt":prompt, "size":"1024x1024", "quality":"medium", "n":"1"}, timeout=300)
-            raw = base64.b64decode(body["data"][0]["b64_json"], validate=True)
+            if gemini:
+                raw = image_edit.edit_image(payload, prompt, "1024x1024")[0]
+            else:
+                body = client._post("/images/edits", files={"image": ("source.png", payload, "image/png")},
+                                    data={"model":os.environ.get("TYPECAST_DRESS_MODEL", EDIT_MODEL),
+                                          "prompt":prompt, "size":"1024x1024", "quality":"medium", "n":"1"}, timeout=300)
+                raw = base64.b64decode(body["data"][0]["b64_json"], validate=True)
             with Image.open(io.BytesIO(raw)) as generated:
                 rendered = generated.convert("RGB")
             if max(rendered.size) > 4096:
                 raise ValueError("Image too large")
-        except (StrikeError, ValueError, KeyError, IndexError, TypeError, OSError):
+        except (StrikeError, image_edit.ImageEditError, ValueError, KeyError, IndexError, TypeError, OSError):
             raise HTTPException(502, "Image provider did not return a usable preview; original retained") from None
         draw = ImageDraw.Draw(rendered)
         draw.rectangle((0,0,rendered.width,34),fill="#101212")

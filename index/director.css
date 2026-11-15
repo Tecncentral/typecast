@@ -418,6 +418,7 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .impact-s { font-size: 12px; line-height: 1.45; color: var(--text); margin: 0; }
 .impact-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; line-height: 1.45; color: var(--measured); }
 .impact-list li + li { margin-top: 2px; }
+.impact-note { grid-column: 1 / -1; margin: 0; padding: 6px 10px; border-left: 3px solid var(--accent); font-size: 12px; line-height: 1.4; color: var(--text); background: var(--surface); }
 #lvsSection { margin: 14px 0; }
 #lvsSection > summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
 #lvsResult h3 { color: var(--accent); font-size: 17px; line-height: 1.35; margin: 6px 0 8px; }
