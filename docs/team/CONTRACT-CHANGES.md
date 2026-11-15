@@ -1,5 +1,20 @@
 # Contract changes
 
+## Producer recce memo / prospective pilot case — November 15, 2026
+
+`index/producer-brief.js` exposes `TypecastProducerBrief.normalizeCase`, `renderHtml`, `renderText`, `exportJson`, and `importCase` (UMD/Node). Input is a bounded allowlisted `{version:1, project:{name,reviewer,decision,date}, plan:{mode,current,fingerprint,sceneCount,covered,locations,moves,propertyIds,unknowns,constraintsSummary,sceneAssignments}, budget:{assumptions,result}, pilot:{baselineUnits,actualUnits,baselineCost,actualCost,source,notes}}`. Scene assignment keys accept camelCase or existing snake_case identifiers and normalize to camelCase. Financial fields follow the additive economics result contract; optional `assumptions.routeMinutes` records the selected one-way estimate without an origin coordinate. Rendered memos include the units, rates, mileage, travel, crew and avoidability inputs needed to interpret the projection.
+
+All exports require caller-recomputed `plan.current===true` and an opaque plan fingerprint (not raw constraints JSON). Imports are size-bounded, normalized, immutable and forcibly `plan.current=false`; importing never makes saved financial results or reported pilot outcomes source truth. Rebuild the current plan and recompute budget before rendering/export. Unknown fields, source images/raw rows and structured origin coordinates are omitted. Blank pilot values normalize to null; no causal savings percentage is inferred. Financial outputs remain projected, pilot entries remain producer-reported, and the memo explicitly leaves filming permission and post-event data rights unresolved. HTML text is escaped; recognizable credentials in allowed text are rejected without echoing values.
+
+## Production planning / business decision additions — November 15, 2026
+
+Coordinated in PR #43, additive to the shared production router; existing agent tools reuse `PlanRequest` and old clients omit new fields unchanged. No change to Property/Shot/Logistics or dependency locks.
+
+- `POST /api/production/plan`: optional `commute: {lat:number -90..90, lon:number -180..180, max_minutes:number 5..180}`. Degrees and one-way minutes; finite, booleans rejected. Present enables a hard road-time filter; unknown/unreachable routes exclude candidates. Response adds `commute_limit_minutes:number|null` and candidate `commute: {status,minutes:number|null,miles:number|null,source,traffic:false,checked_at?,note?}|null`. No origin is returned or persisted in project exports/drafts. A filtered request considers up to 24 retrieved properties total. Old top-three-per-scene behavior remains without it.
+- `POST /api/production/customize-image`: `{shot_id, instruction (1..2000 nonblank chars), confirm_image_upload:true}`. Existing upload env opt-in, real index and configured image provider required. Returns `{image_url, source_shot_id, label, kind:'imagined-single-frame', geometry_verified:false}`. Private no-store image route is UUID-token scoped. Source and project takes remain unchanged; cache ignored. No automatic regeneration or fake fallback.
+- Brainstorm UI now uses its existing 2000-character backend limit; output schema unchanged. Approved creative notes are saved as unrendered suggestions. Undo restores prior notes unless subsequently edited by the user.
+- Cost arithmetic is browser-local USD scenario math, not a factual savings API. Day-rate preset cites the applicable commercial reference; assumed eliminated days remain editable. No dependency added. `web/index.html` receives only an additive production-planner link.
+
 Baseline: contracts/schemas.py and schemas.ts at 6928661. Accepted additive changes are recorded below.
 
 For each proposal record owner, timestamp, fields/signatures, null semantics, producer/consumer lanes, fixture updates and migration. Integrator coordinates all affected consumers before merging. Prefer additive fields with defaults; never change coordinate order or units silently.
@@ -88,6 +103,43 @@ legacy `[lat,lon]` ring into the matching unannotated image. It rejects unsuppor
 or out-of-bounds geometry and falls back to revealing the supplied annotated
 aerial unchanged. No new polygon or building-centroid claim is inferred. No
 existing response schema or endpoint behavior changes.
+
+
+## Director project JSON: production decisions (client-only, additive) - 2026-11-14
+
+Owner: lane-a (Director). Producer and consumer: `index/director.js` and `index/director-project.js`; no backend, `contracts/schemas.py` or TypeScript change, no coordinate or unit change.
+- Optional per-scene `location_choice`: `{shot_id, property_id, from_shot_id, from_property_id, staging_reviewed}`. Identifiers match `^[\w.:-]+$` (<=120), `staging_reviewed` is a required boolean; requires `evidence.frame`. Meaning: the user swapped this scene to another candidate; `staging_reviewed:false` means the staging was carried over and not verified on the new frame.
+- Optional per-scene `notes`: `{dressing, group}`; `dressing` <=600 characters (control characters stripped on import), `group` <=12 characters `[A-Za-z0-9_-]`. User text only; never sent to a model.
+- Optional per-variant `origin: "authored-sample"` (already recorded in the sample work) is the only accepted origin value.
+- Null semantics: absent means none; old files import unchanged. A saved choice is restored only if the same exact frame is an eligible candidate in the fresh plan response; otherwise the staging is retained for review. Rejections are reset by import, so none can leak back. Top-level `locations`, `company_moves` and `mean_similarity` are null (with `plan_note`) when a hand swap exists.
+- Migration: none required; files without these fields behave as before.
+
+
+## Director project JSON: community planning and local drafts (client-only, additive) - 2026-11-15
+
+Owner: lane-a (Director). Producer/consumer: `index/director.js`, `index/director-project.js`; no backend, `contracts/` or coordinate/unit change.
+- Optional top-level `mode`: only the exact string `"community"` is accepted (absent means film; any other value is refused). Optional `brief`: `{reviewer<=40, date<=20, notes<=600}`; optional `needs[]` (<=8, unique `scene_id` that exists): `{scene_id, requested_count: integer 0..100000 or null, note<=600}`; optional `sites[]` (<=48, unique `scene_id`+`property_id`, both id-pattern checked): `{checks: {permission|capacity|exits|access|toilets|utilities|hazards: {state: unknown|ok|issue, note<=200}}, verified: {capacity: integer, source<=80} (kept only with a non-empty source), tasks[] (<=6): {text 1..120, owner<=40}}`. Unknown check keys, states, extra shapes and duplicates are refused; control characters are stripped.
+- Meaning: all values are human-reported by the coordinator and never source-measured; `ok` is never verification. On import they are restored with `ok` marked "restored; re-verify". Community scenes export `variants: null`.
+- Local draft (browser storage, not a file contract): keys `typecast.director.draft.v1.film|community` and `typecast.director.draft.optout`; value `{v:1, mode, script, constraints{maxLoc,trucks,cars,reqAvail}, project (this schema, evidence reduced to frame identifiers), saved_at}`; <=300 KB; anything else is discarded.
+- Migration: none; old files import unchanged.
+
+
+### Amendment (independent review) - 2026-11-15
+- `sites[].verified` is now `{capacity: integer or null, source: string <=80, may be empty}` (null overall when both are empty): a capacity without a source, or a source without a number, is kept as incomplete input and is **not** treated as verified anywhere. Previously a number without a source was dropped.
+- Community files never restore film data: on import in community mode `variants`, `notes`, `location_choice` and review drafts are ignored.
+- Local draft value additionally carries `plan_script` (the script text the saved plan was built from). Unreadable or newer-version drafts are moved to `typecast.director.draft.v1.<mode>.unreadable` (one slot per mode, at most 400,000 characters) rather than deleted.
+- Internal only: community site records are keyed `site:<scene>|<property>` (ids never contain `|`), so ids containing colons round-trip intact.
+
+### Save the scene decision record (`v: 1`, commit `39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3`)
+
+- **Additive Project JSON / Draft Recovery Field (`scenes[].decision`):** Optional Film-mode object validated by `decisionOf` in `index/director-project.js` and produced by `TypecastChecks.decisionRecord` in `index/director-checks.js`. Absent in Community mode and omitted when no Save decision was applied.
+- **Shape & Bounds:**
+  - `v`: `1` (integer)
+  - `decided_at`: ISO timestamp string (`<= 30` chars)
+  - `original` / `revised`: `{ trucks: int 0..20, cars: int 0..200, require_available: boolean }`
+  - `before` / `after`: `null` or `{ shot_id, property_id, parking_status ('measured'|'estimated'|'unknown'), enough_parking (boolean|null), availability ('available'|'not_available'|'unknown'), area_m2 (number|null), ceiling_m (number|null), similarity (number 0..1|null) }`
+  - `scope`: `'whole_plan'`, `totals_recalculated`: boolean, `moved_scenes`: int `0..8`, `differences`: array of `<= 8` strings (`<= 240` chars), `unresolved`: array of `<= 8` strings (`<= 200` chars).
+- **Trust Boundary:** Treated strictly as a historical review note in UI and Shoot pack exports; re-importing re-queries `/api/production/plan` and never promotes cached `decision` fields into current source evidence.
 
 ## Crew vehicles and CoStar recorded parking — 2026-11-14
 

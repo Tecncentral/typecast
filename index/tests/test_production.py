@@ -94,6 +94,37 @@ def candidates(body):
     return [candidate for scene in body["scenes"] for candidate in scene["candidates"]]
 
 
+def test_commute_constraint_changes_actual_solver_eligibility(offline, monkeypatch):
+    from index import commute
+    monkeypatch.setattr(commute, "route_commutes", lambda *a, **kw: {
+        "p_available": {"status":"estimated", "minutes":30, "miles":12},
+        "p_unknown": {"status":"estimated", "minutes":50, "miles":20},
+        "p_unavailable": {"status":"unknown", "minutes":None, "miles":None},
+    })
+    req=plan_request()
+    req["commute"]={"lat":34.0,"lon":-118.0,"max_minutes":30.0}
+    r=offline.client.post('/api/production/plan', json=req)
+    assert r.status_code==200
+    rows={c["shot"]["property_id"]:c for c in candidates(r.json())}
+    assert rows["p_available"]["eligible"] is True
+    assert rows["p_unknown"]["eligible"] is False
+    assert rows["p_unavailable"]["eligible"] is False
+    assert all(a["property_id"]=="p_available" for p in r.json()["plans"] for a in p["assignments"])
+
+
+def test_commute_can_find_nearby_fourth_property_after_higher_visual_matches_are_excluded(offline, monkeypatch):
+    from index import commute
+    offline.shots.append(shot('p_fourth',.7))
+    offline.properties['p_fourth']=property_record('p_fourth')
+    offline.logistics['p_fourth']=Logistics(property_id='p_fourth',truck_spaces=4,car_spaces=40,parking_status='estimated',estimated=True)
+    monkeypatch.setattr(commute,'route_commutes',lambda *a,**kw:{pid:{'status':'estimated','minutes':10 if pid=='p_fourth' else 60,'miles':1}
+                        for pid in offline.properties})
+    req=plan_request(); req['commute']={'lat':34.,'lon':-118.,'max_minutes':30.}
+    r=offline.client.post('/api/production/plan',json=req)
+    assert r.status_code==200
+    assert r.json()['plans'][0]['assignments'][0]['property_id']=='p_fourth'
+
+
 def assignments(body):
     return [assignment for plan in body["plans"] for assignment in plan["assignments"]]
 

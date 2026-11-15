@@ -18,6 +18,7 @@ INDEX = ROOT / "index"
 @pytest.mark.parametrize('suite', [
     'index/tests/director_reel.test.js',
     'index/tests/director-project.test.cjs',
+    'index/tests/director-checks.test.cjs',
     'index/tests/director-audit.mjs',
     'web/tests/viewfinder.test.cjs',
     'web/tests/lib.test.mjs',

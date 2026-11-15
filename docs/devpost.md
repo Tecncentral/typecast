@@ -1,6 +1,8 @@
 # Typecast — cast the space, check the shoot
 
-Submission draft for human review. Main-track intent: **Entertainment and Media**. Evidence-backed special-track candidates: **CoStar** and **LangChain**, subject to the current event criteria. No Peri, Photon, Amazon or ChatOverflow claim is made without human-confirmed evidence. World Labs is a tool we used, not a competition track.
+**Current positioning (November 15): Business/Enterprise replaces Entertainment/Media.** A location department compares real interiors and logistics, filters candidates by a one-way commute limit, reviews scene concepts and evaluates transparent production-cost scenarios. Buyer: producer or production company. [Business case](BUSINESS-CASE.md) supersedes older main-track and consultation wording below. Eliminating three entire billable commercial scout-manager days at the published 2026 $957.58/day minimum would avoid $2,872.74 gross labor before tool costs. Days avoided are assumptions; no production savings are measured. The filmmaker quote and quote permission are user-supplied; original consultation evidence and affiliation still need completion for Peri.
+
+Submission draft for human review. Main-track intent: **Business/Enterprise**. Sponsor candidates: **CoStar**, **LangChain deepagents** and **Amazon Best Practical AI Innovation** (any stack; no AWS claim), subject to current criteria. Peri requires original event-time consultation evidence and a business or club affiliation; the user has supplied a filmmaker quote and reported permission to quote it. No deployment, customer savings, endorsement or hands-on adoption is claimed. World Labs is a tool we used, not a competition track.
 
 Team Discord names: **[MEMBER 1] · [MEMBER 2] · [MEMBER 3] · [MEMBER 4]**.
 
@@ -79,7 +81,7 @@ Our social-good goal is free scouting for student crews and income opportunities
 
 | Target | Evidence available | Remaining confirmation |
 | --- | --- | --- |
-| **Entertainment and Media** | Creativity: casting and imagining sets. Utility: connected recce evidence and script grouping. Avidity: retained rehearsals, failure records and a benchmark. Charity: proposed student access and reuse of empty space. | Confirm the main-track selection. Social benefit remains a goal. |
+| **Business/Enterprise** | Creativity: connected location decisions and reviewed scene concepts. Utility: recce shortlist, road-time constraint and transparent cost scenarios. Avidity: retained rehearsals, failures and benchmark. Charity: lower-cost student production is a proposed benefit. | Select this single main track. Measure actual days avoided in a pilot; social benefit remains a goal. |
 | **CoStar** | CoStar/Matterport/Vexcel decisions, plan/scouts/skeptic, the inside-out source reveal and depth-guided consistent refurnishing. | Confirm current sponsor criteria and public-media permission. Wishlist correspondence describes our implementation; it does not assert sponsor acceptance. [Packet notes](HANDOFF.md#rubrics). |
 | **LangChain** | Actual `deepagents`, separate delegates, read-only skeptic, approval checkpoint and verified traces where available. | Confirm current sponsor criteria. |
 | **Peri, Photon, Amazon, ChatOverflow** | No eligibility claim in this draft. | Human evidence is required before adding any claim. Peri needs consultation evidence; Photon its required live-channel evidence; Amazon its service/eligibility requirements; ChatOverflow agent connection, enrollment and separate leaderboard requirements. |

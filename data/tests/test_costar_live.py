@@ -227,3 +227,20 @@ def test_older_join_without_listing_types_is_compatible(private_join):
     older.replace(path)
     prop = costar.get_property("1")
     assert prop.available and prop.listing_types == []
+
+
+def test_join_built_before_availability_evidence_reads_as_unknown(private_join):
+    import duckdb
+    _, path, _ = private_join
+    older = path.with_name("oldest.parquet")
+    with duckdb.connect() as connection:
+        connection.execute(
+            "COPY (SELECT * EXCLUDE(listing_types, availability_status, availability_reason, parking_flags) "
+            "FROM read_parquet(?)) TO ? (FORMAT PARQUET)", [str(path), str(older)])
+    older.replace(path)
+    prop = costar.get_property("1")
+    # The old boolean is not promoted to verified availability.
+    assert prop.available is False and prop.availability_status == "unknown"
+    assert "rebuild" in prop.availability_reason
+    assert prop.parking_flags == {} and prop.listing_types == []
+    assert isinstance(prop.lat, float) and isinstance(prop.lon, float)

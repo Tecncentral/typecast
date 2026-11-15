@@ -15,15 +15,18 @@
     if (focus) tab.focus();
     try { sessionStorage.setItem(KEY, tab.id); } catch { /* storage may be blocked */ }
   }
-  tabs.forEach((tab, i) => {
+  // Mode switching hides some tabs with CSS; keyboard navigation only visits the visible ones.
+  const visible = () => tabs.filter((t) => getComputedStyle(t).display !== 'none');
+  tabs.forEach((tab) => {
     tab.addEventListener('click', () => select(tab));
     tab.addEventListener('keydown', (e) => {
-      const step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
-      if (step) { e.preventDefault(); select(tabs[(i + step + tabs.length) % tabs.length], true); }
-      else if (e.key === 'Home') { e.preventDefault(); select(tabs[0], true); }
-      else if (e.key === 'End') { e.preventDefault(); select(tabs[tabs.length - 1], true); }
+      const vis = visible(), i = vis.indexOf(tab), step = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+      if (step) { e.preventDefault(); select(vis[(i + step + vis.length) % vis.length], true); }
+      else if (e.key === 'Home') { e.preventDefault(); select(vis[0], true); }
+      else if (e.key === 'End') { e.preventDefault(); select(vis[vis.length - 1], true); }
     });
   });
+  window.TypecastTabs = { select: (id) => { const t = document.getElementById(id); if (t) select(t); } };
   let saved = null;
   try { saved = sessionStorage.getItem(KEY); } catch { /* storage may be blocked */ }
   const start = tabs.find((t) => t.id === saved);

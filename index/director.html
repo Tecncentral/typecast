@@ -7,10 +7,11 @@
 <title>Typecast — Director's Room</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="director.css">
+<link rel="stylesheet" href="/app/vendor/leaflet/leaflet.css">
 <link rel="stylesheet" href="/app/viewfinder.css">
 <link rel="stylesheet" href="/app/viewfinder-compat.css">
 </head>
-<body>
+<body data-mode="film">
 <a class="skip-link" href="#stage">Skip to stage</a>
 <header class="masthead">
   <a class="wordmark" href="/app/" aria-label="Typecast location scouting">TYPECAST</a>
@@ -23,6 +24,16 @@
   </div>
 </header>
 <p id="status" class="status" role="status" aria-live="polite"></p>
+<div id="draftNotice" class="notice" hidden role="status"></div>
+<p id="commBanner" class="comm-banner" data-community-only role="note"><strong>Preparedness planning.</strong> Candidate-site review for volunteer and supply coordination before an incident. Not for real-time evacuation or emergency routing. Nothing here approves a site, shelter or capacity.</p>
+<div class="mode-bar">
+  <div class="mode-switch">
+      <div class="seg" role="group" aria-label="Planning mode">
+        <button id="modeFilm" type="button" aria-pressed="true">Film production</button><button id="modeComm" type="button" aria-pressed="false">Community planning</button>
+      </div>
+      <p id="modeHint" class="meta">Staging, locations and a shoot pack for a film.</p>
+    </div>
+</div>
 <main class="room">
   <aside class="col col-script" aria-label="Script and plan">
     <section class="block" aria-labelledby="h-script">
@@ -30,14 +41,28 @@
         <h2 id="h-script">Script</h2>
         <button id="demo" type="button" class="quiet">Load demo script</button>
       </div>
-      <label for="script" class="hint">One scene per line: <code>HEADING | description</code>. Up to 8 scenes.</label>
+      <label for="script" id="scriptHint" class="hint">Paste a screenplay (scenes start with INT. or EXT.) or write one scene per line: <code>HEADING | description</code>. Up to 8 scenes.</label>
       <textarea id="script" rows="6" spellcheck="false"></textarea>
+      <div id="parseSummary" class="parse-summary" aria-live="polite"></div>
       <div class="constraints">
         <label>Locations <select id="maxLoc"><option>1</option><option>2</option><option selected>3</option><option>4</option></select></label>
-        <label>Trucks <input id="trucks" type="number" min="0" max="20" value="0" inputmode="numeric"></label>
-        <label>Crew cars <input id="cars" type="number" min="0" max="50" value="0" inputmode="numeric"></label>
+        <label><span id="lblTrucks">Trucks</span> <input id="trucks" type="number" min="0" max="20" value="0" inputmode="numeric"></label>
+        <label><span id="lblCars">Crew cars</span> <input id="cars" type="number" min="0" max="50" value="0" inputmode="numeric"></label>
       </div>
       <label class="check"><input id="reqAvail" type="checkbox"> Require available listing</label>
+      <details id="commuteSection" class="commute-controls" data-film-only open>
+        <summary>Drive limit from home or production base</summary>
+        <p class="meta">Click the employee’s home or production base on the map; drag the pin to adjust. One starting point per comparison.</p>
+        <div class="row"><button id="originLA" type="button">Los Angeles</button><button id="originHouston" type="button">Houston</button><button id="useMyLocation" type="button">Use my location</button></div>
+        <div id="commuteMap" style="height:220px" aria-label="Choose a home or production base on the map"></div>
+        <p id="originText" class="meta">No starting pin selected.</p>
+        <details><summary>Enter coordinates instead</summary><label>Latitude<input id="originLat" type="number" min="-90" max="90" step="any"></label><label>Longitude<input id="originLon" type="number" min="-180" max="180" step="any"></label><button id="setCoordinates" type="button">Set starting point</button></details>
+        <label class="check"><input id="commuteOn" type="checkbox"> Only locations within this drive time</label>
+        <label for="driveLimit">Maximum drive <output id="driveLabel">45 min one way</output></label>
+        <input id="driveLimit" type="range" min="5" max="180" step="5" value="45">
+        <p id="commuteNote" class="meta" role="status"></p><p id="drivePreview" class="meta"></p>
+        <p class="meta">Road-time estimates use OSRM / OpenStreetMap, without live traffic. The circle is illustrative, not a drive-time boundary. Coordinates go to the routing service when you build a filtered plan. This starting pin is not saved in project exports or browser drafts.</p>
+      </details>
       <button id="build" class="primary wide" type="button">Build plan</button>
     </section>
     <section class="block" aria-labelledby="h-plan">
@@ -51,6 +76,53 @@
       <h2 id="h-scenes">Scenes</h2>
       <ol id="rail" class="rail"></ol>
     </section>
+    <section class="block" data-film-only aria-labelledby="h-cost">
+      <h2 id="h-cost">Production cost comparison</h2>
+      <div id="costResult" aria-live="polite">Build a complete plan to compare costs.</div>
+      <p class="meta">A cost scenario is not a customer outcome. Confirm which commitments can actually be canceled before treating time value as cash potentially avoided.</p>
+      <details><summary>Edit cost assumptions (USD)</summary>
+        <p class="meta">Starter values are illustrative, not industry benchmarks. Replace with your production’s actual costs. Scouting travel inputs are round trip; crew drive times are one way.</p>
+        <label>Scouting billing basis <select id="scoutBilling"><option value="hourly">Hourly / per visit</option><option value="daily">Billable scouting days</option></select></label>
+        <label>Day rate per scout ($)<input id="dailyScoutRate" type="number" min="0" max="1000000" step="0.01" value="957.58"></label>
+        <button id="commercialRatePreset" type="button">Example: 5 → 2 commercial scout days</button>
+        <p class="meta">Reference: <a href="https://www.ht399.org/app/uploads/2026/06/APPENDIX-A-Wage-Chart-Drivers-and-Locations-final-6.24.26.pdf" target="_blank" rel="noopener">Local 399 / AICP 2026 minimum: $957.58 per day</a> for covered location scout managers, effective June 28, 2026. This is a commercial agreement reference, not a universal studio or indie rate. Days eliminated are assumptions. No fringes or overtime included.</p>
+        <div id="costInputs" class="cost-inputs"></div>
+        <label>Scouting compensation <select id="scoutCommitment"><option value="unconfirmed">Unconfirmed — cash impact unknown</option><option value="avoidable">Incremental billable labor can be avoided</option><option value="committed">Salaried / guaranteed / already committed</option></select></label>
+        <label>Cancelable scout person-days / person-hours <input id="avoidableScoutUnits" type="number" min="0" max="1000000" step="0.5" placeholder="Blank: all modeled units, only if avoidable"></label>
+        <label>Vehicle cost commitment <select id="mileageCommitment"><option value="unconfirmed">Unconfirmed — cash impact unknown</option><option value="avoidable">Variable costs can be avoided</option><option value="committed">Fixed / already committed</option></select></label>
+        <label>Rate evidence <select id="costSourceStatus"><option value="assumption">Scenario assumption</option><option value="rate_reference">Published reference, applicability unconfirmed</option><option value="producer_quote">Producer-reported rate or quote</option></select></label>
+        <label>Rate / commitment source <input id="costSourceNote" maxlength="500" placeholder="Quote, applicable contract or assumption; no keys or private URLs"></label>
+        <label class="check"><input id="paidTravel" type="checkbox"> Include paid crew travel from this starting point</label>
+        <label>Crew travel compensation <select id="crewCommitment"><option value="unconfirmed">Unconfirmed — cash impact unknown</option><option value="avoidable">Incremental paid travel can be avoided</option><option value="committed">Guaranteed / already committed</option></select></label>
+      </details>
+      <details id="lvsSection" open><summary>Real location vs. standing set vs. building a set</summary>
+        <div id="lvsResult" aria-live="polite"></div>
+        <p id="lvsLease" class="meta" role="status"></p>
+        <div id="lvsInputs" class="cost-inputs"></div>
+        <p class="meta">Published prices and union minimums, checked November 15, 2026. Build days, crew size and materials are your assumptions; blank materials make the build figure a lower bound. A scenario, not a quote, a bid or a measured saving.</p>
+        <ul id="lvsSources" class="meta lvs-sources"></ul>
+      </details>
+      <details id="producerCase"><summary>Producer decision brief</summary>
+        <p class="meta">A planning record for the next physical scout. No booking, filming permission, signature or approval is created.</p>
+        <label>Project name <input id="producerName" maxlength="120" placeholder="Untitled production"></label>
+        <label>Reviewer <input id="producerReviewer" maxlength="120" placeholder="Name / production role"></label>
+        <label>Decision / reason <textarea id="producerDecision" maxlength="240" rows="3" placeholder="Why shortlist this plan? What must be checked before committing?"></textarea></label>
+        <details><summary>Prospective pilot record (optional)</summary>
+          <p class="meta">Enter actual records only when available. Baseline and outcome are producer-reported; a difference alone does not prove Typecast caused it. Leave unknown values blank.</p>
+          <label>Baseline scouting units<input id="pilotBaselineUnits" type="number" min="0" max="1000000" step="0.5"></label>
+          <label>Actual scouting units<input id="pilotActualUnits" type="number" min="0" max="1000000" step="0.5"></label>
+          <label>Baseline cost ($)<input id="pilotBaselineCost" type="number" min="0" max="1000000000" step="0.01"></label>
+          <label>Actual cost ($)<input id="pilotActualCost" type="number" min="0" max="1000000000" step="0.01"></label>
+          <label>Record source / dates<input id="pilotSource" maxlength="500" placeholder="Invoice, time sheet, estimate and dates"></label>
+          <label>Pilot notes<textarea id="pilotNotes" maxlength="1000" rows="3" placeholder="Scope changes, staffing guarantees and other explanations"></textarea></label>
+        </details>
+        <div class="row"><button id="exportProducerHtml" type="button">Download decision brief</button><button id="exportProducerJson" type="button">Save budget case JSON</button></div>
+        <label>Restore a budget case<input id="importProducerJson" type="file" accept=".json,application/json"></label>
+        <label class="check"><input id="keepProducerCase" type="checkbox"> Keep this budget case in this browser</label>
+        <button id="clearProducerCase" type="button" class="quiet">Clear stored budget case</button>
+        <p id="producerCaseStatus" class="meta" role="status"></p>
+      </details>
+    </section>
   </aside>
 
   <section class="col col-stage" aria-labelledby="h-stage">
@@ -60,7 +132,7 @@
         <h1 id="h-stage"><span id="stageTitle">Stage</span></h1>
         <p id="stageLoc" class="stage-loc">Build a plan to put real indexed rooms on the stage.</p>
       </div>
-      <div class="stage-modes">
+      <div class="stage-modes" data-film-only>
         <div class="seg" role="group" aria-label="Staging variant">
           <span class="seg-label" aria-hidden="true">Take</span>
           <button id="varA" type="button" aria-pressed="true">A</button><button id="varB" type="button" aria-pressed="false">B</button>
@@ -68,37 +140,75 @@
         <button id="cmpAB" type="button" aria-pressed="false" aria-controls="compareStrip" title="Read-only side-by-side preview of both takes on the same frame">Compare A/B</button>
       </div>
     </div>
+    <section id="impactStrip" class="impact" data-film-only aria-label="Business impact of this plan">
+      <div class="impact-tile" id="impactDriveTile"><p class="impact-k">Drive limit</p><p id="impactDrive" class="impact-v">Set a base</p><p id="impactDriveSub" class="impact-s" role="status">Pick a home or production base and a maximum drive, then Build plan.</p><ul id="impactDriveList" class="impact-list"></ul></div>
+      <div class="impact-tile"><p class="impact-k">Scouting scenario</p><p id="impactScout" class="impact-v">—</p><p id="impactScoutSub" class="impact-s" role="status">Build a complete plan to see the scenario.</p></div>
+      <div class="impact-tile"><p class="impact-k">Real location vs. building a set</p><p id="impactSet" class="impact-v">—</p><p id="impactSetSub" class="impact-s" role="status"></p></div>
+    </section>
     <div id="frameNotice" class="notice" hidden></div>
-    <div id="compareStrip" class="compare-strip" role="status" hidden></div>
+    <div id="swapNotice" class="notice" hidden role="status"></div>
+    <section id="savePanel" class="save-panel" hidden data-film-only aria-label="Save the scene"><h2>Save the scene</h2><div id="saveBody"></div></section>
+    <div id="compareStrip" class="compare-strip" role="status" hidden data-film-only></div>
     <div class="screen"><canvas id="stage" width="1280" height="720" tabindex="0" aria-label="Stage. Drag an actor body to set start, the ring to set end. Arrow keys nudge selected actor start, Shift plus arrows nudge end."></canvas></div>
     <div class="transport">
-      <div class="transport-play">
+      <div class="transport-play" data-film-only>
         <button id="play" type="button" class="primary">Play</button><button id="pause" type="button">Pause</button><button id="reset" type="button">Reset</button>
       </div>
-      <progress id="prog" max="1" value="0" aria-label="Playback progress"></progress><span id="clock" class="mono">0.0s</span>
+      <progress id="prog" max="1" value="0" aria-label="Playback progress" data-film-only></progress><span id="clock" class="mono" data-film-only>0.0s</span>
       <div class="transport-tools">
-        <button id="addActor" type="button">Add stand-in</button>
-        <button id="lookAround" type="button" disabled>Look around 360°</button>
+        <button id="addActor" type="button" data-film-only>Add stand-in</button>
+        <button id="lookAround" type="button" disabled data-film-only>Look around 360°</button>
+        <button id="saveBtn" type="button" aria-expanded="false" aria-controls="savePanel" disabled data-film-only>Save the scene</button>
         <button id="reject" type="button" class="danger" disabled>Reject location</button>
       </div>
     </div>
-    <p class="stage-caption"><span class="caption-label">Uncalibrated screen-space rehearsal</span><span class="caption-label">Geometric fit: unknown</span><span>Drag a stand-in to place it; drag its ring to set where it walks. Positions are on screen, not measured in the room.</span></p>
-    <h2 class="strip-head">Cut</h2>
-    <ol id="timeline" class="timeline" aria-label="Shot timeline"></ol>
+    <p id="stageCaption" class="stage-caption"><span class="caption-label">Uncalibrated screen-space rehearsal</span><span class="caption-label">Geometric fit: unknown</span><span>Drag a stand-in to place it; drag its ring to set where it walks. Positions are on screen, not measured in the room.</span></p>
+    <h2 class="strip-head" data-film-only>Cut</h2>
+    <ol id="timeline" class="timeline" aria-label="Shot timeline" data-film-only></ol>
     <div id="framePicker" class="frames"></div>
+    <details id="sceneChecks" class="checks" hidden><summary id="checksSummary">Fit check</summary><div id="checksBody"></div></details>
   </section>
 
   <aside class="col col-inspect" aria-label="Shot tools">
     <div class="tabs" role="tablist" aria-label="Shot tools">
-      <button type="button" role="tab" id="tab-shot" aria-controls="panel-shot" aria-selected="true">Shot</button>
-      <button type="button" role="tab" id="tab-alt" aria-controls="panel-alt" aria-selected="false" tabindex="-1">AI take</button>
+      <button type="button" role="tab" id="tab-site" aria-controls="panel-site" aria-selected="false" tabindex="-1" data-community-only>Site</button>
+      <button type="button" role="tab" id="tab-shot" aria-controls="panel-shot" aria-selected="true" data-film-only>Shot</button>
+      <button type="button" role="tab" id="tab-alt" aria-controls="panel-alt" aria-selected="false" tabindex="-1" data-film-only>AI take</button>
       <button type="button" role="tab" id="tab-evidence" aria-controls="panel-evidence" aria-selected="false" tabindex="-1">Evidence</button>
       <button type="button" role="tab" id="tab-export" aria-controls="panel-export" aria-selected="false" tabindex="-1">Export</button>
     </div>
 
-    <section id="panel-shot" class="panel" role="tabpanel" aria-labelledby="tab-shot">
+    <section id="panel-site" class="panel" role="tabpanel" aria-labelledby="tab-site" hidden data-community-only>
+      <h2 id="siteTitle">Site need</h2>
+      <label for="siteReq">Requested participants or volunteers <small>a request, not a capacity</small></label>
+      <input id="siteReq" type="number" min="0" max="100000" inputmode="numeric" placeholder="e.g. 40" disabled>
+      <details class="site-box" open><summary id="siteChecksSummary">Coordinator checks</summary><div id="siteChecks"></div></details>
+      <details class="site-box"><summary>Follow-ups and notes (optional)</summary>
+        <div id="siteTasks"></div>
+        <button id="taskAdd" type="button" class="quiet" disabled>Add follow-up</button>
+        <label for="siteNote">Notes for this need <small>600 characters</small></label>
+        <textarea id="siteNote" rows="3" maxlength="600" disabled></textarea>
+      </details>
+      <details class="site-box"><summary>Independently verified capacity (optional)</summary>
+        <label for="siteCap">Capacity <small>only from an inspection, permit or owner letter you hold</small></label>
+        <input id="siteCap" type="number" min="0" max="100000" inputmode="numeric" disabled>
+        <label for="siteCapSrc">Where it came from <small>required, 80 characters</small></label>
+        <input id="siteCapSrc" maxlength="80" autocomplete="off" disabled>
+        <p id="siteCapNote" class="meta">Shown beside the request in the brief. Typecast never calculates capacity from floor area, photos, listings or parking.</p>
+      </details>
+    </section>
+
+    <section id="panel-shot" class="panel" role="tabpanel" aria-labelledby="tab-shot" data-film-only>
       <h2>Shot · take <span id="varLbl">A</span></h2>
       <p id="originTag" class="origin-tag" hidden></p>
+      <details id="prodNotes" class="prod-notes">
+        <summary>Production notes for this scene (optional)</summary>
+        <label for="noteDressing">Dressing notes <small>your edits and approved AI suggestions, 600 characters</small></label>
+        <textarea id="noteDressing" rows="3" maxlength="600" placeholder="e.g. clear the counter, add a calendar"></textarea>
+        <label for="noteGroup">Continuity link <small>scenes with the same tag are one continuous setting</small></label>
+        <input id="noteGroup" maxlength="12" placeholder="e.g. A" autocomplete="off">
+        <p class="meta">Notes stay in this browser tab and your exports. They are never sent to a model.</p>
+      </details>
       <fieldset id="shotForm" disabled>
         <legend class="sr">Shot settings</legend>
         <label>Duration (s) <input id="dur" type="number" min="1" max="30" step="0.5"></label>
@@ -128,16 +238,24 @@
       </fieldset>
     </section>
 
-    <section id="panel-alt" class="panel" role="tabpanel" aria-labelledby="tab-alt" hidden>
-      <h2>Ask for another take</h2>
+    <section id="panel-alt" class="panel" role="tabpanel" aria-labelledby="tab-alt" hidden data-film-only>
+      <h2>Customize this scene</h2>
       <p class="meta">The model proposes a different staging for take B. Nothing changes until you apply it.</p>
       <label for="instr">Direction</label>
-      <textarea id="instr" rows="3" maxlength="600" placeholder="Have Mara enter from the window side and stop at the table."></textarea>
+      <textarea id="instr" rows="5" maxlength="2000" placeholder="Turn this into a tense reunion. Add two characters, have Mara enter from the window, change the dialogue and pace it over 12 seconds. Suggest props, lighting and set dressing as production notes."></textarea>
+      <p class="meta">Ask for characters, movement, dialogue, mood, props, lighting or set changes. Applied take B renders up to 3 generic stand-ins and 30 seconds. Props, lighting and set changes are creative suggestions here; use Look around 360° → AI dressing for image edits on a supported real scan.</p>
       <div class="row">
         <button id="micStart" type="button" class="quiet">Dictate</button><button id="micStop" type="button" class="quiet" disabled>Stop</button>
       </div>
       <p id="micNote" class="meta">Mic is off by default. If you start it, your browser's speech service may process the audio.</p>
       <div class="row"><button id="gen" type="button" class="primary">Generate alternative</button><button id="undo" type="button" disabled>Undo apply</button></div>
+      <details id="imageCustomize"><summary>Visualize props, lighting or characters</summary>
+        <p class="meta">Uses the direction above to make a single imagined image of the selected real frame. This does not modify the scan, take A/B, room geometry or source evidence. Provider usage is billed to your configured API account.</p>
+        <label class="check"><input id="imageConsent" type="checkbox"> Send this real frame and my direction to the configured OpenAI image provider</label>
+        <button id="customizeImage" type="button">Generate imagined image</button>
+        <p id="customImageStatus" class="meta" role="status"></p>
+        <div id="customImagePreview" hidden></div>
+      </details>
       <div class="sample-box">
         <p class="meta"><strong>No model?</strong> Load a fixed, pre-written sample alternative. It is not AI-generated and does not read the direction above.</p>
         <button id="loadSample" type="button">Load authored sample alternative</button>
@@ -152,19 +270,29 @@
     <section id="panel-evidence" class="panel" role="tabpanel" aria-labelledby="tab-evidence" hidden>
       <h2>Source evidence</h2>
       <div id="evidence"></div>
-      <a id="planner" class="link" target="_blank" rel="noopener" hidden>Show camera metric panel (heading 0° assumed, unverified)</a>
-      <div id="plannerOut" class="ev" hidden aria-live="polite"></div>
+      <a id="planner" class="link" target="_blank" rel="noopener" hidden data-film-only>Show camera metric panel (heading 0° assumed, unverified)</a>
+      <div id="plannerOut" class="ev" hidden aria-live="polite" data-film-only></div>
     </section>
 
     <section id="panel-export" class="panel" role="tabpanel" aria-labelledby="tab-export" hidden>
       <h2>Export</h2>
       <div class="export-grid">
-        <button id="expReel" type="button" class="primary" disabled>Record reel (WebM)</button><button id="cancelReel" type="button" hidden>Cancel reel</button>
+        <button id="expReel" type="button" class="primary" disabled data-film-only>Record reel (WebM)</button><button id="cancelReel" type="button" hidden data-film-only>Cancel reel</button>
         <button id="expPack" type="button" disabled>Shoot pack</button>
-        <button id="expPng" type="button">Stage PNG</button>
+        <button id="expPng" type="button" data-film-only>Stage PNG</button>
         <button id="expJson" type="button">Project JSON</button>
       </div>
-      <p id="reelNote" class="meta">Silent WebM of the current take, recorded in real time from real indexed frames. Keep this tab visible while it records.</p>
+      <p id="reelNote" class="meta" data-film-only>Silent WebM of the current take, recorded in real time from real indexed frames. Keep this tab visible while it records.</p>
+      <div id="briefFields" data-community-only>
+        <h3>Brief details (optional)</h3>
+        <label for="briefReviewer">Reviewer name</label><input id="briefReviewer" maxlength="40" autocomplete="off">
+        <label for="briefDate">Review date</label><input id="briefDate" maxlength="20" placeholder="e.g. 2026-11-14" autocomplete="off">
+        <label for="briefNotes">Overall notes <small>600 characters</small></label><textarea id="briefNotes" rows="3" maxlength="600"></textarea>
+      </div>
+      <h3>Local draft</h3>
+      <label class="check"><input id="draftOpt" type="checkbox" checked> Keep a local draft in this browser</label>
+      <button id="draftClear" type="button" class="quiet">Clear saved draft</button>
+      <p id="draftNote" class="meta"></p>
       <h3>Open a saved project</h3>
       <label for="impProject" class="hint">Project JSON. Evidence is rebuilt with the current constraints.</label>
       <input id="impProject" type="file" accept=".json,application/json">
@@ -173,7 +301,13 @@
   </aside>
 </main>
 <script src="director-reel.js"></script>
+<script src="director-checks.js"></script>
 <script src="director-project.js"></script>
+<script src="production-costs.js"></script>
+<script src="producer-brief.js"></script>
+<script src="location-vs-set.js"></script>
+<script src="director-planning.js"></script>
+<script src="director-impact.js"></script>
 <script src="director.js"></script>
 <script src="director-ui.js"></script>
 </body>
