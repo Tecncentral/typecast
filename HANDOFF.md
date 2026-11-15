@@ -2,19 +2,17 @@
 
 ## Visibility and cost pass, November 15 2026 ~03:15 ET (Claude Code) — read this first
 
-Stopped here because the usage limit was reached.
-
 ### 1. Goal
 User asked to make the distance control and cost savings visible, to find any lease-cost data (API key, spreadsheet, Vexcel, database) and tell the producer whether a real apartment beats building a set, and to check the hackathon tracks. Standing rule: every number real and sourced. Deadline 08:00 ET Nov 15.
 
 ### 2. Current state
-- Branch `ai/claude-business-integration`, PR #57 against `dev`. **This pass is committed locally and NOT pushed** (check `git status -sb`).
+- Branch `ai/claude-business-integration`, PR #57 against `dev`. This pass is pushed (`7e1acef`), so PR #57 includes it.
 - `/director` shows three tiles above the stage: Drive limit (for example "6 of 19 within 10 min", excluded counts, minutes and miles per selected property), Scouting scenario ($2,872.74 at the Local 399 rate by default), Real location vs. building a set (at least $29,881.44 less for one shoot day). Files: `index/director-impact.js`, `index/location-vs-set.js`, hook in `index/director-planning.js`, markup in `index/director.html`, styles in `index/director.css`.
 - Releasing the drive slider or toggling the filter rebuilds the plan. Drive section open by default.
 - New panel "Real location vs. standing set vs. building a set" with editable inputs, arithmetic, break-even line and source links.
 - New endpoint `GET /api/production/lease/{property_id}` in `index/production.py`: reads only `cache/rent/<id>.json`, unknown when absent.
 - `data/costar_tools.py` reads an older join (no availability columns) and reports availability unknown instead of failing. Before this, live mode on this laptop had no property data, so any drive limit excluded everything.
-- Verified: `python scripts/verify.py` 785 passed, 7 skipped; Node 306 tests, 305 pass, 1 skip. Live browser check with the real cache and real OSRM routing: 20 min gave 14 of 19, slider to 10 min rebuilt to 6 of 19 and moved the pick to a property 6 min away. No console errors, no paid provider call.
+- Verified: `python scripts/verify.py` 785 passed, 7 skipped; Node 306 tests, 305 pass, 1 skip. Live browser check with the real cache and real OSRM routing: 20 min gave 14 of 19, slider to 10 min rebuilt to 6 of 19 and moved the pick to a property 6 min away. No console errors, no paid provider call. Mock mode was also checked in the browser: tiles render, the lease line says mock fixtures carry no lease evidence, and a drive filter reports that routing is not called.
 
 ### 3. Key decisions and why
 - Data on this laptop: `..\owner1\cache` (real views, shot index, older `join.parquet` with 1,581 LA properties) is linked into this worktree's ignored `cache/`. There is no CoStar kit, no rent cache and no Vexcel key here, so lease evidence reads "unknown" on this machine.
@@ -24,14 +22,14 @@ User asked to make the distance control and cost savings visible, to find any le
 - Tracks: main Best Business and Enterprise Hack; sponsor tracks CoStar, LangChain deepagents, Amazon; Peri conditional. See `docs/TRACK-SELECTION.md`.
 
 ### 4. Open issues and risks
-- Not pushed; CI on PR #57 not checked.
+- CI on PR #57 not checked (`gh` is not installed here; look at the PR page).
 - Propmaker rate PDF returned 403; figure rests on two matching search readings.
 - Scripted Chromium QA suites in `..\manager-drafts\` not rerun; some may assume the old default cost inputs.
 - Mock mode never calls routing, so the drive tile shows real numbers only in live mode. A restored browser draft shows "Filter off" until the next Build plan.
 - A live server may still be running on port 8012 from this session.
 
 ### 5. Next steps
-1. Push the branch so PR #57 carries this work; check CI.
+1. Check CI on PR #57 and get a teammate review.
 2. On the laptop with the CoStar kit: `python -m data.build_join`, `python -m data.rent_precompute`, confirm the lease line shows a real rate.
 3. Rehearse the demo on real data: pin, drag the slider, read the three tiles with "scenario" wording.
 4. Put the numbers into the video script and Devpost text; submit before 08:00 ET.
