@@ -1,18 +1,19 @@
 # Photon iMessage line (branch `photon-imessage`)
 
-Updated 2026-11-15 05:20 ET. Stage 1 only: "Text your location scout" (conversational intake). Stages 2 and 3 are not started.
+Updated 2026-11-15 05:35 ET. Stage 1 only: "Text your location scout" (conversational intake). Stages 2 and 3 are not started.
 
 **Mode: mock only.** The line replies from `mocks/` data. `bridge/watch.mjs` refuses to start unless the API's `/health` says `mocks: true` with every source `mock`. No real CoStar or Vexcel data can go through Photon. Only images under `mocks/` are ever attached; anything else is dropped.
 
 **Not verified on a real phone.** Everything below was tested with fakes and against the real mock API. The Photon wiring follows the `spectrum-ts` 12.16.0 types (as `bridge/photon.mjs` does) and has not run against a live Photon project.
 
-## What is new (all new files; no existing bridge/ or web/ file is edited)
+## What is new (new files, plus one added line in `web/index.html` and two empty names in `.env.example`; no other existing file is edited)
 | File | What |
 | --- | --- |
 | `bridge/intake.mjs` | Pure intake functions plus `handleMessage`, which drives `core.mjs` unchanged. State lives in core's `sessions` map under the same conversation key. |
 | `bridge/intake.test.mjs` | 15 tests, mock data only. |
 | `bridge/watch.mjs` | Photon runner: sender allowlist, mock-mode check, mock-image attachments. |
-| `web/deeplink.js` + `web/tests/deeplink.test.mjs` | Fallback link hook (needs one added script line, see below). 5 tests. |
+| `web/deeplink.js` + `web/tests/deeplink.test.mjs` | Fallback link hook, loaded by the one script line in `web/index.html` (see below). 5 tests. |
+| `web/index.html` | One added line, approved and applied: `<script type="module" src="./deeplink.js"></script>`, after `strike.js`. Nothing else in the file changes. |
 | `.env.example` | Adds the names `PHOTON_ALLOWED_SENDERS` and `PHOTON_VIEWER_URL` (empty). `PHOTON_PROJECT_ID` and `PHOTON_PROJECT_SECRET` were already there. |
 
 ## How the intake works
@@ -33,13 +34,18 @@ Updated 2026-11-15 05:20 ET. Stage 1 only: "Text your location scout" (conversat
 2. **Does the backend return a saved thread's results?** No. `agent/app.py` has `POST /scout`, `GET /scout/stream` (needs a scene), `POST /refine` and `POST /approve`, and no read-only route for a saved thread.
 3. **So the fallback is used.** `web/deeplink.js` reads `?scene=<encoded>&autorun=1`, fills the scene box and presses the normal run button. The reply says "See them in 3D: <link> (opens the site and runs this search live)" because it is a second live search, not the same thread. The link is built from `PHOTON_VIEWER_URL`; if that is empty or not an http(s) URL, the link is left out. No public tunnel is opened.
 
-**Pending your go-ahead: one added line in an existing file.** `web/deeplink.js` is inert until `web/index.html` loads it. The exact diff:
+**Applied (approved): one added line in an existing file.** `web/index.html` now loads `web/deeplink.js`; without that line the hook would be inert. The change:
 
 ```
 --- a/web/index.html
 +++ b/web/index.html
-@@ -207,0 +208 @@
+@@ -205,5 +205,6 @@
+     <script type="module" src="./viewfinder-frame.js"></script>
+     <script type="module" src="./viewfinder-edit.js"></script>
+     <script type="module" src="./strike.js"></script>
 +    <script type="module" src="./deeplink.js"></script>
+   </body>
+ </html>
 ```
 
 ### Proposal for Owner 3: read-only saved-thread route
@@ -59,6 +65,7 @@ Add `GET /thread/{thread_id}` that returns the thread's last `ScoutResponse` wit
 - [ ] The example conversation end to end: "need a cop station for a night interrogation scene", "LA", "80s, kinda grimy", "3 trucks 30 cars".
 - [ ] One detailed first message that searches immediately.
 - [ ] "start over".
+- [ ] Tap the "See them in 3D" link from the text (needs `PHOTON_VIEWER_URL` set to an address the phone can reach): the site should open and start the same search live.
 - [ ] Check the first inbound message's text and sender on the phone (`textOf` and `message.sender.id` are unverified), and whether image attachments from a file path arrive.
 - If the intake is not working on a real phone by 5:45, fall back to the original Stage 1 (`bridge/photon.mjs`, a single scene text searches directly).
 
