@@ -91,32 +91,60 @@ export async function mountCity3D(host, lat, lon, { onStatus = () => {}, signal 
 
   let loaded = 0;
   let framed = false;
+
+  // The pin stands on the actual surface at the place: a ray cast straight down through the city mesh
+  // finds the roof or ground there. The stem and the ring on the surface are hidden by buildings in
+  // front, like any real object; only the small head draws over everything, so the place stays findable.
+  const amber = 0xedbd69;
+  const pin = new THREE.Group();
+  const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 14, 12), new THREE.MeshBasicMaterial({ color: amber }));
+  stem.position.y = 7;
+  const head = new THREE.Mesh(
+    new THREE.SphereGeometry(2.2, 20, 14),
+    new THREE.MeshBasicMaterial({ color: amber, depthTest: false, transparent: true, opacity: 0.95 }),
+  );
+  head.position.y = 15.5;
+  head.renderOrder = 10;
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(2.6, 3.6, 40),
+    new THREE.MeshBasicMaterial({ color: amber, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: -4 }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.25;
+  pin.add(stem, head, ring);
+  pin.visible = false;
+  scene.add(pin);
+  const ray = new THREE.Raycaster();
+  const down = new THREE.Vector3(0, -1, 0);
+
+  const anchor = (box) => {
+    ray.set(new THREE.Vector3(0, box.max.y + 50, 0), down);
+    const hit = ray.intersectObject(city, true)[0];
+    pin.position.set(0, hit ? hit.point.y : box.min.y, 0);
+    pin.visible = true;
+    return pin.position.y;
+  };
+
   const frameView = () => {
     city.updateMatrixWorld(true);
     const box = new THREE.Box3().setFromObject(city);
     if (box.isEmpty()) return;
-    const ground = box.min.y;
-    const span = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
-    controls.target.set(0, ground + 6, 0);
-    const d = Math.max(140, span * 0.75);
-    camera.position.set(d * 0.55, ground + d * 0.62, d * 0.65); // from the south-east, about 40 degrees down
-    camera.near = 1;
-    camera.far = d * 12;
-    camera.updateProjectionMatrix();
+    const surface = anchor(box);
     if (!framed) {
-      // Drawn over the city so the place stays marked behind buildings.
-      const material = new THREE.MeshBasicMaterial({ color: 0xedbd69, depthTest: false, transparent: true, opacity: 0.95 });
-      const pin = new THREE.Group();
-      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 55, 12), material);
-      stem.position.y = 27.5;
-      const head = new THREE.Mesh(new THREE.SphereGeometry(4.5, 20, 14), material);
-      head.position.y = 58;
-      pin.add(stem, head);
-      pin.position.set(0, ground, 0);
-      pin.renderOrder = 10;
-      stem.renderOrder = head.renderOrder = 10;
-      scene.add(pin);
+      const span = Math.max(box.max.x - box.min.x, box.max.z - box.min.z);
+      controls.target.set(0, surface, 0);
+      const d = Math.max(140, span * 0.75);
+      camera.position.set(d * 0.55, surface + d * 0.62, d * 0.65); // from the south-east, about 40 degrees down
+      camera.near = 1;
+      camera.far = d * 12;
+      camera.updateProjectionMatrix();
       framed = true;
+    } else {
+      // The centre tile may arrive after the first framing: follow the surface by moving the camera and
+      // its target together, so the viewing angle stays the same.
+      const shift = surface - controls.target.y;
+      controls.target.y += shift;
+      camera.position.y += shift;
     }
     controls.update();
     render();
