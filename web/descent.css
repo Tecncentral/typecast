@@ -133,7 +133,7 @@
   overflow: hidden;
 }
 html.descent-transition::view-transition-group(descent-frame) {
-  animation-duration: 650ms;
+  animation-duration: 950ms;
   animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
 }
 html.descent-transition::view-transition-old(descent-frame),

@@ -255,3 +255,214 @@ def main(argv=None) -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+# ================================================================ v2: seam-aware dressing through wide views
+# Each wall is dressed inside a 120-degree view of the room (the paper's "more context" lesson). Walls 0 and
+# 180 go first; walls 90 and 270 are then dressed in views whose outer strips are the already-dressed
+# neighbours, so furniture and style continue across every seam. Each output is registered back to its input
+# (FFT phase correlation, small scale search) before only the wall's own region is composited.
+import numpy as np  # noqa: E402
+
+from strike import pano  # noqa: E402
+
+VIEW_W, VIEW_H, VIEW_FOV, FACE = 2304, 1536, 120.0, 2048
+CORRIDOR_RULE = ("Keep corridors, hallways, doorways and walkways completely clear: place furniture only where the "
+                 "room has open floor, never inside a corridor or blocking a door.")
+Q_CORRIDOR = ("Is there any furniture or object placed inside a corridor, hallway, doorway or narrow walkway, "
+              "blocking the path?")
+BRIEFS.setdefault("la-office-confrontation",
+                  "A tense corporate office: a glass-walled meeting room with a long walnut table, black leather "
+                  "chairs, a whiteboard with diagrams, laptops and coffee cups, tall plants. Even office lighting.")
+
+
+def _wide_prompt(base: str, with_context: bool) -> str:
+    extra = ("This is one wide 120-degree photograph of the room. " + CORRIDOR_RULE)
+    if with_context:
+        extra += (" The outer left and right strips of this photograph are already dressed: keep them exactly as "
+                  "they are and continue their furniture, props, style and lighting seamlessly into the middle.")
+    return base.replace("No people, no text, no logos.",
+                        extra + " No people. Keep any existing signs and logos on the walls as they are.")
+
+
+def _edit_view(client: OpenAIClient, view: np.ndarray, prompt: str) -> np.ndarray:
+    import base64
+    buf = io.BytesIO()
+    Image.fromarray(np.clip(view, 0, 255).astype(np.uint8)).save(buf, "PNG")
+    body = client._post("/images/edits", files={"image": ("view.png", buf.getvalue(), "image/png")},
+                        data={"model": DRESS_MODEL, "prompt": prompt, "size": f"{VIEW_W}x{VIEW_H}",
+                              "quality": "high", "n": "1"}, timeout=500)
+    try:
+        img = Image.open(io.BytesIO(base64.b64decode(body["data"][0]["b64_json"]))).convert("RGB")
+    except (KeyError, IndexError, TypeError, ValueError, OSError):
+        raise StrikeError("The image edit returned no image") from None
+    return np.asarray(img.resize((VIEW_W, VIEW_H), Image.LANCZOS), np.float32)
+
+
+def _faces_for(model_id: str, sweep_id: str):
+    gen = (ROOT / "cache/shot-index/CURRENT").read_text().strip()
+    rows = json.loads((ROOT / "cache/shot-index" / gen / "shots.json").read_text())
+    rows = rows if isinstance(rows, list) else rows["shots"]
+    real = {}
+    for r in rows:
+        if r["model_id"] == model_id and r["sweep_id"] == sweep_id:
+            real[int(round(r["heading_deg"])) % 360] = np.asarray(
+                Image.open(ROOT / r["image_path"].lstrip("/")).convert("RGB").resize((FACE, FACE), Image.LANCZOS), np.float32)
+    start = dict(real)
+    srec = strike_dir_for(model_id, sweep_id) / "strike.json"
+    if srec.is_file():
+        for f in json.loads(srec.read_text())["faces"]:
+            if f.get("status") == "struck":
+                start[f["heading_deg"]] = np.asarray(Image.open(strike_dir_for(model_id, sweep_id) / f["struck"]).convert("RGB")
+                                                     .resize((FACE, FACE), Image.LANCZOS), np.float32)
+    return real, start
+
+
+def _gate(client: OpenAIClient, real: np.ndarray, dressed: np.ndarray, scene: str):
+    q_fits = ("Does the second image look like a believable, dressed and lived-in film set that fits the setting of this "
+              f"scene (any part of that space, such as a kitchen or entrance of a home): {' '.join(scene.split()[:40])}?")
+    kept, fits, blocked = client.predicates([Image.fromarray(real.astype(np.uint8)), Image.fromarray(np.clip(dressed, 0, 255).astype(np.uint8))],
+                                            [Q_KEPT, q_fits, Q_CORRIDOR])
+    ok = kept >= KEPT_MIN and fits >= 0.3 and blocked < 0.5
+    return ok, {"architecture_kept_p": round(kept, 3), "fits_scene_p": round(fits, 3), "corridor_blocked_p": round(blocked, 3)}
+
+
+def dress_scan_point_v2(target: dict, client: OpenAIClient, log=print) -> dict:
+    model_id, sweep_id, scene_id = target["model_id"], target["sweep_id"], target["scene_id"]
+    out = worlds_dressed_dir(model_id, sweep_id)
+    existing = json.loads((out / "dressed.json").read_text(encoding="utf-8")) if (out / "dressed.json").is_file() else {}
+    if existing.get("room") or existing.get("splat"):
+        raise StrikeError("This scan point carries a walkable Atlas set; refusing to replace it")
+    real, start = _faces_for(model_id, sweep_id)
+    if sorted(real) != [0, 90, 180, 270]:
+        raise StrikeError("Scan point lacks four horizon faces")
+    base = prompt_for(target["scene"], BRIEFS[scene_id])
+    dressed, meta = {}, {}
+
+    def first_round(h):
+        view, valid = pano.render_view(start, h, VIEW_FOV, VIEW_W, VIEW_H)
+        view = pano.fill_invalid(view, valid)
+        for attempt in (1, 2):
+            outv = _edit_view(client, view, _wide_prompt(base, with_context=False))
+            aligned, info = pano.register(view, outv)
+            face, cov = pano.view_to_face(aligned, h, VIEW_FOV, h, FACE)
+            ok, checks = _gate(client, real[h], face, target["scene"])
+            if ok or attempt == 2:
+                return h, face, ok, {**checks, "registration": info, "attempts": attempt, "context": "none"}
+
+    def second_round(h):
+        src = {(h - 90) % 360: dressed[(h - 90) % 360], h: start[h], (h + 90) % 360: dressed[(h + 90) % 360]}
+        view, valid = pano.render_view(src, h, VIEW_FOV, VIEW_W, VIEW_H)
+        view = pano.fill_invalid(view, valid)
+        bands = pano.band_mask(h, VIEW_FOV, VIEW_W, VIEW_H, 45.0).astype(np.float32)
+        for attempt in (1, 2):
+            outv = _edit_view(client, view, _wide_prompt(base, with_context=True))
+            aligned, info = pano.register(view, outv, weight=bands)
+            face, cov = pano.view_to_face(aligned, h, VIEW_FOV, h, FACE)
+            ok, checks = _gate(client, real[h], face, target["scene"])
+            if ok or attempt == 2:
+                return h, face, ok, {**checks, "registration": info, "attempts": attempt, "context": "dressed neighbours"}
+
+    with ThreadPoolExecutor(2) as pool:
+        for h, face, ok, m in pool.map(first_round, (0, 180)):
+            dressed[h], meta[h] = face, {**m, "ok": ok}
+    with ThreadPoolExecutor(2) as pool:
+        for h, face, ok, m in pool.map(second_round, (90, 270)):
+            dressed[h], meta[h] = face, {**m, "ok": ok}
+
+    staging = out.parent / "dressed.next"
+    if staging.exists():
+        shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    records = []
+    for h in (0, 90, 180, 270):
+        m = meta[h]
+        log(f"  face {h:3d}°: {'dressed' if m['ok'] else 'rejected'} (kept {m['architecture_kept_p']}, fits {m['fits_scene_p']}, "
+            f"corridor {m['corridor_blocked_p']}, shift {m['registration'].get('dx')},{m['registration'].get('dy')} "
+            f"x{m['registration'].get('scale')}, {m['context']})")
+        ledger({"task": "dress-v2", "model": DRESS_MODEL, "status": "dressed" if m["ok"] else "rejected", "heading": h,
+                "attempts": m["attempts"]})
+        if not m["ok"]:
+            continue
+        Image.fromarray(np.clip(dressed[h], 0, 255).astype(np.uint8)).save(staging / f"dressed_{h:03d}.jpg", "JPEG", quality=88)
+        Image.fromarray(real[h].astype(np.uint8)).resize((1024, 1024), Image.LANCZOS).save(staging / f"real_{h:03d}.jpg", "JPEG", quality=85)
+        records.append({"source_heading_deg": h, "yaw_deg": float(h), "pitch_deg": 0.0, "tan_h": 1.0, "tan_v": 1.0,
+                        "dressed": f"dressed_{h:03d}.jpg", "real": f"real_{h:03d}.jpg", **{k: v for k, v in m.items() if k != "ok"}})
+    if not records:
+        shutil.rmtree(staging)
+        raise StrikeError("No wall passed the checks; the existing set was left in place")
+    record = {"scene_id": scene_id, "scene": target["scene"], "prompt": _wide_prompt(base, False), "label": LABEL,
+              "created_at": datetime.now(timezone.utc).isoformat(), "model_id": model_id, "sweep_id": sweep_id,
+              "faces": records, "splat": None, "pipeline": "v2-wide-context",
+              "source": f"openai image edit ({DRESS_MODEL}) through 120-degree context views, registered, Decisions API checked"}
+    (staging / "dressed.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
+    if out.exists():
+        kind = "v1" if str(existing.get("source", "")).startswith("openai") else "atlas"
+        out.rename(out.parent / f"dressed-{kind}-archive-{datetime.now(timezone.utc):%Y%m%dT%H%M%S}")
+    staging.rename(out)
+    return record
+
+
+def stage_targets(ranks: int = 3) -> list[dict]:
+    """Scan points behind the top `ranks` cards of each demo scene in the latest stage rehearsal."""
+    import requests
+    demo = json.loads((ROOT / "cache" / "demo-set.json").read_text(encoding="utf-8"))
+    scenes = [(s["id"], s["scene"]) for s in demo["scenes"]]
+    out, seen = [], set()
+    for rank in range(ranks):
+        for engine in ("deep",):
+            root = ROOT / "cache" / "demo-checks" / "warm" / engine
+            run = sorted(p for p in root.iterdir() if p.is_dir())[-1]
+            for f in sorted(run.glob("scene-*.response.json")):
+                n = int(f.name.split("-")[1].split(".")[0]) - 1
+                if n >= len(scenes):
+                    continue
+                d = json.loads(f.read_text())
+                resp = d.get("response") if isinstance(d.get("response"), dict) else d
+                picks = resp.get("picks") or []
+                if rank >= len(picks):
+                    continue
+                for shot in (picks[rank].get("shots") or [])[:1]:
+                    sw = requests.get(f"http://localhost:8010/api/sweep/{shot['shot_id']}", timeout=60)
+                    if not sw.ok:
+                        continue
+                    sw = sw.json()
+                    key = (sw["model_id"], sw["sweep_id"])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append({"scene_id": scenes[n][0], "scene": scenes[n][1], "model_id": key[0], "sweep_id": key[1],
+                                "rank": rank + 1})
+    return out
+
+
+def main_v2(argv=None) -> int:
+    load_dotenv(ROOT / ".env", override=False)
+    parser = argparse.ArgumentParser(description="Seam-aware dressing through wide context views")
+    parser.add_argument("--ranks", type=int, default=3)
+    parser.add_argument("--only")
+    parser.add_argument("--include-roller-disco", action="store_true")
+    parser.add_argument("--parallel", type=int, default=3)
+    parser.add_argument("--max", type=int, default=99)
+    args = parser.parse_args(argv)
+    targets = stage_targets(args.ranks)
+    if args.include_roller_disco:
+        targets = [t for t in demo_targets() if t["scene_id"] == "la-roller-disco"] + targets
+    if args.only:
+        targets = [t for t in targets if t["scene_id"] == args.only]
+    targets.sort(key=lambda t: t.get("rank", 0))
+    targets = targets[: args.max]
+    print(f"{len(targets)} scan points, v2 with {DRESS_MODEL}")
+    client = OpenAIClient()
+
+    def run(t):
+        lines = []
+        try:
+            dress_scan_point_v2(t, client, log=lines.append)
+            return f"{t['scene_id']} rank {t.get('rank', '-')}:\n" + "\n".join(lines)
+        except StrikeError as error:
+            return f"{t['scene_id']} rank {t.get('rank', '-')}: SKIPPED {error}"
+    with ThreadPoolExecutor(args.parallel) as pool:
+        for text in pool.map(run, targets):
+            print(text, flush=True)
+    return 0

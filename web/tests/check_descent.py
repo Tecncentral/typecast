@@ -298,7 +298,7 @@ def assert_sequence(run, result, *, reduced=False, aerial=True, native=True):
         require(events[-1]["elapsed_ms"] <= 1600, "Reduced-motion sequence was not a short crossfade")
     elif live:
         require(run["viewTransitions"] == int(native), "Native View Transition/fallback choice is incorrect")
-        require(1800 <= events[-1]["elapsed_ms"] <= 5500, "Normal descent duration is outside the authored motion budget")
+        require(4500 <= events[-1]["elapsed_ms"] <= 9000, "Normal descent duration is outside the authored motion budget")
 
 
 def finish_row(page, row, result):

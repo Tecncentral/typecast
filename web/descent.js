@@ -5,6 +5,13 @@ const EASE = "cubic-bezier(0.16, 1, 0.3, 1)";
 const SVG = "http://www.w3.org/2000/svg";
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
+// Phase timings (ms). Slow enough that a viewer can read each source change: CoStar property on the
+// map, then the Vexcel aerial, then the Matterport room, then the card. About 6.5 s in total.
+const T = {
+  mapFly: 2000, mapHold: 2100,
+  aerialFade: 600, outlineDraw: 1500, aerialHold: 2000,
+  zoom: 1500, interiorFade: 900, interiorDelay: 450, interiorHold: 1700,
+};
 function wait(ms, signal) {
   return new Promise((resolve) => {
     const done = () => {
@@ -304,6 +311,7 @@ export class Descent {
     if (actual)
       run.borrowed = stageMap(this.mapHost, mapLayer, run.pick, {
         reducedMotion: run.reduced,
+        duration: T.mapFly,
       });
     if (run.borrowed) {
       label("Property location", "Click or press any key to skip");
@@ -311,7 +319,7 @@ export class Descent {
       await new Promise((resolve) => requestAnimationFrame(resolve));
       if (signal.aborted) return;
       if (!run.reduced) run.borrowed.fly();
-      await wait(run.reduced ? 200 : 900, signal);
+      await wait(run.reduced ? 200 : T.mapHold, signal);
     }
     if (signal.aborted) return;
     if (aerial) {
@@ -321,23 +329,23 @@ export class Descent {
       label("Vexcel aerial", `Parking ${parking} · aerial view`);
       this.notify(run, "aerial", { geometry: aerial.kind });
       this.animate(run, aerialLayer, [{ opacity: 0 }, { opacity: 1 }], {
-        duration: 200,
+        duration: run.reduced ? 200 : T.aerialFade,
       });
       if (outline)
         this.animate(
           run,
           outline,
           [{ strokeDashoffset: "1000" }, { strokeDashoffset: "0" }],
-          { duration: run.reduced ? 1 : 650, easing: "linear" },
+          { duration: run.reduced ? 1 : T.outlineDraw, easing: "cubic-bezier(0.65, 0, 0.35, 1)" },
         );
       else if (!run.reduced)
         this.animate(
           run,
           plane,
           [{ clipPath: "inset(0 100% 0 0)" }, { clipPath: "inset(0 0% 0 0)" }],
-          { duration: 650 },
+          { duration: T.outlineDraw },
         );
-      await wait(run.reduced ? 200 : 700, signal);
+      await wait(run.reduced ? 200 : T.aerialHold, signal);
     }
     if (signal.aborted) return;
     label(
@@ -360,20 +368,20 @@ export class Descent {
             { transform: "scale(1)", filter: "blur(0px)" },
             { transform: "scale(2.4)", filter: "blur(7px)" },
           ],
-          { duration: 650 },
+          { duration: T.zoom },
         );
       this.animate(
         run,
         interior,
         [{ transform: "scale(1.12)" }, { transform: "scale(1)" }],
-        { duration: 650 },
+        { duration: T.zoom },
       );
     }
     this.animate(run, interiorLayer, [{ opacity: 0 }, { opacity: 1 }], {
-      duration: run.reduced || !actual ? 200 : 470,
-      delay: run.reduced || !actual ? 0 : 180,
+      duration: run.reduced || !actual ? 200 : T.interiorFade,
+      delay: run.reduced || !actual ? 0 : T.interiorDelay,
     });
-    await wait(run.reduced || !actual ? 200 : 650, signal);
+    await wait(run.reduced || !actual ? 200 : T.interiorHold, signal);
     if (signal.aborted) return;
     if (actual)
       label(
