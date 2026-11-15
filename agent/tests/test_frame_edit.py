@@ -20,7 +20,8 @@ class Images:
 
     def _post(self, path, files, data, timeout):
         with Image.open(io.BytesIO(files["image"][1])) as image:
-            self.sent.append((image.size, image.getpixel((5, 5)), data["size"], data["model"], data["quality"]))
+            self.sent.append((image.size, image.getpixel((image.width // 2, image.height // 2)), data["size"],
+                              data["model"], data["quality"], image.getpixel((5, 5))))
         buf = io.BytesIO()
         Image.new("RGB", (1536, 1024), (10, 20, 30 + 40 * len(self.sent))).save(buf, "PNG")
         return {"data": [{"b64_json": base64.b64encode(buf.getvalue()).decode()}]}
@@ -76,3 +77,23 @@ def test_route_maps_errors(monkeypatch):
     assert c.post("/api/frame/edit", json={"message": "x", "edit_id": "zz"}).status_code == 422
     monkeypatch.setenv("TYPECAST_ALLOW_VISION_UPLOAD", "1")
     assert c.post("/api/frame/edit", json={"message": "x", "edit_id": "0" * 16}).status_code == 404
+
+
+def test_a_wide_frame_is_letterboxed_for_the_model_not_stretched(cache):
+    """A 2.39:1 frame goes on a 3:2 canvas with black bars, and only the frame comes back."""
+    class Echo(Images):
+        def _post(self, path, files, data, timeout):
+            with Image.open(io.BytesIO(files["image"][1])) as image:
+                self.sent.append((image.size, image.copy(), data["prompt"]))
+                buf = io.BytesIO()
+                image.convert("RGB").save(buf, "PNG")
+            return {"data": [{"b64_json": base64.b64encode(buf.getvalue()).decode()}]}
+    client = Echo()
+    out = fe.edit("night", shot_id="s1", image=_data_url((717, 300), (200, 40, 40)), client=client)
+    size, sent, prompt = client.sent[0]
+    assert size == (1536, 1024) and "letterboxing" in prompt
+    assert sent.getpixel((768, 20)) == (0, 0, 0) and sent.getpixel((768, 1003)) == (0, 0, 0)  # bars above and below
+    assert abs(sent.getpixel((768, 512))[0] - 200) <= 6  # the view itself, undistorted, in the middle
+    with Image.open(cache / out["versions"][0]["path"]) as saved:
+        assert saved.size == (717, 300)
+        assert all(abs(saved.getpixel(xy)[0] - 200) <= 12 for xy in [(358, 2), (358, 297), (2, 150), (714, 150)])

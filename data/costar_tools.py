@@ -16,6 +16,9 @@ USE_MOCKS = os.getenv("TYPECAST_USE_MOCKS", "1") == "1"
 _COLUMNS = ("property_id", "address", "city", "lat", "lon", "type", "year_built",
             "available", "size_sqft", "contact", "model_id", "availability_status",
             "availability_reason", "parking_flags", "listing_types")
+_LEGACY_OPTIONAL = ("availability_status", "availability_reason", "parking_flags")
+_LEGACY_REASON = ("This join predates availability evidence; rebuild with "
+                  "python -m data.build_join to verify availability.")
 
 
 def era_year_range(era: str) -> tuple[int, int]:
@@ -88,10 +91,23 @@ def _live(where: str = "TRUE", parameters: list | None = None, limit: int | None
             columns = {row[0] for row in connection.execute("DESCRIBE SELECT * FROM read_parquet(?)", [str(JOIN_PATH)]).fetchall()}
             if "listing_types" not in columns:
                 query = query.replace(",listing_types FROM", ",[]::VARCHAR[] AS listing_types FROM", 1)
+            # A join built before availability evidence existed stays readable: the missing
+            # facts are reported as unknown, never inferred from the older boolean.
+            legacy = [name for name in _LEGACY_OPTIONAL if name not in columns]
+            for name in legacy:
+                query = query.replace(f",{name},", f",NULL AS {name},", 1)
             rows = connection.execute(query, values).fetchall()
         recorded = recorded_parking()
-        return [Property(**dict(zip(_COLUMNS, row)), parking_spaces=recorded.get(str(row[0]), {}))
-                for row in rows]
+        properties = []
+        for row in rows:
+            fields = dict(zip(_COLUMNS, row))
+            if "availability_status" in legacy:
+                fields.update(available=False, availability_status="unknown",
+                              availability_reason=_LEGACY_REASON)
+            if fields.get("parking_flags") is None:
+                fields["parking_flags"] = {}
+            properties.append(Property(**fields, parking_spaces=recorded.get(str(row[0]), {})))
+        return properties
     except Exception:
         # Database errors may contain source values; expose only a repair hint.
         raise RuntimeError("Private CoStar join is invalid; rebuild with python -m data.build_join.") from None

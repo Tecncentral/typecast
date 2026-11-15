@@ -102,17 +102,21 @@ def building(lat: float, lon: float, *, mcp=None) -> dict:
     path = CACHE / f"{key}.json"
     if path.is_file():
         return json.loads(path.read_text(encoding="utf-8"))
-    from agent.vexcel_assistant import VexcelMCP
+    from agent.vexcel_assistant import AssistantError, VexcelMCP
     mcp = mcp or VexcelMCP()
     mcp.connect()
     result = mcp._rpc("tools/call", {"name": "structure_metadata_extract", "arguments": {
         "wkt": f"POINT({lon} {lat})", "buffer-meter": 25, "total-records": 5,
         "include": ["structures", "metadata", "calculated"]}}) or {}
     text = "".join(item.get("text", "") for item in result.get("content", []) if item.get("type") == "text")
+    # Only a readable feature collection is an answer. A tool error (or anything else) is a failure to
+    # report and retry later, never cached as "no building here".
     try:
-        features = json.loads(text).get("features", [])
+        features = None if result.get("isError") else json.loads(text).get("features")
     except (ValueError, AttributeError):
-        features = []
+        features = None
+    if not isinstance(features, list):
+        raise AssistantError("Vexcel did not return structure data for this place. Try again in a moment.")
     placed = [(placement(f, lat, lon), f) for f in features]
     placed = [((inside, d), f) for (inside, d), f in placed if d != float("inf")]
     if not placed:

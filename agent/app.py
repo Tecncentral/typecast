@@ -5,7 +5,7 @@ import os
 import pathlib
 import re
 from threading import Event as ThreadEvent
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
 from dotenv import load_dotenv
 
@@ -194,6 +194,53 @@ def frame_edit(req: FrameEditRequest):
         raise HTTPException(400, str(error)) from None
     except Exception:  # noqa: BLE001 - provider failures are reported generically
         raise HTTPException(502, "The image model could not edit this view right now.") from None
+
+
+class ShortlistPick(BaseModel):
+    property_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+    address: str = Field(default="", max_length=200)
+    lat: Optional[float] = Field(default=None, ge=-90, le=90)
+    lon: Optional[float] = Field(default=None, ge=-180, le=180)
+
+
+class ShortlistCostsRequest(BaseModel):
+    picks: list[ShortlistPick] = Field(min_length=1, max_length=10)
+    scene_sqft: float = Field(ge=100, le=1_000_000)
+    shoot_days: int = Field(ge=1, le=60)
+    # One-way minutes from a base in the same city; 10 hours is far beyond any local production base.
+    drive_minutes: dict[str, Annotated[float, Field(ge=0, le=600)]] = Field(default_factory=dict, max_length=10)
+
+
+class ShortlistCommutesRequest(BaseModel):
+    base: str = Field(pattern=r"^[a-z-]{1,40}$")
+    picks: list[ShortlistPick] = Field(min_length=1, max_length=24)
+
+
+@app.get("/api/shortlist/bases")
+def shortlist_bases():
+    from agent.shortlist_extras import BASES
+    return {"bases": [{"id": key, **value} for key, value in BASES.items()]}
+
+
+@app.post("/api/shortlist/costs")
+def shortlist_costs(req: ShortlistCostsRequest):
+    """Owner 2's cost comparison per pick, with each building's rent as a reference line."""
+    from agent.shortlist_extras import costs
+    try:
+        return costs([p.model_dump() for p in req.picks], req.scene_sqft, req.shoot_days, req.drive_minutes)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+
+
+@app.post("/api/shortlist/commutes")
+def shortlist_commutes(req: ShortlistCommutesRequest):
+    """One-way road minutes from a production base (OSRM), else a labelled straight-line distance."""
+    from agent.shortlist_extras import commutes
+    mock = set(runtime.source_modes().values()) == {"mock"}
+    try:
+        return commutes(req.base, [p.model_dump() for p in req.picks], mock=mock)
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
 
 
 class RefineRequest(BaseModel):

@@ -44,6 +44,13 @@ function capture(vf) {
   return out.toDataURL("image/jpeg", 0.9);
 }
 
+function viewKey(vf) {
+  const st = vf.state || {};
+  const round = (v) => (typeof v === "number" ? v.toFixed(3) : String(v));
+  return [vf.sweep?.shot_id || vf.shotId || "", round(st.yaw), round(st.pitch), round(st.lens), st.aspect?.id ?? "",
+    vf.dialog.classList.contains("is-clean")].join("|");
+}
+
 function build(vf) {
   const s = { open: false, editId: null, base: null, versions: [], selected: null, showing: "imagined", busy: false };
   const button = el("button", "vf-edit-open");
@@ -152,11 +159,18 @@ function build(vf) {
     button.classList.toggle("is-active", on);
     button.setAttribute("aria-pressed", String(on));
     if (on) {
-      if (!s.editId) {
+      // Edits belong to the view they started from. Opened on a different scan point, angle, lens or
+      // frame, the panel starts a new edit of what is on screen now.
+      const moved = s.editId && s.viewKey !== viewKey(vf);
+      if (!s.editId || moved) {
+        s.editId = null;
         s.base = capture(vf);
+        s.viewKey = viewKey(vf);
         s.versions = [];
         s.selected = null;
-        note.textContent = `Each message edits the latest version with ${window.__editModel || "the image model"}. The first message sends this view.`;
+        s.showing = "imagined";
+        note.textContent = (moved ? "This is a different view, so the next message starts a new edit. " : "")
+          + `Each message edits the latest version with ${window.__editModel || "the image model"}. The first message sends this view.`;
       }
       paint();
       input.focus();
@@ -199,13 +213,25 @@ function build(vf) {
   back.addEventListener("click", () => setOpen(false));
   form.addEventListener("submit", submit);
   vf.dialog.addEventListener("keydown", (e) => {
+    // Esc with the panel open closes only the panel, even while typing in it; the viewer stays open
+    // and the chain of versions is kept.
+    if (e.key === "Escape" && s.open) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      setOpen(false);
+      return;
+    }
     if (e.metaKey || e.ctrlKey || e.altKey || e.target instanceof HTMLInputElement) return;
     if (e.key.toLowerCase() === "r") {
       e.preventDefault();
       setOpen(!s.open);
-    } else if (e.key === "Escape" && s.open) {
+    }
+  }, true);
+  // A native <dialog> also closes on Esc through "cancel"; keep it open while the panel handles the key.
+  vf.dialog.addEventListener("cancel", (e) => {
+    if (s.open) {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       setOpen(false);
     }
   }, true);

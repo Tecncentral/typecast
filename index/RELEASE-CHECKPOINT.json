@@ -1,0 +1,56 @@
+{
+  "validated_commit": "ae5de6709c2238d8966db97cc844c3bd8204161d",
+  "save_scene_code_commit": "39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3",
+  "integrated_dev": "dd9a603",
+  "main_track": "Business/Enterprise",
+  "branch": "ai/director-production-decisions",
+  "pull_request": "https://github.com/Tecncentral/typecast/pull/43",
+  "mode": "mock/fixed",
+  "python": {
+    "passed": 693,
+    "skipped": 7
+  },
+  "node": {
+    "passed": 233,
+    "skipped": 1,
+    "failed": 0,
+    "todo": 0
+  },
+  "browser": {
+    "save_scene_checks": 33,
+    "save_scene_check_commit": "39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3",
+    "all_passed": true,
+    "positive_case": "SYNTHETIC intercepted complete plan; not real private data",
+    "default_fixtures": "honest non-result with unknown parking"
+  },
+  "business_browser": {
+    "checks": 19,
+    "all_passed": true,
+    "mode": "mock plus explicitly SYNTHETIC live-shaped model/image responses",
+    "paid_provider_calls": 0
+  },
+  "routing_probe": {
+    "public_coordinates_only": true,
+    "http_status": 200,
+    "estimated_minutes": 11.655,
+    "live_traffic": false,
+    "private_cache_acceptance": false
+  },
+  "cost_reference": {
+    "commercial_scout_manager_daily_usd": 957.58,
+    "assumed_days_avoided": 3,
+    "gross_potential_labor_avoided_usd": 2872.74,
+    "measured_customer_savings": false,
+    "source": "https://www.ht399.org/app/uploads/2026/06/APPENDIX-A-Wage-Chart-Drivers-and-Locations-final-6.24.26.pdf"
+  },
+  "paid_ai_providers_called": false,
+  "remaining": [
+    "real private-cache rehearsal",
+    "private-data commute filtering and live image-provider acceptance",
+    "GPU/splat walk acceptance",
+    "live model and production-tool trace",
+    "microphone",
+    "human submission"
+  ],
+  "publication": "Check PR remote head and CI for current published status; no PR merge into dev/main performed."
+}

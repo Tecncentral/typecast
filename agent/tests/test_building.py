@@ -77,3 +77,24 @@ def test_no_structure_is_reported_not_guessed(cache):
     record = bd.building(LAT, LON, mcp=FakeMCP([]))
     assert record == {"found": False, "reason": "Vexcel has no structure record within 25 m of this place."}
     assert bd.prompt_facts(record) == ""
+
+
+@pytest.mark.parametrize("reply", [
+    {"isError": True, "content": [{"type": "text", "text": "Upstream timeout"}]},
+    {"content": [{"type": "text", "text": "Internal error: rate limited"}]},
+    {"content": [{"type": "text", "text": json.dumps({"message": "Bad request"})}]},
+    {},
+])
+def test_a_vexcel_failure_is_reported_and_never_cached_as_no_building(cache, reply):
+    from agent.vexcel_assistant import AssistantError
+
+    class Failing(FakeMCP):
+        def _rpc(self, method, params):
+            self.calls += 1
+            return reply
+    mcp = Failing([])
+    with pytest.raises(AssistantError):
+        bd.building(LAT, LON, mcp=mcp)
+    assert list(cache.iterdir()) == []
+    good = FakeMCP([_feature(_square(0, 0, 10), 400.0, 1.0)])
+    assert bd.building(LAT, LON, mcp=good)["found"] is True and good.calls == 1

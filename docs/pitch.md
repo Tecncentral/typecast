@@ -1,5 +1,7 @@
 # Typecast: two-minute pitch
 
+**Current main track: Business/Enterprise.** Use the [business decision demo](BUSINESS-CASE.md#two-minute-businessenterprise-demonstration) for commute, scene customization and cost comparison. The earlier creative reveal below is supporting material. Say “$2,873 gross scouting labor potentially avoided if three billable commercial scout days are eliminated,” never “we saved a studio $2,873.”
+
 This is an authored rehearsal plan, not a recorded performance result. Use **Warehouse handoff** on the warmed stage server. The current stage warehouse run took **48.135 s deep / 9.398 s fixed** ([Job 8 stage report](team/status-lane-c.md)); rehearse against that observation, not a latency guarantee. The earlier **38.286 s** deep measurement remains in the [previous rehearsal](team/eval.md#demo-refresh-after-v2). Keep the actual engine, source mode and real progress visible.
 
 ## Two-minute beat sheet

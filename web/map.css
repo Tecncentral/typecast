@@ -616,3 +616,17 @@
     height: 280px;
   }
 }
+
+/* Drive time from the production base (budget.js) */
+.location-map__travel {
+  color: var(--map-muted);
+  font: 11px/1.4 ui-monospace, monospace;
+}
+.location-map__travel.is-far {
+  color: #ff5f57;
+}
+.location-map__pin--far {
+  opacity: 0.35 !important;
+  filter: grayscale(1);
+}
+
