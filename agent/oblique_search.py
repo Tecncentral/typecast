@@ -63,8 +63,9 @@ class PlaceScores(BaseModel):
 
 
 def image_model() -> tuple[str, str]:
-    return (os.getenv("TYPECAST_OBLIQUE_IMAGE_MODEL", "gpt-image-1-mini").strip(),
-            os.getenv("TYPECAST_OBLIQUE_IMAGE_QUALITY", "low").strip())
+    """(model, quality or provider) of the configured image editor (agent/image_edit.py)."""
+    from agent.image_edit import describe
+    return describe()
 
 
 def _distance_m(a: dict, b: dict) -> float:
@@ -241,9 +242,6 @@ def reimagine(search_id: str, index: int, direction: str, message: str, *, clien
     record = _load(search_id)
     history = chat(search_id, index, direction)
     source = ROOT / (history["versions"][-1]["path"] if history["versions"] else base["path"])
-    model, quality = image_model()
-    from strike.core import OpenAIClient
-    client = client or OpenAIClient()
     with Image.open(source) as image:
         image = image.convert("RGB").resize((1536, 1024), Image.LANCZOS)
         buf = io.BytesIO()
@@ -257,13 +255,11 @@ def reimagine(search_id: str, index: int, direction: str, message: str, *, clien
     prompt = (f"This is a real 45-degree aerial oblique photograph of a place in {record['city']}. {facts} "
               f"Change it as requested, photorealistic, keeping the same camera angle, lighting and every part "
               f"of the place the request does not mention. Request: {message}. No text, captions or logos.")
-    body = client._post("/images/edits", files={"image": ("oblique.png", buf.getvalue(), "image/png")},
-                        data={"model": model, "prompt": prompt, "size": "1536x1024", "quality": quality, "n": "1"},
-                        timeout=300)
+    from agent.image_edit import ImageEditError, edit_image
     try:
-        content = base64.b64decode(body["data"][0]["b64_json"])
-    except (KeyError, IndexError, TypeError, ValueError):
-        raise ProviderError("The image model returned no image") from None
+        content, model, quality = edit_image(buf.getvalue(), prompt, "1536x1024", client=client)
+    except ImageEditError as error:
+        raise ProviderError(str(error)) from None
     number = len(history["versions"]) + 1
     path = CACHE / search_id / f"{index}-{direction}-v{number}.jpg"
     with Image.open(io.BytesIO(content)) as edited:

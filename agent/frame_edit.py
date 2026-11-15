@@ -21,7 +21,6 @@ from pathlib import Path
 
 from PIL import Image
 
-from agent.oblique_search import image_model
 
 ROOT = Path(__file__).resolve().parents[1]
 CACHE = ROOT / "cache" / "frame-edits"
@@ -98,7 +97,6 @@ def edit(message: str, *, edit_id: str | None = None, shot_id: str | None = None
     source = ROOT / (history["versions"][-1]["path"] if history["versions"] else history["base"])
     width, height = history["size"]
     size = _size_for(width, height)
-    model, quality = image_model()
     with Image.open(source) as current:
         current = current.convert("RGB").resize(tuple(int(v) for v in size.split("x")), Image.LANCZOS)
         buf = io.BytesIO()
@@ -107,16 +105,11 @@ def edit(message: str, *, edit_id: str | None = None, shot_id: str | None = None
               "photorealistic, keeping the same camera position, lens, room geometry (walls, windows, doors, "
               "columns, ceiling, floor) and natural light, and every part of the room the request does not "
               f"mention. Request: {message}. No people unless asked. No text, captions or logos.")
-    if client is None:
-        from strike.core import OpenAIClient
-        client = OpenAIClient()
-    body = client._post("/images/edits", files={"image": ("view.png", buf.getvalue(), "image/png")},
-                        data={"model": model, "prompt": prompt, "size": size, "quality": quality, "n": "1"},
-                        timeout=300)
+    from agent.image_edit import ImageEditError, edit_image
     try:
-        content = base64.b64decode(body["data"][0]["b64_json"])
-    except (KeyError, IndexError, TypeError, ValueError):
-        raise EditUnavailable("The image model returned no image.") from None
+        content, model, quality = edit_image(buf.getvalue(), prompt, size, client=client)
+    except ImageEditError as error:
+        raise EditUnavailable(str(error)) from None
     number = len(history["versions"]) + 1
     path = folder / f"v{number}.jpg"
     with Image.open(io.BytesIO(content)) as edited:
