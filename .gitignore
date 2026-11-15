@@ -23,3 +23,5 @@ dist/
 *.parquet
 *.duckdb
 *.duckdb.wal
+# saved settings store (hashed senders only; never commit)
+bridge/data/
