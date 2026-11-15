@@ -395,6 +395,16 @@ def get_director_planning_js() -> FileResponse:
     return FileResponse(_STATIC_DIR / "director-planning.js", media_type="application/javascript")
 
 
+@router.get("/location-vs-set.js")
+def get_location_vs_set_js() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "location-vs-set.js", media_type="application/javascript")
+
+
+@router.get("/director-impact.js")
+def get_director_impact_js() -> FileResponse:
+    return FileResponse(_STATIC_DIR / "director-impact.js", media_type="application/javascript")
+
+
 @router.get("/production-costs.js")
 def get_production_costs_js() -> FileResponse:
     return FileResponse(_STATIC_DIR / "production-costs.js", media_type="application/javascript")
@@ -605,3 +615,48 @@ def post_customization(req: SceneCustomizationRequest):
 def get_customization(token: str):
     from index.scene_customization import image_path
     return FileResponse(image_path(token), media_type="image/png", headers={"Cache-Control":"private, no-store"})
+
+
+_LEASE_NOTE = ("A prorated lease rate is a reference floor from CoStar lease evidence. "
+               "It is not a filming fee, a quote or permission to film.")
+
+
+@router.get("/api/production/lease/{property_id}")
+def get_lease_evidence(property_id: str) -> dict[str, Any]:
+    """Lease evidence for one property, read only from the precomputed private rent cache.
+
+    Never calls a provider and never estimates: without a cache record the answer is unknown.
+    """
+    import re
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", property_id):
+        raise HTTPException(status_code=422, detail="Invalid property id")
+    unknown = {"property_id": property_id, "status": "unknown", "usd_per_sf_year": None,
+               "daily_floor_usd": None, "size_sqft": None, "note": _LEASE_NOTE}
+    if bool(costar_tools.USE_MOCKS):
+        return {**unknown, "reason": "Mock fixtures carry no lease evidence."}
+    prop, _ = _lookup_property(property_id)
+    size = prop.get("size_sqft") if prop else None
+    if isinstance(size, bool) or not isinstance(size, (int, float)) or not math.isfinite(size) or size <= 0:
+        size = None
+    try:
+        from data.cost_model import _load_rent
+        rent = _load_rent(property_id)
+    except Exception:  # noqa: BLE001  (cache errors may contain source values)
+        return {**unknown, "size_sqft": size, "reason": "Private rent cache is invalid; rerun python -m data.rent_precompute."}
+    if rent is None:
+        return {**unknown, "size_sqft": size,
+                "reason": "No rent cache for this property; run python -m data.rent_precompute with the CoStar kit."}
+    rate = rent.get("usd_per_sf_year")
+    out = {"property_id": property_id, "status": "kit" if rate is not None else "unknown",
+           "tier": rent.get("tier"), "usd_per_sf_year": rate, "source": rent.get("source"),
+           "date": rent.get("date"), "age_years": rent.get("age_years"),
+           "caveats": list(rent.get("caveats") or [])[:8], "size_sqft": size,
+           "daily_floor_usd": None, "note": _LEASE_NOTE}
+    if rate is None:
+        out["reason"] = "CoStar evidence has no reliable price for this property."
+    elif size is None:
+        out["reason"] = "Property size is unknown, so the rate cannot be prorated."
+    else:
+        out["daily_floor_usd"] = round(size * rate / 365, 2)
+        out["formula"] = f"{size:g} sq ft x ${rate:,.2f}/sq ft/year / 365"
+    return out

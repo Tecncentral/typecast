@@ -102,6 +102,8 @@
     const c = commute();
     const matches = c && s.response ? s.response.scenes.flatMap(sc => sc.candidates || []).filter(x => x.commute?.status === 'estimated' && x.commute.minutes <= c.max_minutes) : [];
     $('drivePreview').textContent = c && s.response ? `${new Set(matches.map(x => x.shot.property_id)).size} cached candidate properties within ${c.max_minutes} min. Build plan to apply the current limit.` : '';
+    // Visible summary tiles (drive limit, scouting scenario, location vs set) live in director-impact.js.
+    window.TypecastImpact?.render?.({ snapshot: s, result, assumptions: a, commute: c, route, complete });
     const box = $('costResult'); box.replaceChildren();
     latestCase = null; currentFingerprint = null;
     for (const id of ['exportProducerHtml','exportProducerJson']) $(id).disabled = !!result.error;

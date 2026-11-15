@@ -409,3 +409,19 @@ dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 #costResult p { font-size: 13px; line-height: 1.5; }
 #customImagePreview figure { margin: 12px 0; }
 #customImagePreview figcaption { font-size: 12px; font-weight: 700; padding: 6px 0; }
+/* ---------- business impact strip ---------- */
+.impact { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0 14px; }
+.impact-tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; }
+.impact-tile.is-on { border-color: var(--accent); }
+.impact-k { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 4px; }
+.impact-v { font-size: 24px; font-weight: 600; line-height: 1.15; color: var(--accent); margin: 0 0 6px; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.impact-s { font-size: 12px; line-height: 1.45; color: var(--text); margin: 0; }
+.impact-list { list-style: none; margin: 8px 0 0; padding: 0; font-size: 12px; line-height: 1.45; color: var(--measured); }
+.impact-list li + li { margin-top: 2px; }
+#lvsSection { margin: 14px 0; }
+#lvsSection > summary { cursor: pointer; padding: 8px 0; font-weight: 600; }
+#lvsResult h3 { color: var(--accent); font-size: 17px; line-height: 1.35; margin: 6px 0 8px; }
+#lvsResult p { font-size: 13px; line-height: 1.5; margin: 4px 0; }
+.lvs-sources { padding-left: 18px; }
+.lvs-sources li + li { margin-top: 4px; }
+@media (max-width: 960px) { .impact { grid-template-columns: minmax(0, 1fr); } }

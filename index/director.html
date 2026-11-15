@@ -50,8 +50,8 @@
         <label><span id="lblCars">Crew cars</span> <input id="cars" type="number" min="0" max="50" value="0" inputmode="numeric"></label>
       </div>
       <label class="check"><input id="reqAvail" type="checkbox"> Require available listing</label>
-      <details id="commuteSection" class="commute-controls" data-film-only>
-        <summary>Employee commute / production base</summary>
+      <details id="commuteSection" class="commute-controls" data-film-only open>
+        <summary>Drive limit from home or production base</summary>
         <p class="meta">Click the employee’s home or production base on the map; drag the pin to adjust. One starting point per comparison.</p>
         <div class="row"><button id="originLA" type="button">Los Angeles</button><button id="originHouston" type="button">Houston</button><button id="useMyLocation" type="button">Use my location</button></div>
         <div id="commuteMap" style="height:220px" aria-label="Choose a home or production base on the map"></div>
@@ -95,6 +95,13 @@
         <label class="check"><input id="paidTravel" type="checkbox"> Include paid crew travel from this starting point</label>
         <label>Crew travel compensation <select id="crewCommitment"><option value="unconfirmed">Unconfirmed — cash impact unknown</option><option value="avoidable">Incremental paid travel can be avoided</option><option value="committed">Guaranteed / already committed</option></select></label>
       </details>
+      <details id="lvsSection" open><summary>Real location vs. standing set vs. building a set</summary>
+        <div id="lvsResult" aria-live="polite"></div>
+        <p id="lvsLease" class="meta" role="status"></p>
+        <div id="lvsInputs" class="cost-inputs"></div>
+        <p class="meta">Published prices and union minimums, checked November 15, 2026. Build days, crew size and materials are your assumptions; blank materials make the build figure a lower bound. A scenario, not a quote, a bid or a measured saving.</p>
+        <ul id="lvsSources" class="meta lvs-sources"></ul>
+      </details>
       <details id="producerCase"><summary>Producer decision brief</summary>
         <p class="meta">A planning record for the next physical scout. No booking, filming permission, signature or approval is created.</p>
         <label>Project name <input id="producerName" maxlength="120" placeholder="Untitled production"></label>
@@ -133,6 +140,11 @@
         <button id="cmpAB" type="button" aria-pressed="false" aria-controls="compareStrip" title="Read-only side-by-side preview of both takes on the same frame">Compare A/B</button>
       </div>
     </div>
+    <section id="impactStrip" class="impact" data-film-only aria-label="Business impact of this plan">
+      <div class="impact-tile" id="impactDriveTile"><p class="impact-k">Drive limit</p><p id="impactDrive" class="impact-v">Set a base</p><p id="impactDriveSub" class="impact-s" role="status">Pick a home or production base and a maximum drive, then Build plan.</p><ul id="impactDriveList" class="impact-list"></ul></div>
+      <div class="impact-tile"><p class="impact-k">Scouting scenario</p><p id="impactScout" class="impact-v">—</p><p id="impactScoutSub" class="impact-s" role="status">Build a complete plan to see the scenario.</p></div>
+      <div class="impact-tile"><p class="impact-k">Real location vs. building a set</p><p id="impactSet" class="impact-v">—</p><p id="impactSetSub" class="impact-s" role="status"></p></div>
+    </section>
     <div id="frameNotice" class="notice" hidden></div>
     <div id="swapNotice" class="notice" hidden role="status"></div>
     <section id="savePanel" class="save-panel" hidden data-film-only aria-label="Save the scene"><h2>Save the scene</h2><div id="saveBody"></div></section>
@@ -293,7 +305,9 @@
 <script src="director-project.js"></script>
 <script src="production-costs.js"></script>
 <script src="producer-brief.js"></script>
+<script src="location-vs-set.js"></script>
 <script src="director-planning.js"></script>
+<script src="director-impact.js"></script>
 <script src="director.js"></script>
 <script src="director-ui.js"></script>
 </body>

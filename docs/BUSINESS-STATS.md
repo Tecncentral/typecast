@@ -50,7 +50,8 @@ Limits that must be said out loud or shown on screen:
 - A weekly guarantee or salaried scout means released days are **capacity, not cash**. The `/director` calculator already separates these.
 - Tool and provider costs are not deducted in this table. The calculator deducts whatever the producer enters.
 - The 20-hour line is an opportunity-cost illustration for filmmakers who scout for themselves. The BLS median covers all producers and directors, not indie filmmakers specifically.
-- No set-construction, permit or location-rental savings are claimed. See `docs/BUSINESS-CASE.md`.
+- The location-vs-set comparison (published location, standing-set, stage and union labor rates; our own build-days and crew assumptions) is documented in `docs/BUSINESS-CASE.md`. It is a scenario too.
+- No permit savings are claimed. See `docs/BUSINESS-CASE.md`.
 
 ## 4. Pitch-ready lines
 

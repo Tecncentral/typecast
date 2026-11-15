@@ -8,6 +8,11 @@ Sources, kept separate:
 - **Onsite packet** `F26 Onsite Hacker Packet.pdf` (22 PDF pages; page numbers below are PDF index + 1 and were verified by the audit).
 - **Public pages** retrieved by the project coordinator by web search on 2026-11-14 (the audit did not browse): https://hackprinceton-fall-26.devpost.com/ and https://hackprinceton-fall-26.devpost.com/rules. The homepage lists MLH and sponsor awards that the packet text does not mention; absence from the packet does not mean an award was cancelled, so the human must read the live prize text before each opt-in.
 
+## Update, November 15 (after the business integration)
+- **Main track: Best Business and Enterprise Hack.** Packet wording: projects that "improve the efficiency of financial tools and streamline business management" (dashboards and analytics are named examples). The `/director` cost tiles, the location-vs-set comparison and the producer decision brief are the parts that match that wording; lead with them.
+- **CoStar (Inside and Out)** weights use of the data at 30% and names leases in its own description. The new lease-evidence line only works where the CoStar kit and `python -m data.rent_precompute` have been run; rehearse it on that laptop, and do not claim it from a machine that shows "unknown".
+- Sub-tracks unchanged: CoStar, LangChain deepagents and Amazon intended; Peri conditional on the consultation evidence; the rest skipped.
+
 ## Rules that matter
 - One of six main tracks plus any number of sponsor tracks (packet p.4, p.12; rules page). Special tracks are judged by company representatives in round 1, and each added track means another demo (p.5-6, p.19).
 - Main judging is holistic over Creativity, Utility, Charity and Avidity with no equal 25% weights (p.4-5; rules page). No numeric weights are claimed anywhere in this repo.
