@@ -148,3 +148,12 @@ Published studio commit5a38d63 in PR#22, then merged updated dev3a49aad cleanly.
 - **State:** Code complete at `39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3` on draft PR #43 (`ai/director-production-decisions`, includes frozen `origin/dev` `4b4f92c`), prepared for publication. PR #43 remote head and CI are authoritative once published; no `dev`/`main` merge.
 - **Gates:** `python scripts/verify.py` **672 passed / 7 skipped** (including 2 Windows symlink cases); 9 Node suites **228 passed / 1 browser-only skip / 0 failed / 0 TODO**; clean Chromium QA **33/33 checks true** (honest non-result on default unknown-capacity mock fixtures; positive QA used clearly labeled `SYNTHETIC` intercepted complete plans). No provider calls.
 - **Pending Human/Live Items:** Captain's laptop real-cache check (343 properties / 10,568 views), GPU/splat walk, live model / `plan_production_shoot` trace, microphone, filmmaker feedback, track opt-ins, and Devpost submission.
+
+## Producer workflow reliability pass — 2026-11-15 (UTC, see commit)
+
+- **Base:** `c549e66`. Branch `ai/claude-business-hardening` (local only; no push, no dev/main merge).
+- **Done:** fixed stale/unbound producer decisions (rejected-list staleness, decision text bound to plan fingerprint), import races and project mixing, hourly-mode blank day rate, cent-accurate currency, negative-savings wording, literal storage opt-in/clear, broader credential screening. Details, base-failure evidence and limits: [docs/BUSINESS-ACCEPTANCE.md](../BUSINESS-ACCEPTANCE.md).
+- **Verified:** Node 281 pass / 0 fail / 1 skip; Python 693 pass / 7 skip; clean Chromium against a local synthetic mock server 13/13. New Node tests failed 12/22 on base.
+- **Mock/synthetic:** browser check uses a fabricated mock-mode plan; no live data, routing, provider or paid call was made.
+- **Next:** coordinator review of the diff; optional real-browser timing check of a slow file read; confirm with a producer which labor/vehicle terms are actually cancelable.
+- **Blocker:** none.
