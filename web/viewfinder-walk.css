@@ -19,7 +19,8 @@ dialog.vf.is-walking .vf-dress {
   display: none;
 }
 
-.vf-walk {
+.vf-walk,
+.vf-cast {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -37,21 +38,25 @@ dialog.vf.is-walking .vf-dress {
 .vf-walk[hidden] {
   display: none;
 }
-.vf-walk svg {
+.vf-walk svg,
+.vf-cast svg {
   width: 18px;
   height: 18px;
 }
-.vf-walk kbd {
+.vf-walk kbd,
+.vf-cast kbd {
   padding: 2px 6px;
   border-radius: 4px;
   background: rgb(237 189 105 / 0.14);
   font: 600 12px/1.2 var(--body, Barlow, sans-serif);
 }
-.vf-walk.is-active {
+.vf-walk.is-active,
+.vf-cast.is-active {
   background: var(--accent, #edbd69);
   color: #1a1407;
 }
-.vf-walk.is-active kbd {
+.vf-walk.is-active kbd,
+.vf-cast.is-active kbd {
   background: rgb(26 20 7 / 0.14);
 }
 .vf-walk[aria-busy="true"] {
@@ -102,6 +107,11 @@ dialog.vf.is-walking .vf-walk-keys {
   color: var(--accent, #edbd69);
 }
 
+/* Stand-ins are offered only while walking a whole-room set. */
+dialog.vf:not(.is-walking-room) .vf-cast {
+  display: none;
+}
+
 /* Floor plan of a whole-room set. */
 .vf-walk-map {
   position: absolute;
@@ -132,6 +142,7 @@ dialog.vf.is-walking-room .vf-walk-keys {
 }
 @media (max-width: 900px) {
   .vf-walk kbd,
+  .vf-cast kbd,
   .vf-walk-keys,
   .vf-walk-map {
     display: none !important;

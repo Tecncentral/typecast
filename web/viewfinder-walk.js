@@ -4,6 +4,7 @@
 // three.js and Spark are imported on first use, so the rest of the viewer never pays for them.
 // The original viewfinder stays intact: this module only wraps three of its methods.
 import { Viewfinder } from "./viewfinder.js";
+import { createCast, HEIGHT_M } from "./viewfinder-cast.js";
 
 const WALK_RADIUS_M = { draft: 1.5, refined: 2.5 }; // how far from the scan point the views hold up
 const BINS = 90; // 4° sectors around the scan point
@@ -16,7 +17,7 @@ const SPEED_M_S = 1.1;
 const CAPTURE_HEIGHT_M = 1.5;
 // Whole-room sets (several scan points, cameras from the scan itself) arrive with a known scale.
 const ROOM_CELL_M = 0.1;
-const ROOM_REACH_M = { draft: 2.2, refined: 3.0 }; // how far from the nearest scan point the set holds up
+const ROOM_REACH_M = { draft: 2.2, refined: 6.0 }; // how far from the nearest scan point the set holds up
 const BODY_M = 0.25;
 // Splats at body height in one 10 cm cell that count as something solid, for a draft's
 // half-million splats. A denser reconstruction puts more splats on the same surface.
@@ -25,6 +26,7 @@ const DRAFT_SPLATS = 524288;
 const DOOR_MAX_DEPTH_M = 0.6; // a door or partition, not a desk
 const DOOR_HALF_WIDTH_M = 0.5;
 const ICON_WALK = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M4 7.5l8 4.5 8-4.5M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>`;
+const ICON_CAST = `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="9" cy="6.5" r="2.6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 20v-4.2a4.5 4.5 0 0 1 9 0V20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="17" cy="8.5" r="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15.5 20v-3.6a3 3 0 0 1 4.5-2.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 const MOVE_KEYS = { w: "forward", arrowup: "forward", s: "back", arrowdown: "back", a: "left", d: "right" };
 
 const rad = (d) => (d * Math.PI) / 180;
@@ -45,6 +47,15 @@ function stateFor(vf) {
   w.button.innerHTML = `${ICON_WALK}<span>Walk the set</span><kbd>E</kbd>`;
   w.button.addEventListener("click", () => toggle(vf));
   vf.dialog.querySelector(".vf-close").before(w.button);
+
+  // Stand-ins: only offered inside a whole-room set, where the scale is known.
+  w.castButton = document.createElement("button");
+  w.castButton.type = "button";
+  w.castButton.className = "vf-cast";
+  w.castButton.setAttribute("aria-pressed", "false");
+  w.castButton.innerHTML = `${ICON_CAST}<span>Stand-ins</span><kbd>P</kbd>`;
+  w.castButton.addEventListener("click", () => toggleCast(vf, w));
+  w.button.before(w.castButton);
 
   w.hint = document.createElement("p");
   w.hint.className = "vf-walk-keys";
@@ -73,6 +84,14 @@ function stateFor(vf) {
         return;
       }
       w.run = e.shiftKey;
+      if (w.active && w.grid && (key === "p" || key === "b")) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        if (e.repeat) return;
+        if (key === "p") toggleCast(vf, w);
+        else placeStandIn(vf, w);
+        return;
+      }
       if (!w.active || !MOVE_KEYS[key]) return;
       e.preventDefault();
       e.stopImmediatePropagation();
@@ -190,17 +209,37 @@ function measureRoom(mesh, splat, eye) {
   const nx = Math.min(800, Math.ceil((Math.max(...points.map((p) => p[0])) + pad - minX) / cell));
   const nz = Math.min(800, Math.ceil((Math.max(...points.map((p) => p[2])) + pad - minZ) / cell));
   const counts = new Uint16Array(nx * nz);
-  const low = (splat.floor_y ?? 0) + 0.35 * scale;
-  const high = (splat.floor_y ?? 0) + 1.5 * scale;
+  const floor = new Uint16Array(nx * nz);
+  const floorY = splat.floor_y ?? 0;
+  const low = floorY + 0.35 * scale;
+  const high = floorY + 1.5 * scale;
   let total = 0;
   mesh.forEachSplat((index, center, scales, quaternion, opacity) => {
     total += 1;
-    if (opacity < 0.3 || center.y < low || center.y > high) return;
+    if (opacity < 0.3 || center.y > high) return;
     const ix = Math.floor((center.x - minX) / cell);
     const iz = Math.floor((center.z - minZ) / cell);
-    if (ix >= 0 && iz >= 0 && ix < nx && iz < nz && counts[iz * nx + ix] < 65535) counts[iz * nx + ix] += 1;
+    if (ix < 0 || iz < 0 || ix >= nx || iz >= nz) return;
+    if (center.y >= low) {
+      if (counts[iz * nx + ix] < 65535) counts[iz * nx + ix] += 1;
+    } else if (Math.abs(center.y - floorY) <= 0.2 * scale && floor[iz * nx + ix] < 65535) {
+      floor[iz * nx + ix] += 1;
+    }
   });
   const solidAt = Math.max(SOLID_SPLATS, Math.round((SOLID_SPLATS * total) / DRAFT_SPLATS));
+  // You can only stand where the set has a floor: outside the walls there is nothing to stand on.
+  const floorAt = Math.max(1, Math.round(solidAt / 6));
+  const hasFloor = (ix, iz) => {
+    let seen = 0;
+    for (let dz = -1; dz <= 1; dz += 1) {
+      for (let dx = -1; dx <= 1; dx += 1) {
+        const jx = ix + dx;
+        const jz = iz + dz;
+        if (jx >= 0 && jz >= 0 && jx < nx && jz < nz) seen += floor[jz * nx + jx];
+      }
+    }
+    return seen >= floorAt * 3;
+  };
   // Solid cells, grown by a body's half-width.
   const grow = Math.round(BODY_M / ROOM_CELL_M);
   const solid = new Uint8Array(nx * nz);
@@ -226,7 +265,8 @@ function measureRoom(mesh, splat, eye) {
       for (let ix = Math.max(0, Math.floor(cx - reachCells)); ix < Math.min(nx, cx + reachCells); ix += 1) {
         const d = Math.hypot(ix + 0.5 - cx, iz + 0.5 - cz);
         // A tripod stood at every scan point, so the floor right there is free whatever the splat says.
-        if (d <= reachCells && (!solid[iz * nx + ix] || door[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M)) open[iz * nx + ix] = 1;
+        const clear = (!solid[iz * nx + ix] && hasFloor(ix, iz)) || door[iz * nx + ix] || d <= 0.3 / ROOM_CELL_M;
+        if (d <= reachCells && clear) open[iz * nx + ix] = 1;
       }
     }
   }
@@ -345,6 +385,13 @@ function drawMap(w) {
     ctx.arc(mx, mz, 5, 0, Math.PI * 2);
     ctx.stroke();
   }
+  ctx.fillStyle = "#8fd3c8";
+  for (const member of w.cast?.members || []) {
+    const [mx, mz] = toMap(member.x, member.z);
+    ctx.beginPath();
+    ctx.arc(mx, mz, 5, 0, Math.PI * 2);
+    ctx.fill();
+  }
   const [px, pz] = toMap(w.position[0], w.position[2]);
   const yaw = rad(w.mapYaw || 0);
   ctx.fillStyle = "rgba(237, 189, 105, 0.35)";
@@ -357,6 +404,38 @@ function drawMap(w) {
   ctx.beginPath();
   ctx.arc(px, pz, 7, 0, Math.PI * 2);
   ctx.fill();
+}
+
+// Stand-ins: P brings on (or sends off) a small cast; B stands one more where you are looking.
+function ensureCast(w) {
+  w.cast ||= createCast(w.THREE, w.scene, { scale: w.scale, floorY: w.floorY, grid: w.grid });
+  return w.cast;
+}
+
+function castStatus(vf, w) {
+  const count = w.cast?.size || 0;
+  w.castButton.classList.toggle("is-active", count > 0);
+  w.castButton.setAttribute("aria-pressed", String(count > 0));
+  vf.$(".vf-status").textContent = count
+    ? `${count} stand-in${count === 1 ? "" : "s"} on set, each ${HEIGHT_M} m tall and to scale with the scan. B adds one where you look, P clears.`
+    : "Stand-ins cleared.";
+}
+
+function toggleCast(vf, w) {
+  if (!w.active || !w.grid) return;
+  const cast = ensureCast(w);
+  if (cast.size) cast.clear();
+  else cast.populate();
+  castStatus(vf, w);
+}
+
+function placeStandIn(vf, w) {
+  if (!w.active || !w.grid) return;
+  const yaw = rad(vf.view.yaw);
+  const ahead = 2.2 * w.scale;
+  const placed = ensureCast(w).place(w.position[0] + Math.sin(yaw) * ahead, w.position[2] - Math.cos(yaw) * ahead, vf.view.yaw + 180);
+  if (placed) castStatus(vf, w);
+  else vf.$(".vf-status").textContent = "No free floor there for a stand-in.";
 }
 
 function sweepWipe(vf, to, duration) {
@@ -386,7 +465,7 @@ async function build(vf, w, splat) {
   scene.add(mesh);
   const camera = new THREE.PerspectiveCamera(60, 16 / 9, 0.05, 500);
   camera.rotation.order = "YXZ";
-  Object.assign(w, { canvas, renderer, scene, spark, camera, mesh, url: splat.url });
+  Object.assign(w, { THREE, canvas, renderer, scene, spark, camera, mesh, url: splat.url, floorY: splat.floor_y ?? 0 });
   vf.canvas.after(canvas);
   await mesh.initialized;
   const radiusM = WALK_RADIUS_M[splat.mode === "draft" ? "draft" : "refined"];
@@ -486,11 +565,18 @@ function start(vf, w) {
   vf.$(".vf-status").textContent = w.grid
     ? "Walking the whole set. W A S D to move, Shift to go faster, drag to look, E to leave."
     : "Walking the AI-dressed set. W A S D to move, drag to look, E to leave.";
+  if (w.grid && w.autoCast && !w.cast?.size) {
+    w.autoCast = false;
+    ensureCast(w).populate();
+    castStatus(vf, w);
+  }
   let last = performance.now();
   const tick = (now) => {
     if (!w.active) return;
     w.raf = requestAnimationFrame(tick);
-    step(vf, w, Math.min(0.05, (now - last) / 1000));
+    const dt = Math.min(0.05, (now - last) / 1000);
+    step(vf, w, dt);
+    w.cast?.update(dt, now / 1000);
     last = now;
     render(vf, w);
   };
@@ -551,6 +637,7 @@ function dispose(w) {
   cancelAnimationFrame(w.raf);
   w.active = false;
   try {
+    w.cast?.dispose();
     w.scene?.clear();
     w.mesh?.dispose?.();
     w.spark?.dispose?.();
@@ -560,7 +647,8 @@ function dispose(w) {
     /* a half-built scene has nothing more to release */
   }
   w.canvas?.remove();
-  w.canvas = w.renderer = w.scene = w.spark = w.camera = w.mesh = w.url = w.free = w.grid = w.plan = null;
+  w.canvas = w.renderer = w.scene = w.spark = w.camera = w.mesh = w.url = w.free = w.grid = w.plan = w.cast = w.THREE = null;
+  w.castButton?.classList.remove("is-active");
   w.scale = 1;
 }
 
@@ -618,11 +706,11 @@ Viewfinder.prototype.grab = function () {
 /* ---------------- Direct link ---------------- */
 
 // /app/#walk=<shot id> opens that scan point and steps straight into its set, for demos.
-// &yaw=<degrees> sets the scan-relative heading to face on entry.
-const linked = location.hash.match(/^#walk=([A-Za-z0-9._-]{1,440})(?:&yaw=(\d{1,3}))?$/);
+// &yaw=<degrees> sets the scan-relative heading to face on entry; &cast=1 brings the stand-ins on.
+const linked = location.hash.match(/^#walk=([A-Za-z0-9._-]{1,440})(?:&yaw=(\d{1,3}))?(&cast=1)?$/);
 if (linked) {
   const vf = new Viewfinder();
-  Object.assign(stateFor(vf), { autoWalk: true, linkYaw: linked[2] == null ? null : Number(linked[2]) % 360 });
+  Object.assign(stateFor(vf), { autoWalk: true, autoCast: Boolean(linked[3]), linkYaw: linked[2] == null ? null : Number(linked[2]) % 360 });
   vf.open(linked[1], null);
 }
 
