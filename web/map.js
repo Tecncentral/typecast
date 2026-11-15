@@ -11,6 +11,12 @@ import {
 const mountedMaps = new WeakMap();
 const stagedMaps = new WeakMap();
 const focusers = new WeakMap();
+const travellers = new WeakMap();
+
+/** Show drive time per pick and dim picks over the limit: rows {property_id: {minutes, straight_line_km, ...}}. */
+export function setMapTravel(host, rows, maxMinutes) {
+  travellers.get(host)?.(rows, maxMinutes);
+}
 let mapSequence = 0;
 const finite = (value) => typeof value === "number" && Number.isFinite(value);
 
@@ -257,6 +263,7 @@ export function renderMap(
   let overview;
   let selectedPick = null;
   const markerByPick = new Map();
+  const travelSpans = new Map();
   const lotByPick = new Map();
   const ghostByPick = new Map();
   const aerialBoundsByPick = new Map();
@@ -487,6 +494,10 @@ export function renderMap(
     button.append(rank, description);
     const summary = summaries.get(pick);
     const before = earlierById.get(pick.property.property_id);
+    const travel = element("span", "location-map__travel");
+    travel.hidden = true;
+    travelSpans.set(pick, travel);
+    description.append(travel);
     description.append(
       parkingBar(summary, {
         compact: true,
@@ -699,6 +710,24 @@ export function renderMap(
     syncLabels();
     // Highlight the first lot without moving the overview away from the shortlist.
     highlight(shortlist[0]);
+    travellers.set(host, (rows, maxMinutes) => {
+      for (const pick of shortlist) {
+        const row = rows?.[pick.property.property_id];
+        const span = travelSpans.get(pick);
+        const minutes = typeof row?.minutes === "number" ? row.minutes : null;
+        const far = minutes !== null && minutes > maxMinutes;
+        if (span) {
+          span.hidden = !row;
+          span.classList.toggle("is-far", far);
+          span.textContent = !row ? "" : minutes !== null
+            ? `${minutes} min drive${far ? ` · over your ${maxMinutes}-min limit` : ""}`
+            : typeof row.straight_line_km === "number"
+              ? `${row.straight_line_km} km straight-line (no road time)`
+              : "Drive time unknown";
+        }
+        markerByPick.get(pick)?.getElement()?.classList.toggle("location-map__pin--far", far);
+      }
+    });
     focusers.set(host, (propertyId) => {
       const pick = [...shortlist, ...dropped].find(
         (candidate) => candidate.property.property_id === propertyId,
@@ -797,6 +826,7 @@ export function renderMap(
     if (mountedMaps.get(host) === cleanup) mountedMaps.delete(host);
     stagedMaps.delete(host);
     focusers.delete(host);
+    travellers.delete(host);
   }
   mountedMaps.set(host, cleanup);
   return cleanup;
