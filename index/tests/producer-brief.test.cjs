@@ -115,3 +115,13 @@ test('memo carries reproducible travel and avoidability assumptions without an o
   c.budget.assumptions.routeMinutes=Infinity;
   assert.throws(()=>brief.normalizeCase(c),/routeMinutes.*finite number/);
 });
+
+test('invisible direction-control characters cannot make a memo print differently from its stored text',()=>{
+  for (const ch of ['‮','⁦','⁩','\x7f']) {
+    const c=example(); c.project.decision=`Approve ${ch}tcejer`;
+    assert.throws(()=>brief.exportJson(c),/direction-control/);
+    assert.throws(()=>brief.renderText(c),/direction-control/);
+  }
+  const ok=example(); ok.project.decision='Approve — café visit, 3 días';
+  assert.doesNotThrow(()=>brief.exportJson(ok));
+});

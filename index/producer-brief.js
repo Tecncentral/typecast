@@ -25,6 +25,8 @@
     const text = value.trim();
     if (!text && nullable) return null;
     if (!text || text.length > max || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(text)) fail(`${name} is blank or too long`);
+    // Bidi overrides/isolates and DEL can make a printed memo read differently from its stored text.
+    if (/[\x7f‪-‮⁦-⁩]/.test(text)) fail(`${name} contains invisible direction-control characters`);
     if (CREDENTIAL.test(text)) fail('credential-like text is not exportable');
     return text;
   }
