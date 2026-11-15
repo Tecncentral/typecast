@@ -76,3 +76,27 @@ Private evidence (never committed): `cache/screens/viewer-report.json`, `viewer-
 Integrator: inspect the lane-d PR into dev and run the browser command with private prerequisites or mock mode as appropriate. No merge to main or deployment performed.
 
 Core UI is local; optional tour/SDK and street tiles require a network. Heading alignment is unverified. Missing dimensions, walk routing, parking permissions and filming access remain visible limitations. A ranked result is not a booking or permission. Individual live runtimes are not latency guarantees. No owner message was sent. No blocking viewer issue remains from the recorded acceptance checks.
+
+## UI simplify (branch ui-simplify)
+
+Updated: 2026-11-15 10:48 UTC. Mode: mock. Only web/ and this file changed.
+
+What moved where:
+- Header is just TYPECAST plus the MOCK/LIVE and engine badges. The Interiors / Exteriors / Director's Room nav is gone; /director still works, it is just not linked.
+- Brief: one input for a scene or a whole script, an Interiors / Exteriors switch beside it (Exteriors links to the existing oblique page), demo scene chips under it, and one "Scout" button.
+- Script mode: 2+ INT./EXT. headings show "Script: N scenes detected". Scout then calls the Director's Room planner (POST /api/production/plan, same body as index/director.js) instead of single-scene scouting. It shows the planner's own summary ("N scenes · N locations · N company moves"), its pool_note caveat, and one group per planned location with its frame, the scenes it covers, parking (estimate/unknown) and the planner's warnings. The scene split is a simple heading-based reading in web/script-mode.js, not the Director's Room parser.
+- Scout: the activity log starts collapsed. The status line shows the latest real agent step and elapsed seconds; one click opens the full log.
+- Single-scene cards, map, travel and budget, refine and draft note are unchanged in content and order.
+
+Cut (not done):
+- Constraints row (trucks, crew cars, production base + max drive) was not moved up. budget.js builds those controls inside renderBudget, and moving them safely did not fit the hard stop.
+- Clicking a card to select it and drive the map highlight and cost panel was not wired.
+- "Look around" / "Edit (AI)": no change. On mocks the fixture shots show no "Look around" button, so visibility on real scan views is unverified here.
+
+Verification (mock server on port 8013):
+- scripts/verify.py: 1082 passed, 1 xfailed. node --test web/tests/*.test.mjs: 24/24.
+- web/tests/check_viewer.py --mobile --failure-states: 7/7 passed (Playwright 1.65.2, bundled Chromium; cache/venv-browser on this laptop).
+- Manual at 1440x900 and 1280x720: scene, 3 cards, activity collapsed, refine "need parking for 5 trucks" shows What changed, Draft note shows "local draft, not sent", then a 3-scene script shows "Script: 3 scenes detected" and the mock plan "3 scenes · 1 location · 0 company moves" with caveats. No JavaScript errors.
+- Before/after screenshots: cache/screens/ui-simplify/ (not committed).
+
+Recommendation: safe to demo on mocks. Not run against live data or the private index.

@@ -18,6 +18,7 @@
     <link rel="stylesheet" href="./viewfinder-edit.css" />
     <link rel="stylesheet" href="./descent.css" />
     <link rel="stylesheet" href="./strike.css" />
+    <link rel="stylesheet" href="./simplify.css" />
     <!-- three.js and Spark load only when a walkable AI set opens (viewfinder-walk.js). -->
     <script type="importmap">
       {
@@ -33,11 +34,6 @@
     <a class="skip-link" href="#scene">Skip to scene</a>
     <header class="masthead">
       <a class="wordmark" href="./" aria-label="Typecast home">TYPECAST</a>
-      <nav class="masthead-nav" aria-label="Search modes">
-        <a href="./" aria-current="page">Interiors</a>
-        <a href="./oblique.html">Exteriors &amp; outdoors</a>
-        <a href="/director">Director's Room</a>
-      </nav>
       <div class="runtime" aria-label="Data mode and engine">
         <span id="source-mode" class="mode-badge">CHECKING</span
         ><span id="engine">—</span>
@@ -45,13 +41,12 @@
     </header>
     <main>
       <section class="scene-section" aria-labelledby="scene-heading">
-        <div class="section-topline">
-          <h1 id="scene-heading">Find a place for the scene.</h1>
-          <span class="scene-scope">Interiors. Shot fit. Crew logistics.</span>
-        </div>
-        <div class="scene-presets">
-          <span class="presets-label">Demo scenes</span>
-          <div id="scene-buttons" aria-label="Validated demo scenes"></div>
+        <div class="brief-topline">
+          <h1 id="scene-heading">Paste a scene or a whole script.</h1>
+          <div class="search-switch" role="group" aria-label="Search mode">
+            <a href="./" aria-current="page">Interiors</a
+            ><a href="./oblique.html">Exteriors</a>
+          </div>
         </div>
         <form id="scene-form" class="scene-form">
           <label for="scene" class="sr-only"
@@ -60,16 +55,22 @@
           <textarea
             id="scene"
             name="scene"
-            rows="2"
+            rows="3"
             required
-            maxlength="12000"
+            maxlength="60000"
             spellcheck="false"
           >
 INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial warehouse with exposed roof structure, a concrete floor and an open aisle; stored boxes or pallets can remain at the sides. Daylight from high openings. Parking for 2 trucks and 10 crew cars. No required building age.</textarea>
           <button id="run-button" class="primary" type="submit">
-            Scout locations
+            Scout
           </button>
         </form>
+        <p id="script-note" class="script-note" role="status" hidden></p>
+        <div class="scene-presets">
+          <span class="presets-label">Demo scenes</span>
+          <div id="scene-buttons" aria-label="Validated demo scenes"></div>
+        </div>
+
         <p id="mode-note" class="mode-note">
           Checking the local scouting service…
         </p>
@@ -81,7 +82,7 @@ INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial 
         aria-label="Scouting activity"
         hidden
       >
-        <details id="activity" open>
+        <details id="activity">
           <summary class="activity-summary">
             <span class="activity-heading"
               ><span id="activity-dot" class="activity-dot"></span
@@ -106,6 +107,17 @@ INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial 
           </div>
         </details>
         <p id="slow-note" class="slow-note" hidden></p>
+      </section>
+      <section
+        id="plan-section"
+        class="plan-section"
+        aria-labelledby="plan-heading"
+        hidden
+      >
+        <div class="section-topline">
+          <h2 id="plan-heading">Locations for this script</h2>
+        </div>
+        <div id="plan-results"></div>
       </section>
       <section
         id="shortlist-section"

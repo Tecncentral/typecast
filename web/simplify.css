@@ -1,0 +1,150 @@
+/* One-page brief → scout → pick → decide. Loaded last; only layout and spacing, no new colours. */
+
+/* Brief */
+.brief-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+}
+.search-switch {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+  flex-shrink: 0;
+}
+.search-switch a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 34px;
+  padding: 0 16px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 15px;
+  text-decoration: none;
+}
+.search-switch a[aria-current="page"] {
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+.search-switch a:hover:not([aria-current]) {
+  color: var(--text);
+}
+#scene {
+  font-size: 18px;
+  line-height: 1.45;
+}
+.script-note {
+  margin: 8px 0 0;
+  color: var(--accent);
+  font-size: 15px;
+  font-weight: 600;
+}
+.scene-presets {
+  margin: 10px 0 0;
+}
+
+/* Scout: one quiet status line, log on demand */
+.run-section {
+  border: 0;
+  background: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+#run-status {
+  font-size: 17px;
+}
+
+/* Fewer boxes, more space between steps */
+main > section + section,
+main > section + div,
+main > div + section {
+  margin-top: 36px;
+}
+
+/* Script mode */
+.plan-section h2 {
+  margin-bottom: 4px;
+}
+.plan-summary {
+  margin: 4px 0 2px;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+}
+.plan-caveat,
+.plan-note {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 14px;
+}
+.plan-mock {
+  margin: 0 0 10px;
+  color: var(--accent);
+  font-size: 14px;
+  font-weight: 600;
+}
+.plan-empty {
+  color: var(--warning);
+}
+.plan-group {
+  margin-top: 28px;
+}
+.plan-group h3 {
+  margin: 0 0 12px;
+  font-size: 20px;
+}
+.plan-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.plan-frame {
+  position: relative;
+  aspect-ratio: 3 / 2;
+  overflow: hidden;
+  border-radius: var(--control-radius);
+  background: #000;
+}
+.plan-frame img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.plan-missing {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font: 600 13px var(--mono);
+  text-transform: uppercase;
+}
+.plan-facts {
+  margin: 0 0 8px;
+  color: var(--muted);
+}
+.plan-scenes {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 16px;
+}
+.plan-warning {
+  margin: 0 0 6px;
+  color: var(--warning);
+  font-size: 14px;
+}
+@media (max-width: 900px) {
+  .brief-topline {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  .plan-card {
+    grid-template-columns: 1fr;
+  }
+}

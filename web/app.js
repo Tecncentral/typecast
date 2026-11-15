@@ -11,6 +11,7 @@ import {
 } from "./parking.js";
 import { Progress } from "./progress.js";
 import { Descent } from "./descent.js";
+import { parseScript, requestPlan, renderPlan } from "./script-mode.js";
 const $ = (selector) => document.querySelector(selector);
 const progress = new Progress();
 const descent = new Descent($("#location-map"));
@@ -126,7 +127,6 @@ function begin(refine = false) {
   $("#run-section").hidden = false;
   $("#welcome").hidden = true;
   $("#run-section").className = "run-section is-running";
-  $("#activity").open = true;
   $("#run-status").textContent = refine
     ? "Updating the shortlist…"
     : "Scouting your scene…";
@@ -504,6 +504,9 @@ async function scout(event) {
   if (busy || draftBusy || !$("#scene-form").reportValidity()) return;
   const scene = $("#scene").value.trim();
   if (!scene) return;
+  const scriptScenes = parseScript(scene);
+  if (scriptScenes.length >= 2) return planScript(scriptScenes);
+  $("#plan-section").hidden = true;
   begin();
   try {
     await loadConfig();
@@ -525,6 +528,9 @@ async function scout(event) {
       try {
         const data = JSON.parse(message.data);
         progress.add(data);
+        // One status line: the latest real step. The full log stays one click away.
+        if (data.text && data.type !== "tool" && data.type !== "todo")
+          $("#run-status").textContent = (data.agent ? data.agent.replace(/_/g, " ") + ": " : "") + tidyText(data.text).slice(0, 90);
         if (data.engine) metadata(config.mode, data.engine);
       } catch {
         fail(
@@ -649,3 +655,35 @@ loadConfig().catch((error) => {
     "Configuration unavailable. Scout locations to retry the connection.";
   showError(error.message);
 });
+
+/* ---------- script mode: 2+ scene headings go to the production planner ---------- */
+function updateScriptNote() {
+  const n = parseScript($("#scene").value).length;
+  $("#script-note").hidden = n < 2;
+  $("#script-note").textContent = n >= 2 ? `Script: ${n} scenes detected. Scout plans locations across all of them.` : "";
+}
+$("#scene").addEventListener("input", updateScriptNote);
+updateScriptNote();
+
+async function planScript(scenes) {
+  begin();
+  $("#run-status").textContent = `Planning locations for ${scenes.length} scenes`;
+  $("#shortlist-section").hidden = true;
+  $("#map-section").hidden = true;
+  $("#budget-section").hidden = true;
+  $("#refine-section").hidden = true;
+  $("#history-section").hidden = true;
+  $("#plan-section").hidden = true;
+  try {
+    await loadConfig();
+    const data = await requestPlan(scenes);
+    finish();
+    renderPlan($("#plan-results"), data, scenes);
+    $("#plan-section").hidden = false;
+    $("#run-status").textContent = data.plans.length ? `Plan ready · ${scenes.length} scenes` : "No plan returned";
+  } catch (error) {
+    finish(true);
+    $("#run-status").textContent = "Planning failed";
+    showError(error.message + " Nothing was invented in its place.");
+  }
+}
