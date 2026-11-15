@@ -65,8 +65,15 @@ def main(argv=None) -> int:
     errors = [r for r in rows if "error" in r]
     out = ROOT / "cache" / "qa" / "privacy-screen.json"
     out.parent.mkdir(parents=True, exist_ok=True)
+    earlier = []
+    if out.is_file():  # merge: a later, smaller run never erases earlier screened frames
+        try:
+            earlier = [r for r in json.loads(out.read_text(encoding="utf-8")).get("rows", [])
+                       if r.get("shot_id") not in {x["shot_id"] for x in rows}]
+        except (OSError, ValueError, AttributeError):
+            earlier = []
     out.write_text(json.dumps({"at": datetime.now(timezone.utc).isoformat(), "flag_at": FLAG_AT,
-                               "questions": QUESTIONS, "rows": rows}, indent=1), encoding="utf-8")
+                               "questions": QUESTIONS, "rows": earlier + rows}, indent=1), encoding="utf-8")
     by = {n: sum(1 for r in rows if isinstance(r.get(n), float) and r[n] >= FLAG_AT) for n in names}
     print(f"screened {len(rows) - len(errors)}, errors {len(errors)}, flagged {len(flagged)}: "
           + ", ".join(f"{n} {c}" for n, c in by.items()))
