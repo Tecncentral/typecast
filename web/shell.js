@@ -103,7 +103,7 @@ function handOverScript(frame) {
 }
 
 /* ---------- One scene / Whole script ---------- */
-const drafts = { scene: $("#scene").value, script: SAMPLE_SCRIPT };
+const drafts = { scene: $("#scene").value, script: "" };
 let scope = "scene";
 function setScope(next, { swap = true } = {}) {
   if (next === scope && swap) return;
@@ -115,11 +115,19 @@ function setScope(next, { swap = true } = {}) {
   scope = next;
   document.querySelectorAll("[data-scope]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.scope === next)));
   $("#scene").rows = next === "script" ? 8 : 3;
+  document.querySelectorAll(".scene-presets[data-for]").forEach((row) => { row.hidden = row.dataset.for !== next; });
   $("#scene").placeholder = next === "script"
     ? "Paste a script. Each INT. or EXT. heading becomes a scene."
     : "Describe the scene: the room, the era, the mood, and how many trucks and crew cars.";
 }
 document.querySelectorAll("[data-scope]").forEach((b) => b.addEventListener("click", () => setScope(b.dataset.scope)));
+$("#example-script")?.addEventListener("click", () => {
+  const box = $("#scene");
+  box.value = SAMPLE_SCRIPT;
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+  box.focus();
+  box.setSelectionRange(box.value.length, box.value.length);
+});
 // Pasting a real script flips the toggle on its own; nothing is swapped out.
 $("#scene").addEventListener("input", () => {
   const headings = ($("#scene").value.match(/^\s*(?:\d+\s*[.)]?\s*)?(INT\.|EXT\.|I\/E)/gim) || []).length;

@@ -492,3 +492,57 @@ body[data-mode="exterior"] footer { display: none; }
 .filter-budget-row input[type="range"] { flex: 1; min-width: 140px; }
 .filter-bar .filter-budget-row input[type="number"] { width: 120px; }
 .filter-bar .filter-budget { max-width: 420px; flex-basis: 300px; }
+
+/* Examples: suggestions under the box, with a preview of the full text on hover */
+.scene-presets { gap: 10px; margin-top: 12px; }
+.presets-label { color: var(--muted); font-size: 14px; }
+#scene-buttons button, #example-script {
+  position: relative;
+  min-height: 32px;
+  padding: 5px 13px;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: color .2s, border-color .2s, background .2s;
+}
+#scene-buttons button:hover, #example-script:hover,
+#scene-buttons button:focus-visible, #example-script:focus-visible {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(237,189,105,.06);
+}
+#scene-buttons button[aria-pressed="true"] { border-style: solid; border-color: var(--accent); color: var(--accent); }
+#scene-buttons button[data-preview]::after, #example-script[data-preview]::after {
+  content: attr(data-preview);
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: min(420px, 80vw);
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  box-shadow: 0 14px 34px rgba(0,0,0,.5);
+  color: var(--text);
+  font: 400 14px/1.5 var(--body);
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity .18s, transform .18s;
+}
+#scene-buttons button:hover::after, #example-script:hover::after,
+#scene-buttons button:focus-visible::after, #example-script:focus-visible::after { opacity: 1; transform: none; transition-delay: .25s; }
+#scene-buttons button:last-child::after { left: auto; right: 0; }
+/* Previews hang from the examples row, not the chip, so they never widen the page. */
+.scene-presets { position: relative; }
+#scene-buttons button, #example-script { position: static; }
+#scene-buttons button[data-preview]::after, #example-script[data-preview]::after { left: 0; right: auto; width: min(560px, 100%); }
+#scene-buttons button:last-child::after { left: 0; right: auto; }
+#scene-buttons button[data-preview]::after, #example-script[data-preview]::after { box-sizing: border-box; }

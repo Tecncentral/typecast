@@ -86,9 +86,13 @@ INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial 
           </button>
         </form>
         <p id="script-note" class="script-note" role="status" hidden></p>
-        <div class="scene-presets">
-          <span class="presets-label">Demo scenes</span>
-          <div id="scene-buttons" aria-label="Validated demo scenes"></div>
+        <div class="scene-presets" data-for="scene">
+          <span class="presets-label">Try an example:</span>
+          <div id="scene-buttons" aria-label="Example scenes. Fills the box; nothing runs until you press Scout."></div>
+        </div>
+        <div class="scene-presets" data-for="script" hidden>
+          <span class="presets-label">Try an example:</span>
+          <div><button type="button" id="example-script" data-preview="Three scenes: a warehouse handoff, a glass-office meeting and an empty-shop rehearsal.">Three-scene script</button></div>
         </div>
 
         <p id="mode-note" class="mode-note">

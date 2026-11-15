@@ -129,3 +129,9 @@ Recommendation: safe to demo on mocks. Not run against live data or the private 
 
 - Max budget now runs from $0 to $250,000 (or the highest estimate, if larger), starting at the top so nothing is hidden. The track is cubic, so the low end moves in $5 steps ($30 → $35) and arrow keys move one notch; every value is a multiple of $5. A number box beside it takes an exact amount in $5 steps and stays in sync.
 - Checked: positions 100/102 give $30/$35, 400/401 give $2,000/$2,015; typing $6,000 hides all three mock picks (each is $6,196 without drive times) and Reset restores them. check_viewer.py 7/7; verify.py 1082 passed / 1 xfailed; web tests 24/24.
+
+### UI simplify v6: examples instead of "Demo scenes" (11:50 UTC)
+
+- The "Demo scenes" row is now "Try an example:", with dashed suggestion chips under the scene box. Hovering a chip previews its full scene text. Clicking fills the box and puts the cursor at the end; it no longer starts scouting (it used to scout immediately). The five validated scenes and Roller disco are unchanged in web/scenes.js.
+- Whole script mode starts empty with a placeholder and offers one "Three-scene script" example instead of the single-scene chips.
+- Checked: a chip click makes no /scout request and focuses the box; the script example shows "Script: 3 scenes detected"; check_viewer.py --mobile --failure-states 7/7 after two overflow fixes it caught (previews now hang from the examples row, and the preview box uses border-box); verify.py 1082 passed / 1 xfailed; web tests 24/24.

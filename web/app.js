@@ -624,16 +624,22 @@ async function draftNote(pick) {
   return status.textContent;
 }
 for (const preset of SCENES) {
+  // An example only fills the box; the director reads or edits it, then presses Scout.
   const node = button(preset.label, () => {
-    $("#scene").value = preset.scene;
+    const box = $("#scene");
+    box.value = preset.scene;
+    box.dispatchEvent(new Event("input", { bubbles: true }));
     document
       .querySelectorAll("#scene-buttons button")
       .forEach((item) =>
         item.setAttribute("aria-pressed", String(item === node)),
       );
-    scout();
+    box.focus();
+    box.setSelectionRange(box.value.length, box.value.length);
+    box.scrollTop = box.scrollHeight;
   });
   node.setAttribute("aria-pressed", "false");
+  node.dataset.preview = preset.scene;
   $("#scene-buttons").append(node);
 }
 $("#scene").addEventListener("input", () =>
