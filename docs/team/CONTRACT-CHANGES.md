@@ -114,3 +114,14 @@ Owner: lane-a (Director). Producer/consumer: `index/director.js`, `index/directo
 - Community files never restore film data: on import in community mode `variants`, `notes`, `location_choice` and review drafts are ignored.
 - Local draft value additionally carries `plan_script` (the script text the saved plan was built from). Unreadable or newer-version drafts are moved to `typecast.director.draft.v1.<mode>.unreadable` (one slot per mode, at most 400,000 characters) rather than deleted.
 - Internal only: community site records are keyed `site:<scene>|<property>` (ids never contain `|`), so ids containing colons round-trip intact.
+
+### Save the scene decision record (`v: 1`, commit `39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3`)
+
+- **Additive Project JSON / Draft Recovery Field (`scenes[].decision`):** Optional Film-mode object validated by `decisionOf` in `index/director-project.js` and produced by `TypecastChecks.decisionRecord` in `index/director-checks.js`. Absent in Community mode and omitted when no Save decision was applied.
+- **Shape & Bounds:**
+  - `v`: `1` (integer)
+  - `decided_at`: ISO timestamp string (`<= 30` chars)
+  - `original` / `revised`: `{ trucks: int 0..20, cars: int 0..200, require_available: boolean }`
+  - `before` / `after`: `null` or `{ shot_id, property_id, parking_status ('measured'|'estimated'|'unknown'), enough_parking (boolean|null), availability ('available'|'not_available'|'unknown'), area_m2 (number|null), ceiling_m (number|null), similarity (number 0..1|null) }`
+  - `scope`: `'whole_plan'`, `totals_recalculated`: boolean, `moved_scenes`: int `0..8`, `differences`: array of `<= 8` strings (`<= 240` chars), `unresolved`: array of `<= 8` strings (`<= 200` chars).
+- **Trust Boundary:** Treated strictly as a historical review note in UI and Shoot pack exports; re-importing re-queries `/api/production/plan` and never promotes cached `decision` fields into current source evidence.
