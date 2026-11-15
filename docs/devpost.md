@@ -1,6 +1,6 @@
 # Typecast — cast the space, check the shoot
 
-Submission draft for human review. Main-track intent: **Entertainment and Media**. Evidence-backed special-track candidates: **CoStar** and **LangChain**, subject to the current event criteria. No Peri, Photon, Amazon or ChatOverflow claim is made without human-confirmed evidence. World Labs is a tool we used, not a competition track.
+Submission draft for human review. Main-track intent: **Entertainment and Media**. Special-track candidates with repo evidence: **CoStar**, **LangChain** (deep agents) and **Amazon Best Practical AI Innovation** (the packet allows any stack; AWS is not used or claimed), subject to the current event criteria; see `docs/TRACK-SELECTION.md`. Peri is conditional on real affiliation, event-time consultation and evidence that do not yet exist, and no consultation or endorsement is claimed. No Photon or ChatOverflow claim is made without human-confirmed evidence. Community planning is an honest prototype tested on mock fixtures only, with no established benefit. World Labs is a tool we used, not a competition track.
 
 Team Discord names: **[MEMBER 1] · [MEMBER 2] · [MEMBER 3] · [MEMBER 4]**.
 

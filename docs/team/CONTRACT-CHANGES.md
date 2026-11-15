@@ -107,3 +107,10 @@ Owner: lane-a (Director). Producer/consumer: `index/director.js`, `index/directo
 - Meaning: all values are human-reported by the coordinator and never source-measured; `ok` is never verification. On import they are restored with `ok` marked "restored; re-verify". Community scenes export `variants: null`.
 - Local draft (browser storage, not a file contract): keys `typecast.director.draft.v1.film|community` and `typecast.director.draft.optout`; value `{v:1, mode, script, constraints{maxLoc,trucks,cars,reqAvail}, project (this schema, evidence reduced to frame identifiers), saved_at}`; <=300 KB; anything else is discarded.
 - Migration: none; old files import unchanged.
+
+
+### Amendment (independent review) - 2026-11-15
+- `sites[].verified` is now `{capacity: integer or null, source: string <=80, may be empty}` (null overall when both are empty): a capacity without a source, or a source without a number, is kept as incomplete input and is **not** treated as verified anywhere. Previously a number without a source was dropped.
+- Community files never restore film data: on import in community mode `variants`, `notes`, `location_choice` and review drafts are ignored.
+- Local draft value additionally carries `plan_script` (the script text the saved plan was built from). Unreadable or newer-version drafts are moved to `typecast.director.draft.v1.<mode>.unreadable` (one slot per mode, at most 400,000 characters) rather than deleted.
+- Internal only: community site records are keyed `site:<scene>|<property>` (ids never contain `|`), so ids containing colons round-trip intact.
