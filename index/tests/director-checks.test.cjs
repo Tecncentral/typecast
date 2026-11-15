@@ -10,6 +10,7 @@ const cand = (over = {}) => ({
   warnings: over.warnings || [],
 });
 const scene = (description = 'A kitchen', heading = 'INT. KITCHEN - DAY') => ({ heading, description });
+const noIssues = (m) => assert.deepEqual(Object.keys(m), []);
 const kinds = (r) => r.rows.map((x) => x.kind);
 const find = (r, label) => r.rows.find((x) => x.label === label);
 
@@ -85,8 +86,8 @@ const sc = (id, number, group, property, shot, heading = 'INT. A - DAY', actors 
 const actor = (name, x0, y0, x1, y1) => ({ name, x0, y0, x1, y1 });
 
 test('continuity is silent without an explicit link, even across different locations', () => {
-  assert.deepEqual(C.continuity([sc('a', 1, '', 'p1', 's1'), sc('b', 2, '', 'p2', 's2')], 'A'), {});
-  assert.deepEqual(C.continuity([sc('a', 1, 'X', 'p1', 's1')], 'A'), {});          // a group of one
+  noIssues(C.continuity([sc('a', 1, '', 'p1', 's1'), sc('b', 2, '', 'p2', 's2')], 'A'));
+  noIssues(C.continuity([sc('a', 1, 'X', 'p1', 's1')], 'A'));          // a group of one
 });
 
 test('linked scenes in different properties are a verified mismatch with a corrective action', () => {
@@ -103,15 +104,15 @@ test('an actor jump is flagged only on the exact same frame, case-insensitively,
   const jump = C.continuity([sc('a', 1, 'X', 'p1', 's1', 'INT. A - DAY', [actor('Mara', .2, .8, .8, .8)]), sc('b', 2, 'X', 'p1', 's1', 'INT. A - DAY', [actor('MARA', .2, .8, .2, .8)])], 'A');
   assert.equal(jump.a[0].level, 'potential'); assert.match(jump.a[0].text, /Mara ends scene 1 at \(0\.80, 0\.80\).*starts scene 2 at \(0\.20, 0\.80\)/); assert.match(jump.a[0].action, /Set Mara/);
   const near = C.continuity([sc('a', 1, 'X', 'p1', 's1', 'INT. A - DAY', [actor('Mara', .2, .8, .5, .8)]), sc('b', 2, 'X', 'p1', 's1', 'INT. A - DAY', [actor('Mara', .52, .8, .5, .8)])], 'A');
-  assert.deepEqual(near, {});
+  noIssues(near);
   const other = C.continuity([sc('a', 1, 'X', 'p1', 's1', 'INT. A - DAY', [actor('Mara', .2, .8, .8, .8)]), sc('b', 2, 'X', 'p1', 's1', 'INT. A - DAY', [actor('Joe', .2, .8, .2, .8)])], 'A');
-  assert.deepEqual(other, {});                                                      // different characters: nothing to compare
+  noIssues(other);                                                      // different characters: nothing to compare
 });
 
 test('time-of-day differences inside a link are only possible mismatches; unlinked or unparseable stay silent', () => {
   const m = C.continuity([sc('a', 1, 'X', 'p1', 's1', 'INT. A - DAY'), sc('b', 2, 'X', 'p1', 's1', 'INT. A - NIGHT')], 'A');
   assert.equal(m.a.find((i) => /DAY and NIGHT/.test(i.text)).level, 'potential');
-  assert.deepEqual(C.continuity([sc('a', 1, 'X', 'p1', 's1', 'INT. A'), sc('b', 2, 'X', 'p1', 's1', 'INT. A - LATER')], 'A'), {});
+  noIssues(C.continuity([sc('a', 1, 'X', 'p1', 's1', 'INT. A'), sc('b', 2, 'X', 'p1', 's1', 'INT. A - LATER')], 'A'));
   assert.equal(C.timeOfDay('INT. KITCHEN - DAY'), 'DAY'); assert.equal(C.timeOfDay('EXT. YARD, NIGHT'), 'NIGHT'); assert.equal(C.timeOfDay('INT. KITCHEN'), null);
 });
 
@@ -124,4 +125,59 @@ test('an uncovered linked scene cannot be compared; the checklist only lists unr
   assert.ok(list.some((x) => /^Continuity \(potential\)/.test(x))); assert.equal(list.some((x) => /skip/.test(x)), false);
   assert.ok(list.some((x) => /Re-stage the carried-over blocking/.test(x))); assert.match(list.at(-1), /Measure the room/);
   assert.equal(list.some((x) => /\$|price|permit|contact/i.test(x)), false);
+});
+
+// ---- independent-review regressions: prototype-like user text and direction-aware numeric needs ----
+test('user text that looks like a prototype key is ordinary data in groups and scene ids', () => {
+  for (const g of ['constructor', '__proto__', 'toString', 'hasOwnProperty', 'valueOf']) {
+    const m = C.continuity([sc('toString', 1, g, 'p1', 's1'), sc('hasOwnProperty', 2, g, 'p2', 's2'), sc('c', 3, g, 'p2', 's2')], 'A');
+    assert.equal(m.toString.length, 1, g); assert.equal(m.toString[0].level, 'verified');
+    assert.equal(m.hasOwnProperty.length >= 1, true);
+    assert.equal(Object.getPrototypeOf(m), null);
+  }
+  // an ungrouped scene named like a prototype key never reads inherited members
+  noIssues(C.continuity([sc('constructor', 1, '', 'p1', 's1'), sc('__proto__', 2, '', 'p2', 's2')], 'A'));
+});
+
+const need = (text, over) => C.fitCheck({ scene: scene(text), cand: cand(over || {}), built: {} });
+const row = (r, label) => r.rows.filter((x) => x.label === label);
+
+test('upper bounds mean upper bounds: "no more than" and "not more than" are never read as minimums', () => {
+  assert.equal(row(need('no more than 3 m ceiling', { shot: { ceiling_m: 2.8 } }), 'Ceiling height')[0].kind, 'estimate');   // 2.8 <= 3
+  assert.equal(row(need('no more than 3 m ceiling', { shot: { ceiling_m: 3.4 } }), 'Ceiling height')[0].kind, 'conflict');
+  assert.equal(row(need('ceilings not more than 3 m', { shot: { ceiling_m: 2.8 } }), 'Ceiling height')[0].kind, 'estimate');
+  assert.equal(row(need('not more than 100 sqm', { shot: { room_area_m2: 80 } }), 'Floor area')[0].kind, 'estimate');
+  assert.equal(row(need('not more than 100 sqm', { shot: { room_area_m2: 120 } }), 'Floor area')[0].kind, 'conflict');
+  assert.equal(row(need('at most 100 m2', { shot: { room_area_m2: 100 } }), 'Floor area')[0].kind, 'estimate');                 // <= includes equality
+  assert.equal(row(need('maximum of 50 m²', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'conflict');
+  assert.equal(row(need('up to 70 square metres', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'estimate');
+  assert.equal(row(need('no less than 40 m2', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'estimate');
+  assert.equal(row(need('not less than 90 m2', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'conflict');
+});
+
+test('strict inequalities exclude equality; unit conversion applies to upper bounds', () => {
+  assert.equal(row(need('more than 60 m2', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'conflict');                 // 60 is not more than 60
+  assert.equal(row(need('over 59 m2', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'estimate');
+  assert.equal(row(need('less than 60 m2', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'conflict');
+  assert.equal(row(need('under 61 m2', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'estimate');
+  assert.equal(row(need('no more than 700 sq ft', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'estimate');        // 65.0 m2
+  assert.equal(row(need('no more than 600 sq ft', { shot: { room_area_m2: 60 } }), 'Floor area')[0].kind, 'conflict');        // 55.7 m2
+});
+
+test('negated or unfamiliar wording is left unread: no guessed minimum or maximum', () => {
+  for (const t of ['not at least 100 m2', 'not over 100 m2', 'not under 10 m2', 'not up to 100 sqm']) {
+    const r = row(need(t, { shot: { room_area_m2: 60 } }), 'Floor area');
+    assert.equal(r.length, 1, t); assert.equal(r[0].kind, 'unknown', t); assert.match(r[0].detail, /does not read as a minimum or maximum/);
+  }
+  assert.equal(row(need('about 40 m2, roughly 3 m ceiling', {}), 'Floor area').length, 0);                                    // no qualifier: nothing invented
+});
+
+test('mixed phrases are each evaluated; estimates and missing values never become a pass', () => {
+  const r = need('at least 40 m2 but no more than 50 m2', { shot: { room_area_m2: 60 } });
+  const kinds2 = row(r, 'Floor area').map((x) => x.kind).sort();
+  assert.deepEqual(kinds2, ['conflict', 'estimate']);                                                                            // 60 >= 40 consistent, 60 <= 50 conflict
+  assert.equal(r.summary.matches, 0);                                                                                            // index estimates are never "matches"
+  const gone = need('no more than 3 m ceiling', { shot: { ceiling_m: null } });
+  assert.equal(row(gone, 'Ceiling height')[0].kind, 'unknown');
+  assert.equal(JSON.stringify(need('at least 100 m2', {})).includes('measured'), false);
 });

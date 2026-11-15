@@ -8,26 +8,41 @@
   const known = (s) => s === 'measured' || s === 'estimated';
   const M2_PER_SQFT = 0.09290304, M_PER_FT = 0.3048;
 
-  // ---- numeric requirements the user wrote in the scene text (lower bounds only) ----
-  const BOUND = '(at least|minimum of|minimum|min\\.?|no less than|over|more than)';
+  // ---- numeric requirements the user wrote in the scene text ----
+  // Only simple phrasings are read: "<qualifier> N <area unit>" and "<qualifier> N <length unit> ceiling(s)" (or
+  // "ceiling(s) <qualifier> N <length unit>"). Negated or unfamiliar wording such as "not at least" is listed as
+  // unread, never turned into a guessed minimum or maximum. All other needs in the script are NOT extracted.
+  const QUALS = {
+    'not at least': null, 'not at most': null, 'not over': null, 'not under': null, 'not below': null, 'not above': null,
+    'not up to': null, 'not minimum': null, 'not maximum': null,
+    'no more than': 'le', 'not more than': 'le', 'no less than': 'ge', 'not less than': 'ge',
+    'at least': 'ge', 'at most': 'le', 'minimum of': 'ge', 'minimum': 'ge', 'min.': 'ge', 'min': 'ge',
+    'maximum of': 'le', 'maximum': 'le', 'max.': 'le', 'max': 'le', 'up to': 'le',
+    'more than': 'gt', 'greater than': 'gt', 'less than': 'lt', 'over': 'gt', 'under': 'lt', 'below': 'lt', 'above': 'gt',
+  };
+  const QUAL_RE = Object.keys(QUALS).sort((x, y) => y.length - x.length).map((k) => k.replace(/\./g, '\\.').replace(/ /g, '\\s+')).join('|');
   const AREA_UNIT = '(m2|m²|sq\\.? ?m|sqm|square met(?:er|re)s?|sq\\.? ?ft|sqft|square feet|square foot)';
   const LEN_UNIT = '(m|meters?|metres?|ft|feet|foot)';
-  function toM2(v, unit) { return /ft|feet|foot/i.test(unit) ? v * M2_PER_SQFT : v; }
-  function toM(v, unit) { return /^(ft|feet|foot)$/i.test(unit) ? v * M_PER_FT : v; }
+  const opOf = (q) => { const k = q.toLowerCase().replace(/\s+/g, ' '); return Object.prototype.hasOwnProperty.call(QUALS, k) ? QUALS[k] : null; };
+  const toM2 = (v, unit) => (/ft|feet|foot/i.test(unit) ? v * M2_PER_SQFT : v);
+  const toM = (v, unit) => (/^(ft|feet|foot)$/i.test(unit) ? v * M_PER_FT : v);
   function sceneNeeds(text) {
     const t = String(text || '').slice(0, 2000);
-    let area = null, ceiling = null;
-    const a = new RegExp(`${BOUND}\\s+(\\d{1,5}(?:\\.\\d+)?)\\s*${AREA_UNIT}`, 'i').exec(t);
-    if (a) area = { value: Number(a[2]), unit: a[3], m2: toM2(Number(a[2]), a[3]), text: a[0] };
-    const c1 = new RegExp(`${BOUND}\\s+(\\d{1,3}(?:\\.\\d+)?)\\s*${LEN_UNIT}\\s+(?:high\\s+)?ceilings?`, 'i').exec(t);
-    const c2 = new RegExp(`ceilings?\\s+(?:of\\s+)?${BOUND}\\s+(\\d{1,3}(?:\\.\\d+)?)\\s*${LEN_UNIT}`, 'i').exec(t);
-    const c = c1 ? { v: c1[2], u: c1[3], text: c1[0] } : c2 ? { v: c2[2], u: c2[3], text: c2[0] } : null;
-    if (c) ceiling = { value: Number(c.v), unit: c.u, m: toM(Number(c.v), c.u), text: c.text };
+    const area = [], ceiling = [];
+    for (const m of t.matchAll(new RegExp(`\\b(${QUAL_RE})\\s+(\\d{1,5}(?:\\.\\d+)?)\\s*${AREA_UNIT}`, 'gi'))) {
+      if (area.length < 4) area.push({ op: opOf(m[1]), value: Number(m[2]), unit: m[3], m2: toM2(Number(m[2]), m[3]), text: m[0] });
+    }
+    const c1 = new RegExp(`\\b(${QUAL_RE})\\s+(\\d{1,3}(?:\\.\\d+)?)\\s*${LEN_UNIT}\\s+(?:high\\s+)?ceilings?`, 'gi');
+    const c2 = new RegExp(`ceilings?\\s+(?:of\\s+)?(${QUAL_RE})\\s+(\\d{1,3}(?:\\.\\d+)?)\\s*${LEN_UNIT}`, 'gi');
+    for (const re of [c1, c2]) for (const m of t.matchAll(re)) {
+      if (ceiling.length < 4) ceiling.push({ op: opOf(m[1]), value: Number(m[2]), unit: m[3], m: toM(Number(m[2]), m[3]), text: m[0] });
+    }
     const words = ['window', 'door', 'entrance', 'stair', 'island', 'balcony', 'garden', 'yard', 'fireplace', 'skylight', 'elevator', 'quiet'];
     const lower = t.toLowerCase();
     const mentions = words.filter((w) => new RegExp(`\\b${w}s?\\b`).test(lower));
     return { area, ceiling, mentions };
   }
+  const satisfies = (op, have, need) => (op === 'ge' ? have >= need : op === 'gt' ? have > need : op === 'le' ? have <= need : have < need);
 
   // ---- fit breakdown for one scene and one candidate (frame + property + logistics) ----
   // input: { scene:{heading,description}, cand, built:{trucks,cars,require_available}|null, mode }
@@ -62,12 +77,13 @@
     // numeric needs the user wrote (lower bounds), compared with index room estimates only
     const needs = sceneNeeds(`${scene && scene.heading || ''}. ${scene && scene.description || ''}`);
     const room = (value, need, what, unitOut, mine) => {
+      if (need.op == null) return rows.push({ kind: 'unknown', label: what, detail: `Your text says "${need.text}", which Typecast does not read as a minimum or maximum. No comparison was made.`, source: 'Not read from script' });
       if (value == null) return rows.push({ kind: 'unknown', label: what, detail: `Your text says "${need.text}", but the index has no ${what.toLowerCase()} for this frame. Measure on site.`, source: 'Matterport index: not supplied' });
-      const ok = value >= mine;
-      rows.push({ kind: ok ? 'estimate' : 'conflict', label: what, detail: `Your text says "${need.text}". The index estimate is ${value.toFixed(1)} ${unitOut}${ok ? ', consistent with that' : ', below that'}. Index estimates are not site measurements.`, source: 'Matterport index estimate' });
+      const ok = satisfies(need.op, value, mine);
+      rows.push({ kind: ok ? 'estimate' : 'conflict', label: what, detail: `Your text says "${need.text}". The index estimate is ${value.toFixed(1)} ${unitOut}${ok ? ', consistent with that' : ', does not satisfy that'}. Index estimates are not site measurements.`, source: 'Matterport index estimate' });
     };
-    if (needs.area) room(num(sh.room_area_m2), needs.area, 'Floor area', 'm²', needs.area.m2);
-    if (needs.ceiling) room(num(sh.ceiling_m), needs.ceiling, 'Ceiling height', 'm', needs.ceiling.m);
+    for (const n of needs.area) room(num(sh.room_area_m2), n, 'Floor area', 'm²', n.m2);
+    for (const n of needs.ceiling) room(num(sh.ceiling_m), n, 'Ceiling height', 'm', n.m);
     // quiet: only a flagged proximity screen is evidence; empty or unknown never means quiet
     if (needs.mentions.includes('quiet')) {
       const flags = Array.isArray(lg.noise_flags) ? lg.noise_flags.filter((f) => typeof f === 'string').slice(0, 4) : [];
@@ -97,11 +113,12 @@
   // scenes: [{id, number, heading, group, frame:{shot_id,property_id}|null, take:{actors:[...]}|null}]
   // Only scenes the user explicitly put in the same continuity group are compared, consecutive members only.
   function continuity(scenes, takeLabel) {
-    const out = {};
+    // User text (group tags, imported scene ids) is used as a key: Map and a null-prototype object keep 'constructor' and '__proto__' ordinary.
+    const out = Object.create(null);
     const add = (sid, issue) => { (out[sid] ||= []).push(issue); };
-    const groups = {};
-    for (const s of scenes) if (s.group) (groups[s.group] ||= []).push(s);
-    for (const [g, list] of Object.entries(groups)) {
+    const groups = new Map();
+    for (const s of scenes) if (s.group) { if (!groups.has(s.group)) groups.set(s.group, []); groups.get(s.group).push(s); }
+    for (const [g, list] of groups) {
       for (let i = 1; i < list.length; i++) {
         const p = list[i - 1], q = list[i], tag = `Scenes ${p.number} and ${q.number} (link "${g}")`;
         const both = (issue) => { add(p.id, issue); add(q.id, { ...issue }); };

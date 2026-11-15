@@ -12,7 +12,7 @@ const DEMO = [
   'INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.',
   'INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.',
 ].join('\n');
-const S = { swaps: {}, transfer: {}, swapUndo: null, notes: {}, built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
+const S = { swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
@@ -159,13 +159,17 @@ async function build(reuse) {
     require_available: $('reqAvail').checked, trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)),
     cars: Math.floor(clamp($('cars').value, 0, 50, 0)) };
   const prev = assignMap();
+  // What this request was built from. If any of it changes while the answer is in flight, the answer is for older inputs.
+  const sig = () => JSON.stringify([reuse ? null : $('script').value, constraints(), [...S.forbidden]]);
+  const sent = sig();
   busy(true); status('Requesting production plan from backend…');
   try {
     const data = await api('/api/production/plan', body);
     if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
+    if (sig() !== sent) return status('That plan was built for your earlier script, constraints or rejections, which changed while it loaded. Nothing was replaced and your work is kept. Press Build plan again.', true);
     applyForbidden(data);
     orderPlans(data);
-    S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {}; S.swaps = {}; S.swapUndo = null; S.built = { trucks: body.trucks, cars: body.cars, require_available: body.require_available };
+    S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {}; S.swaps = Object.create(null); S.swapUndo = null; S.built = { trucks: body.trucks, cars: body.cars, require_available: body.require_available };
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
     if (data.plans.length) status(`${modeNote(data)}${data.plans.length} candidate plan(s) returned. Candidates are not verified shootability.`, data.mode === 'mock');
@@ -629,7 +633,7 @@ function altLocations(a) {
   const sid = S.sceneId, choices = altChoices(sid);
   const box = el('details', { class: 'alt-locs' }, el('summary', { text: `Try another location (${choices.length})` }));
   if (!choices.length) { box.append(el('p', { class: 'meta', text: 'No other eligible location is in this plan\'s candidate pool. Reject or change constraints, then rebuild, to widen it.' })); return box; }
-  box.append(el('p', { class: 'meta', text: 'One click swaps this scene to that location and carries your staging over as a draft to review. The plan summary is not recalculated.' }));
+  box.append(el('p', { class: 'meta', text: 'One click swaps this scene only, and carries your staging over as a draft to review. To remove a property from every plan, use Reject location instead. The plan summary is not recalculated.' }));
   const strip = el('div', { class: 'frame-strip', role: 'group', 'aria-label': 'Other candidate locations' });
   for (const c of choices) {
     const sim = typeof c.shot.score === 'number' ? c.shot.score.toFixed(2) : 'unknown';
@@ -654,9 +658,32 @@ function swapLocation(sid, shotId) {
   if (!S.edits[newKey] && S.edits[oldKey] && hasWork(S.edits[oldKey])) {
     S.edits[newKey] = clone(S.edits[oldKey]);
     S.transfer[newKey] = { from_shot_id: cur.shot_id, from_property_id: cur.property_id, reviewed: false };
+  } else if (hasWork(S.edits[newKey]) && S.edits[oldKey] && hasWork(S.edits[oldKey]) && JSON.stringify(S.edits[newKey]) !== JSON.stringify(S.edits[oldKey])) {
+    S.swaps[k].dest_kept = true;   // this frame already holds different staging; it is kept and offered, never overwritten
   }
   renderAll();
   status(`Scene ${sceneNumber(sid)} now uses ${safeId(c.shot.property_id)}. Your staging came along as a draft: review it on this frame.`);
+}
+// The destination frame already had staging: it was kept. These two actions are the only ways to change that, and neither deletes anything.
+function useCurrentTakesHere() {
+  const sid = S.sceneId, sw = validSwap(sid), newKey = keyOf(sid), fromKey = sw && `${sid}::${sw.from_shot_id}`;
+  if (!sw || !S.edits[fromKey] || !S.edits[newKey]) return;
+  S.rev++; stopPlay(); cancelGen(); clearPending();
+  S.alt[newKey] = { edits: clone(S.edits[newKey]), transfer: S.transfer[newKey] ? { ...S.transfer[newKey] } : null };
+  S.edits[newKey] = clone(S.edits[fromKey]);
+  S.transfer[newKey] = { from_shot_id: sw.from_shot_id, from_property_id: sw.from_property_id, reviewed: false };
+  sw.dest_kept = false; renderAll();
+  status('Your current takes now replace the earlier staging on this frame as an unreviewed draft. The earlier staging is kept: use "Switch to the other saved staging".');
+}
+function switchStaging() {
+  const newKey = keyOf(S.sceneId), other = S.alt[newKey];
+  if (!other || !S.edits[newKey]) return;
+  S.rev++; stopPlay(); cancelGen(); clearPending();
+  const mine = { edits: S.edits[newKey], transfer: S.transfer[newKey] ? { ...S.transfer[newKey] } : null };
+  S.edits[newKey] = other.edits;
+  if (other.transfer) S.transfer[newKey] = other.transfer; else delete S.transfer[newKey];
+  S.alt[newKey] = mine; renderAll();
+  status('Switched to the other saved staging on this frame. Nothing was deleted; both versions stay in this session.');
 }
 function undoSwap() {
   const u = S.swapUndo; if (!u) return;
@@ -678,14 +705,18 @@ function renderSwapNotice() {
   const row = el('div', { class: 'row' });
   if (unreviewed) {
     const ok = el('button', { type: 'button', class: 'primary', text: 'Staging looks right on this frame' });
-    ok.addEventListener('click', () => { S.rev++; t.reviewed = true; renderAll(); status('Marked reviewed on this exact frame. Positions are still uncalibrated screen space.'); });
+    ok.addEventListener('click', () => { S.rev++; t.reviewed = true; renderAll(); status('Marked reviewed by eye on this exact frame. That is artistic alignment, not a survey: geometric fit is still unknown.'); });
     row.append(ok);
   }
   if (S.swapUndo && S.swapUndo.sid === sid) { const u = el('button', { type: 'button', text: 'Undo swap' }); u.addEventListener('click', undoSwap); row.append(u); }
+  if (sw.dest_kept) { const use = el('button', { type: 'button', text: 'Use my current takes here instead' }); use.addEventListener('click', useCurrentTakesHere); row.append(use); }
+  if (S.alt[keyOf(sid)]) { const sw2 = el('button', { type: 'button', text: 'Switch to the other saved staging' }); sw2.addEventListener('click', switchStaging); row.append(sw2); }
   const back = el('button', { type: 'button', text: 'Back to planned location' }); back.addEventListener('click', backToPlanned); row.append(back);
   n.append(el('p', { text: `Location swapped for scene ${sceneNumber(sid)}: ${safeId(sw.from_property_id)} → ${safeId(sw.property_id)}. ${unreviewed
     ? 'Your takes, durations, dialogue and stand-ins were carried over as a draft. They were NOT verified against this frame and the previous scan identity does not apply. Fit stays uncalibrated until you confirm.'
-    : 'The plan summary and company moves were not recalculated for this choice.'}` }), row);
+    : 'The plan summary and company moves were not recalculated for this choice. Reviewing by eye is artistic alignment, not a survey: geometric fit is still unknown.'}` }),
+    ...(sw.dest_kept ? [el('p', { class: 'meta', text: 'This frame already had different staging from earlier. It was kept, and your current takes were not copied.' })] : []),
+    ...(S.alt[keyOf(sid)] ? [el('p', { class: 'meta', text: 'A second saved staging exists for this frame. It lives in this session only; the project file saves the one shown.' })] : []), row);
   n.hidden = false;
 }
 const sceneGroup = (sid) => (S.notes[sid]?.group || '');
@@ -710,7 +741,7 @@ function renderChecks() {
   const fit = fitFor(sid), cont = (continuityMap()[sid] || []), real = cont.filter((c) => c.level !== 'unknown');
   const body = $('checksBody'); body.replaceChildren();
   $('checksSummary').textContent = `Fit check · ${TypecastChecks.fitSummaryText(fit)}${real.length ? ` · ${real.length} continuity note${real.length === 1 ? '' : 's'}` : ''}`;
-  body.append(el('p', { class: 'meta', text: 'Only fields the sources supplied are compared. Unknown stays unknown, and image similarity is not a fit score.' }),
+  body.append(el('p', { class: 'meta', text: 'Only fields the sources supplied are compared. Unknown stays unknown, and image similarity is not a fit score. Only simple wording in your script (at least / no more than / more than / less than with m², ft² or a ceiling height) is read; other needs are not extracted.' }),
     el('ul', { class: 'chk-list' }, ...fit.rows.map(checkRow)));
   if (cont.length) {
     body.append(el('h4', { text: 'Continuity (from your link)' }), el('ul', { class: 'chk-list' }, ...cont.map((c) => el('li', { class: `chk chk-${c.level === 'verified' ? 'conflict' : c.level === 'potential' ? 'unknown' : 'info'}` },
@@ -881,7 +912,7 @@ async function dataUrl(path) {
   return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error('read failed')); fr.readAsDataURL(b); });
 }
 const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('decode failed')); i.src = src; });
-const PACK_PRINT = '@media print{body{max-width:none;margin:0;font-size:11pt}section.scene{break-inside:avoid-page;page-break-inside:avoid}img{max-height:9cm;width:auto;max-width:100%}.sheet li{list-style:none}.sheet li:before{content:"\\2610 "}h1,h2,h3{break-after:avoid}}.sheet{border:1px solid #c98a1c;padding:.6rem .9rem;margin:.8rem 0;background:#fbf6ec}.sheet h3{margin:.2rem 0 .4rem}.sheet ul{padding-left:1.1rem}.sheet .k{font-weight:bold}';
+const PACK_PRINT = '@media print{body{max-width:none;margin:0;font-size:11pt}section.scene{break-inside:avoid-page;page-break-inside:avoid}img{max-height:9cm;width:auto;max-width:100%}.sheet li{list-style:none}.sheet li:before{content:"\\2610 "}h1,h2,h3{break-after:avoid}}.sheet{border:1px solid #c98a1c;padding:.6rem .9rem;margin:.8rem 0;background:#fbf6ec}.sheet h3{margin:.2rem 0 .4rem}.sheet ul{padding-left:1.1rem}.sheet .k{font-weight:bold}.takes{display:flex;gap:.6rem;flex-wrap:wrap}.takes figure{margin:0;flex:1 1 280px}.takes img{width:100%}';
 const PACK_CSS = 'body{font:14px/1.5 Georgia,serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#1a120c}section.scene{break-inside:avoid;border-top:2px solid #c98a1c;padding:1rem 0}img{width:100%;border:1px solid #ccc}.meta{color:#6b5847;font-size:12px}dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px}dt{color:#6b5847}dd{margin:0}.unk{color:#b3261e;font-style:italic}.warn{font-size:12px}h4{margin:.6rem 0 .2rem}' + PACK_PRINT;
 // Safe, validated per-scene production state that Project JSON carries (identifiers and bounded text only).
 function sceneProduction(sid) {
@@ -916,13 +947,13 @@ function decisionNodes(E, d, activeVariant) {
     E('p', 'This sheet records choices and open questions. It contains no prices, permissions, owner contact or confirmation that a set is feasible.', 'meta'));
   box.append(E('h4', 'Location choice'), E('p', `Property ${d.property}, frame ${d.shot}.${d.swap ? ` Chosen by hand from the candidate pool instead of ${d.swap.from}; plan totals were not recalculated.` : ' As selected by the plan or your frame choice.'}`));
   if (d.carried) box.append(E('p', 'Staging was carried over from another frame and has NOT been reviewed on this one. Positions are uncalibrated screen space.', 'unk'));
-  box.append(E('h4', 'Takes (both listed; the image above shows take ' + activeVariant + ')'));
+  box.append(E('h4', `Takes (both are shown above; take ${activeVariant} is the active take)`));
   for (const v of ['A', 'B']) {
     const t = d.takes[v];
     box.append(E('p', `Take ${v}: ${t.duration_sec}s, ${t.actors.length} stand-in${t.actors.length === 1 ? '' : 's'}${t.dialogue ? `, line: ${t.dialogue}` : ', no dialogue'}${t.origin ? ' · AUTHORED SAMPLE (pre-written, not AI-generated)' : ''}.`, 'meta'));
   }
   const ul = (items) => { const u = E('ul'); items.forEach((i) => u.append(E('li', i))); return u; };
-  box.append(E('h4', 'Fit evidence (sources, not a score)'), ul(d.fit.rows.map((r) => `${TypecastChecks.KIND_LABEL[r.kind]}: ${r.label}. ${r.detail}${r.source ? ` Source: ${r.source}.` : ''}`)));
+  box.append(E('h4', 'Fit evidence (sources, not a score; only simple wording in your script is read)'), ul(d.fit.rows.map((r) => `${TypecastChecks.KIND_LABEL[r.kind]}: ${r.label}. ${r.detail}${r.source ? ` Source: ${r.source}.` : ''}`)));
   const real = d.cont;
   if (real.length) box.append(E('h4', 'Continuity (from your link)'), ul(real.map((c) => `${c.level === 'verified' ? 'Mismatch' : c.level === 'potential' ? 'Possible mismatch' : 'Cannot compare'}: ${c.text} Next: ${c.action}`)));
   box.append(E('h4', 'Dressing (your notes; Typecast suggests none here)'), E('p', d.notes && d.notes.dressing ? d.notes.dressing : '(none entered)', d.notes && d.notes.dressing ? '' : 'meta'));
@@ -954,15 +985,26 @@ async function exportPack() {
           const url = await dataUrl(`/image/${encodeURIComponent(a.shot_id)}`), im = await loadImg(url), cv = document.createElement('canvas');
           cv.width = 1280; cv.height = 720;
           drawStage(cv.getContext('2d'), 1280, 720, { imgEl: im, prov: s.provenance_label, shot: sheets[i]?.carried ? { ...sh, carried: true } : sh, t: null, editing: true, sel: -1 });
-          const staged = E('img'), raw = E('img');
-          staged.src = cv.toDataURL('image/jpeg', 0.88); staged.alt = `Staged rehearsal frame, scene ${i + 1}`;
+          const raw = E('img'), takes = E('div', null, 'takes');
+          for (const v of ['A', 'B']) {
+            const tv = s.variants?.[v] || sh, shotV = sheets[i]?.carried ? { ...tv, carried: true } : tv;
+            const cv2 = document.createElement('canvas'); cv2.width = 1280; cv2.height = 720;
+            drawStage(cv2.getContext('2d'), 1280, 720, { imgEl: im, prov: s.provenance_label.replace(/Variant [AB]/, `Variant ${v}`), shot: shotV, t: null, editing: true, sel: -1 });
+            const fig = E('figure', null, 'take'), staged = E('img');
+            staged.src = cv2.toDataURL('image/jpeg', 0.88); staged.alt = `Staged rehearsal frame, scene ${i + 1}, take ${v}`;
+            fig.append(E('h4', `Take ${v}${v === snapshot.variant ? ' (active take)' : ''}: staged frame (uncalibrated screen space)`), staged);
+            takes.append(fig);
+          }
           raw.src = url; raw.alt = `Indexed source frame ${a.shot_id}`;
-          sec.append(E('h4', 'Staged frame (uncalibrated screen space)'), staged, E('h4', 'Indexed source frame'), raw);
+          sec.append(takes, E('h4', 'Indexed source frame'), raw);
         } catch (e) { sec.append(E('p', `Indexed image unavailable: ${e.message}`, 'unk')); }
-        sec.append(E('h4', `Variant ${snapshot.variant} · ${sh.duration_sec}s`), E('p', sh.dialogue || '(no dialogue)'));
-        if (sh.origin) sec.append(E('p', 'This take is derived from an AUTHORED SAMPLE: pre-written blocking, not AI-generated, not an interpretation of any instruction.', 'unk'));
+        for (const v of ['A', 'B']) {
+          const t = s.variants?.[v] || sh;
+          sec.append(E('h4', `Take ${v}${v === snapshot.variant ? ' (active take)' : ''} · ${t.duration_sec}s`), E('p', t.dialogue || '(no dialogue)'));
+          if (t.origin) sec.append(E('p', `Take ${v} is derived from an AUTHORED SAMPLE: pre-written blocking, not AI-generated, not an interpretation of any instruction.`, 'unk'));
+          t.actors.forEach((ac) => sec.append(E('p', `${ac.name} (${ac.pose}, scale ${ac.scale}): (${ac.x0.toFixed(2)}, ${ac.y0.toFixed(2)}) → (${ac.x1.toFixed(2)}, ${ac.y1.toFixed(2)})`, 'meta')));
+        }
         if (sheets[i]) sec.append(decisionNodes(E, sheets[i], snapshot.variant));
-        sh.actors.forEach((ac) => sec.append(E('p', `${ac.name} (${ac.pose}, scale ${ac.scale}): (${ac.x0.toFixed(2)}, ${ac.y0.toFixed(2)}) → (${ac.x1.toFixed(2)}, ${ac.y1.toFixed(2)})`, 'meta')));
       }
       sec.append(doc.importNode(evidenceNodes(s.id, s.evidence, false), true)); doc.body.append(sec);
     }
@@ -1033,7 +1075,7 @@ async function importProject(file) {
     // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
     Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
       edits: restored.edits, frameOverrides: restored.frameOverrides, importReview: restored.reviewNeeded,
-      swaps: restored.swaps, transfer: restored.transfers, notes: restored.notes, swapUndo: null, built: { trucks: limits.trucks, cars: limits.cars, require_available: limits.require_available },
+      swaps: restored.swaps, transfer: restored.transfers, notes: restored.notes, alt: Object.create(null), swapUndo: null, built: { trucks: limits.trucks, cars: limits.cars, require_available: limits.require_available },
       frameChange: {}, forbidden: [], undo: null, variant: project.variant });
     $('undo').disabled = true;
     $('script').value = scenes.map((scene) => `${scene.heading} | ${scene.description}`.replace(/[\r\n]+/g, ' ')).join('\n');

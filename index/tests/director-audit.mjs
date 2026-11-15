@@ -1972,3 +1972,112 @@ test('decisions: reel input for a carried-over take is flagged so the WebM frame
   const plain = R.buildSnapshot({ variant: 'A', scenes: [{ id: 's1', heading: 'h', shot_id: 'shot_b', prov: 'p', shot: { duration_sec: 5, dialogue: '', actors: [], carried: 'yes' } }] });
   assert.equal(plain.scenes[0].shot.carried, undefined);
 });
+
+// ---------- independent-review regressions (stale build, both takes in the pack, swap destination staging) ----------
+test('review: a plan answer for older script, constraints or rejections is never installed under newer inputs', async () => {
+  const mk = async () => {
+    const env = boot();
+    await buildScript(env, 'INT. KITCHEN | original', [assignment('s1', 'prop_a', 'shot_a')]);
+    env.$('addActor').click(); env.$('dlg').value = 'KEEP_THIS_TAKE'; env.$('dlg').dispatchEvent({ type: 'input' });
+    return env;
+  };
+  const stale = async (change) => {
+    const env = await mk();
+    const before = copied({ scenes: env.api.S.scenes, resp: env.api.S.resp, built: env.api.S.built });
+    env.$('script').value = 'INT. KITCHEN | original'; env.$('build').click();
+    const job = env.take('/api/production/plan'), sent = JSON.parse(job.opts.body);
+    change(env);
+    job.resolve(jsonResponse(planFor(sent, [assignment('s1', 'prop_z', 'shot_z')])));
+    await drain();
+    assert.match(env.$('status').textContent, /built for your earlier script, constraints or rejections/);
+    assert.deepEqual(copied({ scenes: env.api.S.scenes, resp: env.api.S.resp, built: env.api.S.built }), before, 'old plan, scenes and constraints kept');
+    assert.equal(env.api.shotData('s1').dialogue, 'KEEP_THIS_TAKE');
+    assert.equal(env.$('build').disabled, false, 'build is usable again');
+    return env;
+  };
+  await stale((env) => { env.$('script').value = 'EXT. ROAD | newer script'; env.$('script').dispatchEvent({ type: 'input' }); });
+  await stale((env) => { env.$('trucks').value = '5'; env.$('trucks').dispatchEvent({ type: 'input' }); });
+  await stale((env) => { env.$('reqAvail').checked = true; });
+  await stale((env) => { env.$('maxLoc').value = '1'; });
+  // a rejection change while a replan is in flight is also stale
+  const env = await mk();
+  env.api.S.forbidden.push('prop_old');
+  env.$('build').click(); const job = env.take('/api/production/plan');
+  env.api.S.forbidden.length = 0;                                                       // Clear rejections during the request
+  job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), [assignment('s1', 'prop_z', 'shot_z')]))); await drain();
+  assert.match(env.$('status').textContent, /earlier script, constraints or rejections/);
+  assert.equal(env.api.S.resp.plans[0].assignments[0].shot_id, 'shot_a');
+  // unchanged inputs still install normally
+  const ok = await mk(); ok.$('build').click();
+  const j2 = ok.take('/api/production/plan'); j2.resolve(jsonResponse(planFor(JSON.parse(j2.opts.body), [assignment('s1', 'prop_z', 'shot_z')]))); await drain();
+  assert.equal(ok.api.S.resp.plans[0].assignments[0].shot_id, 'shot_z');
+});
+
+test('review: the shoot pack exports both takes, with text, raster stamps and provenance for the inactive take too', async () => {
+  const env = await swapEnv();                                      // A staged by hand; B is the authored sample
+  env.api.swapLocation('s1', 'shot_b');                             // staging carried over and unreviewed
+  assert.equal(env.api.S.variant, 'A');
+  env.drawLog.length = 0; env.$('expPack').click(); await drain();
+  const html = await blobText(env.downloads.find((d) => d.name.endsWith('.html')).blob);
+  assert.ok(html.includes('Take A (active take) · 7s')); assert.ok(html.includes('Take B · 7s'));
+  assert.ok(html.includes('Take B is derived from an AUTHORED SAMPLE')); assert.equal(html.includes('Take A is derived from an AUTHORED SAMPLE'), false);
+  assert.ok(html.includes('Staged rehearsal frame, scene 1, take A')); assert.ok(html.includes('Staged rehearsal frame, scene 1, take B'));
+  assert.ok(html.includes('Take A: 7s, 1 stand-in')); assert.ok(html.includes('Take B: 7s,'));
+  const texts = env.drawLog.filter((e) => e.m === 'fillText').map((e) => String(e.args[0]));
+  const stamp = (t) => texts.filter((x) => x === t).length;
+  assert.equal(stamp('AUTHORED SAMPLE · not AI'), 1, 'the inactive sample take is stamped in its own staged image, once');
+  assert.ok(stamp('STAGING CARRIED OVER · UNREVIEWED ON THIS FRAME') >= 2, 'both staged images of scene 1 carry the unreviewed stamp');
+  assert.ok(texts.some((x) => /Variant B/.test(x)) && texts.some((x) => /Variant A/.test(x)), 'each image names its own take');
+  // a carried but non-sample take: the review label does not depend on sample origin
+  env.api.setVariant('B');
+  env.$('expJson').click(); const saved = JSON.parse(await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob));
+  assert.equal(saved.scenes[0].location_choice.staging_reviewed, false);
+  env.$('swapNotice').querySelectorAll('button').find((b) => /looks right/.test(b.textContent)).click();
+  env.drawLog.length = 0; env.$('expPack').click(); await drain();
+  assert.equal(env.drawLog.some((e) => e.m === 'fillText' && String(e.args[0]).includes('CARRIED OVER')), false, 'review clears the stamp from both takes');
+});
+
+test('review: swapping into a frame that already holds other staging keeps it, says so, and every version stays recoverable', async () => {
+  const env = await swapEnv();
+  env.api.swapLocation('s1', 'shot_b');
+  const firstCopy = JSON.stringify(env.api.S.edits['s1::shot_b']);
+  env.$('swapNotice').querySelectorAll('button').find((b) => /Undo swap/.test(b.textContent)).click();
+  env.$('dlg').value = 'A edited after undo'; env.$('dlg').dispatchEvent({ type: 'input' });
+  const newerA = JSON.stringify(env.api.S.edits['s1::shot_a']);
+  env.api.swapLocation('s1', 'shot_b');                              // destination already holds the earlier copy
+  assert.equal(JSON.stringify(env.api.S.edits['s1::shot_b']), firstCopy, 'earlier destination staging is not overwritten');
+  assert.match(env.$('swapNotice').textContent, /already had different staging from earlier\. It was kept, and your current takes were not copied/);
+  const label = (re) => env.$('swapNotice').querySelectorAll('button').find((b) => re.test(b.textContent));
+  assert.ok(label(/Use my current takes here instead/));
+  label(/Use my current takes here instead/).click();
+  assert.equal(env.api.shotData('s1', 'A').dialogue, 'A edited after undo');
+  assert.equal(env.api.S.transfer['s1::shot_b'].reviewed, false);
+  assert.match(env.$('swapNotice').textContent, /second saved staging exists.*session only/);
+  assert.equal(JSON.stringify(env.api.S.alt['s1::shot_b'].edits), firstCopy, 'the replaced staging is stashed, not deleted');
+  label(/Switch to the other saved staging/).click();
+  assert.equal(JSON.stringify(env.api.S.edits['s1::shot_b']), firstCopy);
+  label(/Switch to the other saved staging/).click();
+  assert.equal(env.api.shotData('s1', 'A').dialogue, 'A edited after undo');
+  assert.equal(JSON.stringify(env.api.S.edits['s1::shot_a']), newerA, 'the source frame staging never changed');
+  // reviewing says what review means
+  env.$('swapNotice').querySelectorAll('button').find((b) => /looks right/.test(b.textContent)).click();
+  assert.match(env.$('swapNotice').textContent, /artistic alignment, not a survey: geometric fit is still unknown/);
+});
+
+test('review: prototype-like scene ids, notes and links import and render without errors', async () => {
+  const env = boot();
+  await buildScript(env, 'INT. A - DAY | one\nINT. B - DAY | two', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_a', 'shot_a')]);
+  for (const g of ['constructor', '__proto__']) {
+    env.api.selectScene('s1'); env.$('noteGroup').value = g; env.$('noteGroup').dispatchEvent({ type: 'input' });
+    env.api.selectScene('s2'); env.$('noteGroup').value = g; env.$('noteGroup').dispatchEvent({ type: 'input' });
+    assert.equal(env.api.S.notes.s1.group, g); assert.equal(Object.getPrototypeOf(env.api.S.notes), null);
+    env.api.selectScene('s1'); assert.doesNotMatch(env.$('checksBody').textContent, /Mismatch/);   // same frame, no actors: nothing to flag
+  }
+  env.$('expJson').click(); const text = await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob);
+  const fresh = boot();
+  await buildScript(fresh, 'INT. A - DAY | one\nINT. B - DAY | two', [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_a', 'shot_a')]);
+  const { job, body } = await startImport(fresh, text);
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a'), assignment('s2', 'prop_a', 'shot_a')]))); await drain();
+  assert.equal(fresh.api.S.notes.s2.group, '__proto__');
+  fresh.api.selectScene('s2'); assert.ok(fresh.$('sceneChecks').hidden === false);
+});
