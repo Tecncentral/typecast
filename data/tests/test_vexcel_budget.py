@@ -205,3 +205,15 @@ def test_default_ledger_is_private_cache():
     assert re.search(r"^cache/?$", (ROOT / ".gitignore").read_text(), re.MULTILINE), (
         "cache/ must be git-ignored"
     )
+
+
+def test_environment_overrides_raise_caps_without_changing_the_defaults(ledger, clock, monkeypatch):
+    monkeypatch.setenv("TYPECAST_VEXCEL_EMBEDDING_PER_DAY", "2000")
+    monkeypatch.setenv("TYPECAST_VEXCEL_EMBEDDING_PER_SEARCH", "16")
+    monkeypatch.setenv("TYPECAST_VEXCEL_IMAGES_PER_DAY", "not a number")
+    assert budget.caps("embedding") == {"per_search": 16, "per_day": 2000}
+    assert budget.caps("images") == {"per_day": 60}  # an invalid override is ignored
+    assert budget.CAPS["embedding"] == {"per_search": 5, "per_day": 40}
+    for _ in range(10):
+        budget.check_and_record("embedding/extract", 16)  # 160 > 40: allowed only by the override
+    assert sum(r["count"] for r in rows(ledger)) == 160
