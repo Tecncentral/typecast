@@ -118,3 +118,13 @@ New, additive endpoints; consumer: `web/oblique.html`.
   (default `low`); every result is labelled "AI-imagined, not the real place".
 No existing endpoint or response changes.
 
+## Vexcel 3D Cities and the MCP place assistant — 2026-11-15
+
+Additive; consumer: `web/oblique.html` place view.
+- `GET /api/vexcel3d/place?lat&lon` returns the 3D collection, capture dates and tile URLs (zoom 19, ~280 m box)
+  that point at `GET /api/vexcel3d/tile?zoom&tile-x&tile-y&childAOI`, a validated proxy to Vexcel `3d/tile`.
+  Tilesets and tiles are cached under `cache/vexcel3d/`. The key never reaches the browser.
+- `POST /api/oblique/ask {search_id, index, question}` answers with `TYPECAST_LLM_MODEL` calling Vexcel MCP
+  tools (`https://api.vexcelgroup.com/v2/mcp`, key only to Vexcel). Read-only allowlist, trimmed parameters,
+  geometry within ~2 km of the place, clamped buffers/records, at most 5 calls; the answer lists the tools used.
+

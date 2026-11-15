@@ -18,6 +18,11 @@ const PRESETS = {
     "Large flat open land for a warehouse",
   ],
 };
+const ASK_IDEAS = [
+  "How tall are the buildings right around here?",
+  "Are there pools or parked cars on nearby parcels?",
+  "When was the imagery here captured?",
+];
 const CHAT_IDEAS = [
   "Night, wet pavement, practical street lights",
   "Add a food truck with string lights",
@@ -340,6 +345,19 @@ function open(r) {
   three.title = "Vexcel 3D Cities: the textured city mesh around this place";
   three.addEventListener("click", openCity);
   dirs.append(three);
+  $("#ob-answer").hidden = true;
+  $("#ob-answer").replaceChildren();
+  const askSuggest = $("#ob-ask-suggest");
+  askSuggest.replaceChildren();
+  for (const idea of ASK_IDEAS) {
+    const b = el("button", idea, "ob-chip ob-chip--small");
+    b.type = "button";
+    b.addEventListener("click", () => {
+      $("#ob-ask-input").value = idea;
+      $("#ob-ask-form").requestSubmit();
+    });
+    askSuggest.append(b);
+  }
   const suggest = $("#ob-chat-suggest");
   suggest.replaceChildren();
   for (const idea of CHAT_IDEAS) {
@@ -355,6 +373,63 @@ function open(r) {
   if (r.image) place.views = { [r.image.direction]: r.image.path };
   $("#ob-place").showModal();
   loadView(r.image?.direction || "north");
+}
+
+// Minimal, safe rendering of the model's answer: lines, "- " bullets, **bold** and `code`, as DOM nodes.
+function inline(text) {
+  const frag = document.createDocumentFragment();
+  for (const part of String(text).split(/(\*\*[^*]+\*\*|`[^`]+`)/)) {
+    if (!part) continue;
+    if (part.startsWith("**")) frag.append(el("strong", part.slice(2, -2)));
+    else if (part.startsWith("`")) frag.append(el("code", part.slice(1, -1)));
+    else frag.append(document.createTextNode(part));
+  }
+  return frag;
+}
+function renderAnswer(host, data) {
+  host.replaceChildren();
+  let list = null;
+  for (const line of String(data.answer || "").split("\n")) {
+    const text = line.trim();
+    if (!text) { list = null; continue; }
+    if (/^[-*] /.test(text)) {
+      list ||= host.appendChild(el("ul"));
+      const item = el("li");
+      item.append(inline(text.slice(2)));
+      list.append(item);
+    } else {
+      list = null;
+      const para = el("p");
+      para.append(inline(text));
+      host.append(para);
+    }
+  }
+  const tools = el("p", undefined, "ob-tools");
+  tools.append(el("span", "Vexcel MCP", "ob-tools-label"));
+  for (const call of data.calls || [])
+    tools.append(el("span", `${call.tool}${call.ok ? "" : " (not run)"}`, `ob-tool${call.ok ? "" : " is-skipped"}`));
+  if (!(data.calls || []).length) tools.append(el("span", "no tool calls", "ob-tool is-skipped"));
+  host.append(tools);
+  host.hidden = false;
+}
+
+async function ask(event) {
+  event.preventDefault();
+  const input = $("#ob-ask-input");
+  const question = input.value.trim();
+  if (!question || !place) return;
+  const button = $("#ob-ask-send");
+  const host = $("#ob-answer");
+  button.disabled = input.disabled = true;
+  host.hidden = false;
+  host.replaceChildren(el("p", "Asking Vexcel… about 15–30 s.", "ob-chat-note"));
+  try {
+    renderAnswer(host, await post("/api/oblique/ask", { search_id: current.search_id, index: place.index, question }, 120000));
+  } catch (error) {
+    host.replaceChildren(el("p", error.message, "ob-chat-note"));
+  } finally {
+    button.disabled = input.disabled = false;
+  }
 }
 
 async function send(event) {
@@ -391,6 +466,7 @@ async function init() {
   presetButtons($("#ob-sites"), PRESETS.sites);
   $("#ob-form").addEventListener("submit", run);
   $("#ob-chat-form").addEventListener("submit", send);
+  $("#ob-ask-form").addEventListener("submit", ask);
   $("#ob-close").addEventListener("click", () => $("#ob-place").close());
   $("#ob-place").addEventListener("close", closeCity);
   for (const b of document.querySelectorAll("#ob-compare button"))

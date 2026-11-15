@@ -86,6 +86,17 @@
           </div>
           <aside class="ob-side">
             <section class="ob-facts" id="ob-facts" aria-label="Evidence"></section>
+            <section class="ob-ask" aria-labelledby="ob-ask-heading">
+              <h3 id="ob-ask-heading">Ask about this place</h3>
+              <p class="ob-chat-note">Answers come from live Vexcel data through Vexcel's MCP server: heights, parcels, pools, vehicles, roofs, imagery dates.</p>
+              <div class="ob-chat-suggest" id="ob-ask-suggest"></div>
+              <form id="ob-ask-form" class="ob-chat-form">
+                <label for="ob-ask-input" class="sr-only">Question about this place</label>
+                <input id="ob-ask-input" maxlength="500" autocomplete="off" placeholder="e.g. How tall are the buildings around here?" />
+                <button class="primary" type="submit" id="ob-ask-send">Ask</button>
+              </form>
+              <div id="ob-answer" class="ob-answer" aria-live="polite" hidden></div>
+            </section>
             <section class="ob-chat" aria-labelledby="ob-chat-heading">
               <h3 id="ob-chat-heading">Reimagine this place</h3>
               <p class="ob-chat-note" id="ob-chat-note"></p>

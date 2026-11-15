@@ -89,6 +89,31 @@ def oblique_view(req: ObliqueViewRequest):
         raise _oblique_error(error) from None
 
 
+class ObliqueAskRequest(BaseModel):
+    search_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    index: int = Field(ge=0, le=31)
+    question: str = Field(min_length=1, max_length=500)
+
+
+@app.post("/api/oblique/ask")
+def oblique_ask(req: ObliqueAskRequest):
+    """Answer a question about one found place with live Vexcel data via Vexcel's MCP server."""
+    from agent import oblique_search as oblique
+    from agent.vexcel_assistant import AssistantError, ask
+    try:
+        record = oblique._load(req.search_id)
+        place = next(r for r in record["results"] if r["index"] == req.index)
+        return ask(req.question, place, record["city"])
+    except (KeyError, StopIteration):
+        raise HTTPException(404, "Place not found. Run the search again.") from None
+    except AssistantError as error:
+        raise HTTPException(502, str(error)) from None
+    except ValueError as error:
+        raise HTTPException(400, str(error)) from None
+    except Exception:  # noqa: BLE001 - model or network failures are reported generically
+        raise HTTPException(502, "The assistant could not answer right now.") from None
+
+
 @app.post("/api/oblique/reimagine")
 def oblique_reimagine(req: ObliqueReimagineRequest):
     from agent import oblique_search as oblique

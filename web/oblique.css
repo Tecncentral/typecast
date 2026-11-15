@@ -387,6 +387,61 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+.ob-ask {
+  display: grid;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.ob-ask h3 {
+  margin: 0;
+  font-size: 18px;
+}
+.ob-answer {
+  padding: 12px 14px;
+  border: 1px solid #3c4a45;
+  border-radius: 8px;
+  background: #1a2220;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.ob-answer p,
+.ob-answer ul {
+  margin: 0 0 8px;
+}
+.ob-answer ul {
+  padding-left: 18px;
+}
+.ob-answer strong {
+  color: var(--accent);
+  font-weight: 600;
+}
+.ob-answer code,
+.ob-tool {
+  font: 12px/1.4 var(--mono);
+}
+.ob-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 0 !important;
+}
+.ob-tools-label {
+  color: var(--muted);
+  font: 11px/1.8 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.ob-tool {
+  padding: 2px 8px;
+  border: 1px solid #4f6b62;
+  border-radius: 999px;
+  color: var(--measured);
+}
+.ob-tool.is-skipped {
+  border-color: var(--line);
+  color: var(--muted);
+}
 .ob-chat {
   display: grid;
   gap: 10px;
