@@ -1,14 +1,15 @@
-{"type":"plan","agent":"director","text":"Parse scene, filter buildings, search shots, check fit, plan crew, challenge, rank."}
-{"type":"subagent_start","agent":"market_scout","text":"Filtering CoStar by city, era and availability."}
-{"type":"subagent_result","agent":"market_scout","text":"4 candidate buildings."}
-{"type":"subagent_start","agent":"interior_scout","text":"Searching camera views inside the scans."}
-{"type":"subagent_result","agent":"interior_scout","text":"12 matching views."}
-{"type":"subagent_start","agent":"logistics_scout","text":"Checking crew parking and noise from the aerial view."}
-{"type":"skeptic","agent":"skeptic","text":"100 Example St (FAKE): Shot is tight: 24 mm lens framing 6 m needs 8.78 m; room has 6 m. Ceiling 2.6 m leaves little room to rig lights."}
-{"type":"skeptic","agent":"skeptic","text":"200 Sample Ave (FAKE): Noise: freeway within 200 m."}
-{"type":"skeptic","agent":"skeptic","text":"200 Sample Ave (FAKE): Shot is tight: 24 mm lens framing 6 m needs 8.78 m; room has 8.5 m."}
-{"type":"skeptic","agent":"skeptic","text":"200 Sample Ave (FAKE): Parking short: 1 truck / 12 car spaces against 3 / 30 needed."}
-{"type":"skeptic","agent":"skeptic","text":"300 Placeholder Blvd (FAKE): No objection."}
-{"type":"skeptic","agent":"skeptic","text":"500 Fixture Rd (FAKE): Noise: rail line within 300 m."}
-{"type":"skeptic","agent":"skeptic","text":"500 Fixture Rd (FAKE): Parking short: 2 truck / 25 car spaces against 3 / 30 needed."}
-{"type":"final","agent":"director","text":"3 picks."}
+{"type": "plan", "agent": "director", "text": "Parse scene, filter buildings, search shots, check fit, plan crew, challenge, rank.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "notice", "agent": "runtime", "text": "No city named; searched Los Angeles. Name Houston to search there.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "subagent_start", "agent": "market_scout", "text": "Filtering CoStar by city, era and availability.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "subagent_result", "agent": "market_scout", "text": "4 candidate buildings.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "subagent_start", "agent": "interior_scout", "text": "Searching camera views inside the scans.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "subagent_result", "agent": "interior_scout", "text": "12 matching views.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "subagent_start", "agent": "logistics_scout", "text": "Checking crew parking and noise from the aerial view.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "skeptic", "agent": "skeptic", "text": "100 Example St (FAKE): Shot is tight: 24 mm lens framing 6 m needs 8.78 m; room has 6 m. Ceiling 2.6 m leaves little room to rig lights.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "skeptic", "agent": "skeptic", "text": "200 Sample Ave (FAKE): Noise: freeway within 200 m.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "skeptic", "agent": "skeptic", "text": "200 Sample Ave (FAKE): Shot is tight: 24 mm lens framing 6 m needs 8.78 m; room has 8.5 m.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "skeptic", "agent": "skeptic", "text": "200 Sample Ave (FAKE): Parking short: 1 truck / 12 car spaces against 3 / 30 needed.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "skeptic", "agent": "skeptic", "text": "300 Placeholder Blvd (FAKE): No objection.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "skeptic", "agent": "skeptic", "text": "500 Fixture Rd (FAKE): Noise: rail line within 300 m.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "skeptic", "agent": "skeptic", "text": "500 Fixture Rd (FAKE): Parking short: 2 truck / 25 car spaces against 3 / 30 needed.", "ts": 0.0, "ms": null, "engine": "fixed"}
+{"type": "final", "agent": "director", "text": "3 picks.", "ts": 0.0, "ms": null, "engine": "fixed"}

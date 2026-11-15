@@ -1,7 +1,7 @@
 """Shared shapes. Change only by telling all four owners."""
 from __future__ import annotations
-from typing import Optional
-from pydantic import BaseModel, Field
+from typing import Optional, Literal
+from pydantic import BaseModel, Field, model_validator
 
 
 class Shot(BaseModel):
@@ -31,17 +31,35 @@ class Property(BaseModel):
     size_sqft: Optional[float] = None
     contact: Optional[str] = None
     model_id: Optional[str] = None
+    availability_status: Optional[Literal["available", "not_available", "unknown"]] = None
+    availability_reason: Optional[str] = None
+    parking_flags: dict[str, bool] = Field(default_factory=dict)
+    listing_types: list[Literal["lease", "sale", "auction"]] = Field(default_factory=list)
+    parking_spaces: dict[str, int] = Field(default_factory=dict)  # CoStar recorded spaces by type
+
+
+class Evidence(BaseModel):
+    source: Literal["costar", "matterport", "vexcel"]
+    claim: str
+    status: Literal["measured", "estimated", "unknown"]
 
 
 class Logistics(BaseModel):
     property_id: str
-    truck_spaces: int
-    car_spaces: int
+    truck_spaces: Optional[int] = Field(default=None, ge=0)
+    car_spaces: Optional[int] = Field(default=None, ge=0)
     parking_polygon: list[list[float]] = Field(default_factory=list)  # [[lat, lon], ...]
+    parking_geometry: Optional[dict] = None  # GeoJSON [lon, lat], preserving holes/multipart
     walk_m: Optional[float] = None
     noise_flags: list[str] = Field(default_factory=list)
     aerial_image_path: Optional[str] = None
     estimated: bool = True
+    parking_status: Optional[Literal["measured", "estimated", "unknown"]] = None
+    walk_status: Optional[Literal["measured", "estimated", "unknown"]] = None
+    noise_status: Optional[Literal["measured", "estimated", "unknown"]] = None
+    parking_area_m2: Optional[float] = Field(default=None, ge=0)
+    source_notes: list[str] = Field(default_factory=list)
+    source_evidence: list[Evidence] = Field(default_factory=list)
 
 
 class ShotFit(BaseModel):
@@ -50,6 +68,17 @@ class ShotFit(BaseModel):
     have_depth_m: Optional[float]
     ceiling_m: Optional[float]
     note: str
+    status: Literal["fits", "tight", "unknown"] = "unknown"
+
+    @model_validator(mode="after")
+    def normalize_status(self):
+        if self.have_depth_m is None or self.ceiling_m is None:
+            self.status, self.fits = "unknown", False
+        elif "status" not in self.model_fields_set:
+            self.status = "fits" if self.fits else "tight"
+        elif self.status != "fits":
+            self.fits = False
+        return self
 
 
 class Pick(BaseModel):
@@ -60,6 +89,7 @@ class Pick(BaseModel):
     logistics: Logistics
     reason: str                  # one sentence citing CoStar, Matterport and Vexcel
     skeptic_notes: list[str] = Field(default_factory=list)
+    evidence: list[Evidence] = Field(default_factory=list)
 
 
 class ScoutRequest(BaseModel):
@@ -72,10 +102,25 @@ class Event(BaseModel):
     type: str   # plan | todo | subagent_start | subagent_result | skeptic | relaxed | final
     agent: Optional[str] = None
     text: str = ""
+    ts: float = 0.0
+    ms: Optional[float] = None
+    engine: Optional[Literal["fixed", "deep"]] = None
+
+
+class Vehicles(BaseModel):
+    """Crew vehicles the returned picks were checked against (one truck = four car equivalents)."""
+    trucks: int = Field(ge=0)
+    cars: int = Field(ge=0)
 
 
 class ScoutResponse(BaseModel):
     thread_id: str
     picks: list[Pick]
     gave_up: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
     events: list[Event] = Field(default_factory=list)
+    engine: Literal["fixed", "deep"] = "fixed"
+    source_mode: Literal["mock", "live"] = "mock"
+    trace_url: Optional[str] = None
+    timings: dict[str, float] = Field(default_factory=dict)
+    vehicles: Optional[Vehicles] = None

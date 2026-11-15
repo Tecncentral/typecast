@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#131617" />
+    <title>Typecast — Scene to shortlist</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./cards.css" />
+    <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="./map.css" />
+    <link rel="stylesheet" href="./budget.css" />
+    <link rel="stylesheet" href="./viewfinder.css" />
+    <link rel="stylesheet" href="./viewfinder-compat.css" />
+    <link rel="stylesheet" href="./viewfinder-walk.css" />
+    <link rel="stylesheet" href="./viewfinder-frame.css" />
+    <link rel="stylesheet" href="./viewfinder-edit.css" />
+    <link rel="stylesheet" href="./descent.css" />
+    <link rel="stylesheet" href="./strike.css" />
+    <link rel="stylesheet" href="./simplify.css" />
+    <!-- three.js and Spark load only when a walkable AI set opens (viewfinder-walk.js). -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "./vendor/three/three.module.min.js",
+          "three/addons/": "./vendor/three/addons/",
+          "@sparkjsdev/spark": "./vendor/spark/spark.module.min.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#scene">Skip to scene</a>
+    <header class="masthead">
+      <a class="wordmark" href="#" data-go="home" aria-label="Typecast home">TYPECAST</a>
+      <div class="mode-pill" role="tablist" aria-label="Search mode">
+        <button type="button" role="tab" data-go="interior">Interiors</button
+        ><button type="button" role="tab" data-go="exterior">Exteriors</button>
+      </div>
+      <div class="runtime" aria-label="Data mode and engine">
+        <span id="source-mode" class="mode-badge">CHECKING</span
+        ><span id="engine">—</span>
+      </div>
+    </header>
+    <section id="home" class="home" aria-label="Choose what to scout">
+      <button type="button" class="home-half home-half--interior" data-go="interior">
+        <span class="home-kicker">01 · Inside real buildings</span>
+        <span class="home-title">Interiors</span>
+        <span class="home-copy">Camera frames from 3D scans, checked for shot fit, crew parking and noise. Paste one scene or a whole script.</span>
+        <span class="home-sources">Matterport · CoStar · Vexcel</span>
+        <span class="home-cta">Scout interiors →</span>
+      </button>
+      <button type="button" class="home-half home-half--exterior" data-go="exterior">
+        <span class="home-kicker">02 · Streets from the air</span>
+        <span class="home-title">Exteriors</span>
+        <span class="home-copy">Facades, streets and open ground from oblique aerial imagery. Describe the outside world of the scene.</span>
+        <span class="home-sources">Vexcel oblique imagery</span>
+        <span class="home-cta">Scout exteriors →</span>
+      </button>
+    </section>
+    <main id="interior-app">
+      <section class="scene-section" aria-labelledby="scene-heading">
+        <div class="brief-topline">
+          <h1 id="scene-heading">What does the scene need?</h1>
+          <div class="scope-switch" role="group" aria-label="Brief type">
+            <button type="button" data-scope="scene" aria-pressed="true">One scene</button
+            ><button type="button" data-scope="script" aria-pressed="false">Whole script</button>
+          </div>
+        </div>
+        <form id="scene-form" class="scene-form">
+          <label for="scene" class="sr-only"
+            >Describe the scene and crew requirements</label
+          >
+          <div class="scene-box">
+          <textarea
+            id="scene"
+            name="scene"
+            rows="3"
+            required
+            maxlength="60000"
+            spellcheck="false"
+          >
+INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial warehouse with exposed roof structure, a concrete floor and an open aisle; stored boxes or pallets can remain at the sides. Daylight from high openings. Parking for 2 trucks and 10 crew cars. No required building age.</textarea>
+          <button type="button" id="scene-clear" class="scene-clear" aria-label="Clear the scene text">Clear</button>
+          </div>
+          <button id="run-button" class="primary" type="submit">
+            Scout
+          </button>
+        </form>
+        <p id="script-note" class="script-note" role="status" hidden></p>
+        <div class="scene-presets" data-for="scene">
+          <span class="presets-label">Try an example:</span>
+          <div id="scene-buttons" aria-label="Example scenes. Fills the box; nothing runs until you press Scout."></div>
+        </div>
+        <div class="scene-presets" data-for="script" hidden>
+          <span class="presets-label">Try an example:</span>
+          <div><button type="button" id="example-script" data-preview="Three scenes: a warehouse handoff, a glass-office meeting and an empty-shop rehearsal.">Three-scene script</button></div>
+        </div>
+
+        <p id="mode-note" class="mode-note">
+          Checking the local scouting service…
+        </p>
+      </section>
+      <div id="api-error" class="api-error" role="alert" hidden></div>
+      <section
+        id="run-section"
+        class="run-section"
+        aria-label="Scouting activity"
+        hidden
+      >
+        <details id="activity">
+          <summary class="activity-summary">
+            <span class="activity-heading"
+              ><span id="activity-dot" class="activity-dot"></span
+              ><span id="run-status" role="status">Ready to scout</span></span
+            ><span class="activity-controls"
+              ><span id="elapsed">0s</span
+              ><span class="activity-toggle">Scout activity</span></span
+            >
+          </summary>
+          <div class="activity-body">
+            <p id="plan-text" class="plan-text">
+              Waiting for the scouting service.
+            </p>
+            <ul
+              id="todo-list"
+              class="todo-list"
+              aria-label="Director to-do list"
+              hidden
+            ></ul>
+            <div id="agent-lanes" class="agent-lanes"></div>
+            <div id="run-notices" class="run-notices"></div>
+          </div>
+        </details>
+        <p id="slow-note" class="slow-note" hidden></p>
+      </section>
+      <section
+        id="plan-section"
+        class="plan-section"
+        aria-labelledby="plan-heading"
+        hidden
+      >
+        <div class="section-topline">
+          <h2 id="plan-heading">Locations for this script</h2>
+        </div>
+        <div id="plan-results"></div>
+      </section>
+      <section
+        id="shortlist-section"
+        aria-labelledby="shortlist-heading"
+        hidden
+      >
+        <div class="shortlist-heading section-topline">
+          <div><h2 id="shortlist-heading">Places for this scene</h2></div>
+          <div class="shortlist-meta">
+            <span id="result-meta"></span
+            ><a id="trace-link" target="_blank" rel="noopener noreferrer" hidden
+              >View trace</a
+            >
+          </div>
+        </div>
+        <details id="relaxations" class="relaxations" hidden></details>
+        <div id="empty-state" class="empty-state" hidden>
+          <h3>No matching locations returned.</h3>
+          <p>
+            Try another scene or adjust your requirements. Any relaxed
+            preferences are shown above.
+          </p>
+        </div>
+        <div id="changes" class="changes" aria-live="polite" hidden></div>
+        <div id="results" class="results"></div>
+        <p id="draft-status" class="draft-status" role="status" hidden></p>
+      </section>
+      <section
+        id="map-section"
+        class="map-section"
+        aria-labelledby="map-heading"
+        hidden
+      >
+        <div class="section-topline">
+          <div><h2 id="map-heading">The location, in context.</h2></div>
+          <span class="section-note">Property pins and aerial evidence</span>
+        </div>
+        <div id="location-map"></div>
+      </section>
+      <section
+        id="budget-section"
+        class="budget-section"
+        aria-labelledby="budget-heading"
+        hidden
+      >
+        <div class="section-topline">
+          <div><h2 id="budget-heading">Travel and budget.</h2></div>
+          <span class="section-note">Drive time from your base · location vs set vs CGI</span>
+        </div>
+        <div id="budget"></div>
+      </section>
+      <section
+        id="refine-section"
+        class="refine-section"
+        aria-labelledby="refine-heading"
+        hidden
+      >
+        <div>
+          <h2 id="refine-heading">One more requirement?</h2>
+          <p>Reconsider these locations. Keep the earlier frames.</p>
+        </div>
+        <form id="refine-form">
+          <label for="refine-message">What changed?</label>
+          <div class="refine-input-row">
+            <input
+              id="refine-message"
+              name="message"
+              value="need parking for 5 trucks"
+              required
+              maxlength="4000"
+            /><button id="refine-button" class="primary" type="submit">
+              Refine shortlist
+            </button
+            ><button id="refine-reset" class="reset-button" type="button" hidden>
+              Back to original
+            </button>
+          </div>
+        </form>
+      </section>
+      <section
+        id="history-section"
+        class="history-section"
+        aria-labelledby="history-heading"
+        hidden
+      >
+        <div class="section-topline">
+          <h2 id="history-heading">Earlier takes</h2>
+          <span class="section-note">Original frames, kept for comparison</span>
+        </div>
+        <div id="previous-results"></div>
+      </section>
+      <section id="welcome" class="welcome" aria-label="Getting started">
+        <h2>A frame is only the beginning.</h2>
+        <p>
+          Scout a scene to see the interior, test the shot, and check how the
+          crew gets there. Every result keeps its sources and uncertainties in
+          view.
+        </p>
+        <div class="source-line">
+          <span>CoStar <small>Property</small></span
+          ><span>Matterport <small>Interior</small></span
+          ><span>Vexcel <small>Logistics</small></span>
+        </div>
+      </section>
+    </main>
+    <section id="exterior-app" class="exterior-app" aria-label="Exterior scouting" hidden>
+      <iframe id="exterior-frame" title="Exterior scouting" data-src="./oblique.html?embed=1"></iframe>
+    </section>
+    <footer>
+      <span>Typecast / From script to scout</span
+      ><span>Evidence stays visible. Unknown stays unknown.</span>
+    </footer>
+    <script type="module" src="./app.js"></script>
+    <script type="module" src="./shell.js"></script>
+    <script type="module" src="./viewfinder.js"></script>
+    <script type="module" src="./viewfinder-compat.js"></script>
+    <script type="module" src="./viewfinder-walk.js"></script>
+    <script type="module" src="./viewfinder-frame.js"></script>
+    <script type="module" src="./viewfinder-edit.js"></script>
+    <script type="module" src="./strike.js"></script>
+  </body>
+</html>

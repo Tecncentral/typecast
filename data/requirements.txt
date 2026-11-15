@@ -1,0 +1,2 @@
+# Reproducible data dependencies are maintained by the integration captain.
+-r ../requirements.lock.txt

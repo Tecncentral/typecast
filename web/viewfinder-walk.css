@@ -1,0 +1,193 @@
+/* Walk the AI-dressed set: a Gaussian splat canvas over the 360° view. */
+.vf-walk-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 700ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+dialog.vf.is-walking .vf-walk-canvas {
+  opacity: 1;
+}
+/* The splat has a floor and ceiling of its own, and no before/after divider. */
+dialog.vf.is-walking .vf-wipe,
+dialog.vf.is-walking .vf-gap-note,
+dialog.vf.is-walking .vf-dress {
+  display: none;
+}
+
+.vf-walk,
+.vf-cast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgb(237 189 105 / 0.6);
+  border-radius: var(--control-radius, 6px);
+  background: rgb(28 32 33 / 0.9);
+  color: var(--accent, #edbd69);
+  font: 600 14px/1 var(--body, Barlow, sans-serif);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.vf-walk[hidden] {
+  display: none;
+}
+.vf-walk svg,
+.vf-cast svg {
+  width: 18px;
+  height: 18px;
+}
+.vf-walk kbd,
+.vf-cast kbd {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(237 189 105 / 0.14);
+  font: 600 12px/1.2 var(--body, Barlow, sans-serif);
+}
+.vf-walk.is-active,
+.vf-cast.is-active {
+  background: var(--accent, #edbd69);
+  color: #1a1407;
+}
+.vf-walk.is-active kbd,
+.vf-cast.is-active kbd {
+  background: rgb(26 20 7 / 0.14);
+}
+.vf-walk[aria-busy="true"] {
+  cursor: progress;
+  opacity: 0.75;
+}
+
+/* On a card: the frame's scan point has a walkable set. The one filled control on the frame. */
+.shot-stage > .vf-walk-open {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px 0 11px;
+  border: 1px solid var(--accent, #edbd69);
+  border-radius: var(--control-radius, 6px);
+  background: var(--accent, #edbd69);
+  color: #1a1407;
+  font: 600 14px/1 var(--body, Barlow, sans-serif);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+  transition: background-color 160ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.shot-stage > .vf-walk-open svg {
+  width: 18px;
+  height: 18px;
+}
+.shot-stage > .vf-walk-open:hover {
+  background: #f5cf8a;
+}
+.shot-stage > .vf-walk-open:active {
+  transform: scale(0.97);
+}
+.shot-stage > .vf-walk-open:focus-visible {
+  outline: 2px solid var(--text, #f2efe8);
+  outline-offset: 3px;
+}
+
+/* Movement keys, shown only while walking: a small key cluster in the left margin of the frame. */
+.vf-walk-keys {
+  position: absolute;
+  z-index: 4;
+  left: 24px;
+  top: 50%;
+  translate: 0 -50%;
+  display: none;
+  grid-template-columns: repeat(3, 24px);
+  gap: 4px;
+  margin: 0;
+  color: rgb(236 238 236 / 0.86);
+  font: 500 12px/1.2 var(--body, Barlow, sans-serif);
+  text-align: center;
+}
+dialog.vf.is-walking .vf-walk-keys {
+  display: grid;
+}
+.vf-walk-keys kbd {
+  display: grid;
+  place-items: center;
+  height: 24px;
+  border: 1px solid rgb(236 238 236 / 0.32);
+  border-radius: 4px;
+  background: rgb(14 16 17 / 0.72);
+  font: 600 12px/1 var(--body, Barlow, sans-serif);
+}
+.vf-walk-keys kbd:first-child {
+  grid-column: 2;
+}
+.vf-walk-keys kbd:nth-child(2) {
+  grid-column: 1;
+}
+.vf-walk-keys span {
+  grid-column: 1 / -1;
+  padding-top: 2px;
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+}
+.vf-walk-keys.at-edge kbd {
+  border-color: var(--accent, #edbd69);
+  color: var(--accent, #edbd69);
+}
+
+/* Stand-ins are offered only while walking a whole-room set. */
+dialog.vf:not(.is-walking-room) .vf-cast {
+  display: none;
+}
+
+/* Floor plan of a whole-room set. */
+.vf-walk-map {
+  position: absolute;
+  z-index: 4;
+  left: 24px;
+  top: 128px;
+  width: 180px;
+  height: 180px;
+  display: none;
+  border: 1px solid rgb(236 238 236 / 0.18);
+  border-radius: 8px;
+  background: rgb(14 16 17 / 0.78);
+}
+dialog.vf.is-walking-room .vf-walk-map {
+  display: block;
+}
+/* The key cluster moves below the plan. */
+dialog.vf.is-walking-room .vf-walk-keys {
+  top: 328px;
+  translate: 0 0;
+  left: 76px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vf-walk-canvas,
+  .shot-stage > .vf-walk-open {
+    transition-duration: 1ms;
+  }
+}
+@media (max-width: 900px) {
+  .vf-walk kbd,
+  .vf-cast kbd,
+  .vf-walk-keys,
+  .vf-walk-map {
+    display: none !important;
+  }
+}
+
+/* While the reconstruction loads, the divider is on its way out. */
+dialog.vf.is-walk-loading .vf-wipe {
+  display: none;
+}

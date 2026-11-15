@@ -1,0 +1,778 @@
+/* Typecast viewfinder: a camera monitor over the real scanned room. */
+
+.vf-open {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 14px 0 11px;
+  border: 1px solid rgb(237 189 105 / 0.55);
+  border-radius: var(--control-radius, 6px);
+  background: rgb(14 16 17 / 0.82);
+  color: var(--accent, #edbd69);
+  font: 600 14px/1 var(--body, Barlow, sans-serif);
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+  transition: background-color 160ms ease, border-color 160ms ease, transform 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.vf-open svg {
+  width: 18px;
+  height: 18px;
+  transition: transform 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.vf-open:hover {
+  background: rgb(30 27 20 / 0.92);
+  border-color: var(--accent, #edbd69);
+}
+.vf-open:hover svg {
+  transform: rotate(90deg);
+}
+.vf-open:active {
+  transform: scale(0.97);
+}
+.vf-open:focus-visible {
+  outline: 2px solid var(--accent, #edbd69);
+  outline-offset: 3px;
+}
+
+/* ---------------- Dialog shell ---------------- */
+
+dialog.vf {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: rgb(9 11 12);
+  color: var(--text, #f2efe8);
+  overflow: hidden;
+  font-family: var(--body, Barlow, sans-serif);
+  font-variant-numeric: tabular-nums;
+}
+dialog.vf::backdrop {
+  background: transparent;
+}
+dialog.vf ::selection {
+  background: rgb(237 189 105 / 0.35);
+  color: #fff;
+}
+
+.vf-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.vf-stage.is-dragging {
+  cursor: grabbing;
+}
+.vf-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  transition: opacity 260ms ease;
+}
+.vf-poster {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  translate: 0 -50%;
+  transform-origin: 50% 50%;
+  pointer-events: none;
+}
+dialog.vf.no-webgl .vf-poster {
+  width: min(78vw, 72vh);
+  left: 50%;
+  translate: -50% -50%;
+  border-radius: 12px;
+}
+dialog.vf.no-webgl .vf-canvas,
+dialog.vf.no-webgl .vf-frame,
+dialog.vf.no-webgl .vf-tape,
+dialog.vf.no-webgl .vf-bottom {
+  display: none;
+}
+dialog.vf.no-webgl .vf-hud {
+  opacity: 1;
+  transform: none;
+}
+
+/* Frame lines: the surround dims, the frame stays bright. */
+.vf-frame {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  translate: -50% -50%;
+  box-shadow: 0 0 0 200vmax rgb(7 9 10 / 0.62);
+  outline: 1px solid rgb(242 239 232 / 0.32);
+  pointer-events: none;
+  opacity: 0;
+  scale: 1.08;
+  transition: opacity 360ms ease 120ms, scale 620ms cubic-bezier(0.16, 1, 0.3, 1) 120ms,
+    width 420ms cubic-bezier(0.16, 1, 0.3, 1), height 420ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+dialog.vf.is-live .vf-frame {
+  opacity: 1;
+  scale: 1;
+}
+.vf-corner {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  border: 0 solid var(--accent, #edbd69);
+}
+.vf-corner.tl {
+  left: -2px;
+  top: -2px;
+  border-left-width: 2px;
+  border-top-width: 2px;
+}
+.vf-corner.tr {
+  right: -2px;
+  top: -2px;
+  border-right-width: 2px;
+  border-top-width: 2px;
+}
+.vf-corner.bl {
+  left: -2px;
+  bottom: -2px;
+  border-left-width: 2px;
+  border-bottom-width: 2px;
+}
+.vf-corner.br {
+  right: -2px;
+  bottom: -2px;
+  border-right-width: 2px;
+  border-bottom-width: 2px;
+}
+.vf-center {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 22px;
+  height: 22px;
+  translate: -50% -50%;
+}
+.vf-center::before,
+.vf-center::after {
+  content: "";
+  position: absolute;
+  background: rgb(242 239 232 / 0.7);
+}
+.vf-center::before {
+  left: 50%;
+  top: 0;
+  width: 1px;
+  height: 100%;
+}
+.vf-center::after {
+  top: 50%;
+  left: 0;
+  height: 1px;
+  width: 100%;
+}
+.vf-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  opacity: 0;
+}
+
+/* Monitor readout under the frame lines: the shot maths in camera-assistant terms. */
+.vf-monitor {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 14px);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 22px;
+  pointer-events: auto;
+  font-size: 14px;
+  line-height: 1.3;
+  color: var(--muted, #adb5b3);
+  text-shadow: 0 1px 2px rgb(0 0 0 / 0.6);
+}
+.vf-m-lens {
+  font: 700 15px/1 var(--brand, "Barlow Condensed", sans-serif);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text, #f2efe8);
+}
+.vf-m-need {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text, #f2efe8);
+}
+.vf-m-room {
+  text-align: right;
+}
+
+.vf-gap-note {
+  position: absolute;
+  left: 50%;
+  top: 12%;
+  translate: -50% 0;
+  margin: 0;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgb(14 16 17 / 0.8);
+  color: var(--muted, #adb5b3);
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 200ms ease;
+  pointer-events: none;
+}
+dialog.vf.shows-gap .vf-gap-note {
+  opacity: 1;
+}
+
+/* ---------------- HUD ---------------- */
+
+.vf-hud {
+  position: absolute;
+  z-index: 3;
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 320ms ease, transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+dialog.vf.is-live .vf-hud {
+  opacity: 1;
+  transform: none;
+}
+dialog.vf.is-live .vf-tape {
+  transition-delay: 80ms;
+}
+dialog.vf.is-live .vf-bottom {
+  transition-delay: 140ms;
+}
+dialog.vf.is-live .vf-shotlist {
+  transition-delay: 200ms;
+}
+
+.vf-top {
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 24px;
+  background: linear-gradient(rgb(9 11 12 / 0.85), rgb(9 11 12 / 0));
+  opacity: 1;
+  transform: none;
+}
+.vf-title {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+}
+.vf-brand {
+  font: 700 22px/1 var(--brand, "Barlow Condensed", sans-serif);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent, #edbd69);
+}
+.vf-address {
+  font-size: 17px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vf-status {
+  margin-left: auto;
+  color: var(--muted, #adb5b3);
+  font-size: 14px;
+  white-space: nowrap;
+}
+.vf-close {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line, #393f3e);
+  border-radius: var(--control-radius, 6px);
+  background: rgb(28 32 33 / 0.9);
+  color: var(--text, #f2efe8);
+  font: 500 13px/1 var(--body, Barlow, sans-serif);
+  cursor: pointer;
+}
+.vf-close svg {
+  width: 18px;
+  height: 18px;
+}
+.vf-close:hover {
+  border-color: var(--muted, #adb5b3);
+}
+
+/* Bearing tape: scan-relative, not a compass. */
+.vf-tape {
+  left: 50%;
+  top: 74px;
+  width: min(560px, 70vw);
+  height: 34px;
+  translate: -50% 0;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 18%, #000 82%, transparent);
+  pointer-events: none;
+}
+.vf-tape-strip {
+  --px: 4px;
+  position: absolute;
+  left: 50%;
+  top: 0;
+  height: 100%;
+  transform: translateX(calc(-1 * (var(--yaw, 0) + 360) * var(--px)));
+}
+.vf-tick {
+  position: absolute;
+  left: calc(var(--d) * var(--px));
+  top: 0;
+  width: 1px;
+  height: 7px;
+  background: rgb(242 239 232 / 0.4);
+}
+.vf-tick.mid {
+  height: 11px;
+  background: rgb(242 239 232 / 0.6);
+}
+.vf-tick.major {
+  height: 14px;
+  background: var(--text, #f2efe8);
+}
+.vf-tick[data-label]::after {
+  content: attr(data-label) "°";
+  position: absolute;
+  top: 16px;
+  left: 0;
+  translate: -50% 0;
+  font-size: 12px;
+  color: var(--muted, #adb5b3);
+}
+.vf-tape-needle {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 2px;
+  height: 16px;
+  translate: -50% 0;
+  background: var(--accent, #edbd69);
+}
+
+.vf-bottom {
+  left: 50%;
+  bottom: 22px;
+  max-width: calc(100% - 48px);
+  translate: -50% 0;
+  display: flex;
+  align-items: flex-end;
+  gap: 28px;
+  padding: 16px 18px;
+  border: 1px solid var(--line, #393f3e);
+  border-radius: 14px;
+  background: rgb(19 22 23 / 0.92);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.45);
+}
+dialog.vf.has-shots .vf-bottom {
+  left: calc(50% - 118px);
+  max-width: calc(100% - 300px);
+}
+.vf-group {
+  display: grid;
+  gap: 9px;
+}
+.vf-label {
+  font: 700 13px/1 var(--brand, "Barlow Condensed", sans-serif);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted, #adb5b3);
+}
+.vf-lenses,
+.vf-aspects {
+  display: flex;
+  gap: 6px;
+}
+.vf-chip {
+  white-space: nowrap;
+  min-width: 46px;
+  min-height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--line, #393f3e);
+  border-radius: var(--control-radius, 6px);
+  background: var(--surface, #1c2021);
+  color: var(--text, #f2efe8);
+  font: 600 15px/1 var(--body, Barlow, sans-serif);
+  cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+.vf-chip:hover {
+  border-color: var(--muted, #adb5b3);
+}
+.vf-chip.is-active {
+  background: var(--accent, #edbd69);
+  border-color: var(--accent, #edbd69);
+  color: #1a1407;
+}
+.vf-lenses .vf-chip::after {
+  content: " mm";
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.7;
+}
+.vf-math {
+  min-width: 0;
+  flex: 1;
+}
+.vf-readout {
+  display: grid;
+  gap: 4px;
+}
+.vf-width {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.vf-step {
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--line, #393f3e);
+  border-radius: var(--control-radius, 6px);
+  background: var(--surface, #1c2021);
+  color: var(--text, #f2efe8);
+  font-size: 17px;
+  line-height: 1;
+  cursor: pointer;
+}
+.vf-width-value {
+  min-width: 34px;
+  text-align: center;
+  font-weight: 700;
+  color: var(--accent, #edbd69);
+}
+.vf-need,
+.vf-room {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--muted, #adb5b3);
+}
+.vf-need b {
+  color: var(--text, #f2efe8);
+  font-weight: 600;
+}
+.vf-grab {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent, #edbd69);
+  color: #1a1407;
+  font: 700 16px/1 var(--body, Barlow, sans-serif);
+  cursor: pointer;
+  box-shadow: 0 6px 16px rgb(0 0 0 / 0.4);
+  transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 140ms ease;
+}
+.vf-grab svg {
+  width: 22px;
+  height: 22px;
+}
+.vf-grab kbd {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(26 20 7 / 0.14);
+  font: 600 12px/1.2 var(--body, Barlow, sans-serif);
+}
+.vf-grab:hover {
+  background: #f3c97c;
+}
+.vf-grab:active {
+  transform: scale(0.97);
+}
+dialog.vf :focus-visible {
+  outline: 2px solid var(--accent, #edbd69);
+  outline-offset: 2px;
+}
+
+/* Shot list tray */
+.vf-shotlist {
+  top: 84px;
+  right: 24px;
+  bottom: 22px;
+  width: 212px;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line, #393f3e);
+  border-radius: 14px;
+  background: rgb(19 22 23 / 0.92);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 0.45);
+}
+dialog.vf.has-shots .vf-shotlist {
+  display: flex;
+}
+.vf-shotlist-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.vf-clear {
+  border: 0;
+  background: none;
+  color: var(--muted, #adb5b3);
+  font: 500 13px/1 var(--body, Barlow, sans-serif);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.vf-shots {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0 4px 0 0;
+  list-style: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line, #393f3e) transparent;
+}
+.vf-shot {
+  position: relative;
+}
+.vf-shot-recall {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text, #f2efe8);
+  text-align: left;
+  cursor: pointer;
+}
+.vf-shot-recall img {
+  display: block;
+  width: 100%;
+  border-radius: 8px;
+  outline: 1px solid var(--line, #393f3e);
+  transition: outline-color 150ms ease;
+}
+.vf-shot-recall:hover img {
+  outline-color: var(--accent, #edbd69);
+}
+.vf-shot-place {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vf-shot-meta {
+  margin-top: -4px;
+  font-size: 13px;
+  color: var(--muted, #adb5b3);
+}
+.vf-shot-save {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: rgb(14 16 17 / 0.85);
+  color: var(--text, #f2efe8);
+  font-size: 12px;
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 150ms ease;
+}
+.vf-shot:hover .vf-shot-save,
+.vf-shot-save:focus-visible {
+  opacity: 1;
+}
+
+@media (max-width: 900px) {
+  .vf-bottom {
+    flex-wrap: wrap;
+    gap: 14px;
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+  dialog.vf.has-shots .vf-bottom {
+    right: 12px;
+  }
+  .vf-shotlist {
+    display: none !important;
+  }
+  .vf-m-room {
+    text-align: left;
+  }
+  .vf-status {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vf-hud,
+  .vf-frame,
+  .vf-canvas,
+  .vf-open,
+  .vf-open svg {
+    transition-duration: 1ms !important;
+    transition-delay: 0ms !important;
+  }
+  .vf-frame {
+    scale: 1;
+  }
+}
+
+/* ---------------- AI dressing: before/after wipe ---------------- */
+
+.vf-dress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgb(237 189 105 / 0.6);
+  border-radius: var(--control-radius, 6px);
+  background: rgb(28 32 33 / 0.9);
+  color: var(--accent, #edbd69);
+  font: 600 14px/1 var(--body, Barlow, sans-serif);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.vf-dress[hidden] {
+  display: none;
+}
+.vf-dress svg {
+  width: 18px;
+  height: 18px;
+}
+.vf-dress kbd {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(237 189 105 / 0.14);
+  font: 600 12px/1.2 var(--body, Barlow, sans-serif);
+}
+.vf-dress.is-active {
+  background: var(--accent, #edbd69);
+  color: #1a1407;
+}
+.vf-dress.is-active kbd {
+  background: rgb(26 20 7 / 0.14);
+}
+
+.vf-wipe {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.vf-wipe[hidden] {
+  display: none;
+}
+.vf-wipe-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: var(--x, 50%);
+  width: 2px;
+  translate: -1px 0;
+  background: var(--accent, #edbd69);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.35);
+}
+.vf-wipe-tag {
+  position: absolute;
+  top: 132px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: rgb(14 16 17 / 0.82);
+  font: 700 13px/1 var(--brand, "Barlow Condensed", sans-serif);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.vf-wipe-tag.left {
+  right: calc(100% - var(--x, 50%) + 14px);
+  color: var(--accent, #edbd69);
+}
+.vf-wipe-tag.right {
+  left: calc(var(--x, 50%) + 14px);
+  color: var(--text, #f2efe8);
+}
+.vf-wipe-handle {
+  position: absolute;
+  top: 50%;
+  left: var(--x, 50%);
+  translate: -50% -50%;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: 2px solid var(--accent, #edbd69);
+  border-radius: 50%;
+  background: rgb(14 16 17 / 0.9);
+  color: var(--accent, #edbd69);
+  cursor: ew-resize;
+  pointer-events: auto;
+  touch-action: none;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.45);
+}
+.vf-wipe-handle svg {
+  width: 22px;
+  height: 22px;
+}
+
+.vf-ai-badge {
+  position: absolute;
+  z-index: 4;
+  left: 50%;
+  top: 112px;
+  translate: -50% 0;
+  margin: 0;
+  max-width: min(720px, calc(100% - 48px));
+  padding: 7px 14px;
+  border: 1px solid var(--accent, #edbd69);
+  border-radius: 8px;
+  background: rgb(14 16 17 / 0.88);
+  color: var(--accent, #edbd69);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.vf-ai-badge[hidden] {
+  display: none;
+}
+dialog.vf.is-dressed .vf-wipe-tag {
+  top: 160px;
+}

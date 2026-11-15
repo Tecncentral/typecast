@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#131617" />
+    <title>Typecast — Exteriors and outdoors</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="./oblique.css" />
+    <!-- three.js and its decoders load only when a 3D city view opens (city3d.js). -->
+    <script type="importmap">
+      { "imports": { "three": "./vendor/three/three.module.min.js", "three/addons/": "./vendor/three/addons/" } }
+    </script>
+  </head>
+  <body>
+    <header class="masthead">
+      <a class="wordmark" href="./" aria-label="Typecast home">TYPECAST</a>
+      <nav class="masthead-nav" aria-label="Search modes">
+        <a href="./">Interiors</a>
+        <a href="./oblique.html" aria-current="page">Exteriors &amp; outdoors</a>
+        <a href="/director">Director's Room</a>
+      </nav>
+      <div class="runtime"><span class="mode-badge" data-mode="live">VEXCEL</span><span>OBLIQUE · TERRAIN</span></div>
+    </header>
+    <main class="ob">
+      <section class="ob-hero" aria-labelledby="ob-heading">
+        <h1 id="ob-heading">Find the place from the outside.</h1>
+        <p class="ob-lede">
+          Describe an exterior or an outdoor spot. Typecast searches Vexcel aerials in the metro you pick,
+          shows every match at 45°, and reads the ground from Vexcel terrain.
+        </p>
+        <form id="ob-form" class="ob-form">
+          <label for="ob-query" class="sr-only">Describe the place</label>
+          <input id="ob-query" name="query" required maxlength="300" autocomplete="off"
+            value="Brick alley with fire escapes and dumpsters for a night chase" />
+          <label for="ob-area" class="sr-only">Metro area</label>
+          <select id="ob-area" name="area"></select>
+          <button id="ob-run" class="primary" type="submit">Search</button>
+        </form>
+        <div class="ob-presets">
+          <div class="ob-preset-row"><span>Film</span><div id="ob-film"></div></div>
+          <div class="ob-preset-row"><span>Sites</span><div id="ob-sites"></div></div>
+        </div>
+        <p class="ob-note">Coverage: the Vexcel metro collections for Los Angeles and Houston. Terrain is an estimate;
+          it does not establish access, permission or clearance.</p>
+      </section>
+      <p id="ob-status" class="ob-status" role="status" aria-live="polite" hidden></p>
+      <section id="ob-results" class="ob-results" aria-labelledby="ob-results-heading" hidden>
+        <div class="section-topline">
+          <h2 id="ob-results-heading">Places to consider</h2>
+          <span id="ob-meta" class="section-note"></span>
+        </div>
+        <div class="ob-layout">
+          <ol id="ob-grid" class="ob-grid"></ol>
+          <div class="ob-map-wrap"><div id="ob-map" class="ob-map" role="region" aria-label="Places on the map"></div></div>
+        </div>
+      </section>
+    </main>
+
+    <dialog id="ob-place" class="ob-place" aria-labelledby="ob-place-title">
+      <div class="ob-place-inner">
+        <header class="ob-place-top">
+          <div>
+            <p class="ob-eyebrow" id="ob-place-eyebrow"></p>
+            <h2 id="ob-place-title"></h2>
+          </div>
+          <button type="button" class="ob-close" id="ob-close" aria-label="Close">Close</button>
+        </header>
+        <div class="ob-place-body">
+          <div class="ob-viewer">
+            <div class="ob-stage">
+              <img id="ob-image" alt="" />
+              <div id="ob-3d" class="ob-3d" hidden></div>
+              <p id="ob-ai-label" class="ob-ai-label" hidden></p>
+              <p id="ob-loading" class="ob-loading" hidden>Loading the oblique…</p>
+              <p class="gen-label" aria-hidden="true">Imagining…</p>
+            </div>
+            <div class="ob-viewer-controls">
+              <div class="ob-dirs" role="group" aria-label="Oblique direction" id="ob-dirs"></div>
+              <div class="ob-compare" role="group" aria-label="Real or imagined" id="ob-compare" hidden>
+                <button type="button" data-show="real" aria-pressed="false">Real</button>
+                <button type="button" data-show="imagined" aria-pressed="true">Imagined</button>
+              </div>
+            </div>
+            <p class="ob-credit" id="ob-credit">Vexcel oblique imagery · 45° · capture date in the image corner</p>
+          </div>
+          <aside class="ob-side">
+            <section class="ob-facts" id="ob-facts" aria-label="Evidence"></section>
+            <section class="ob-building" id="ob-building" aria-labelledby="ob-building-heading" hidden>
+              <p class="ob-eyebrow">Vexcel Structure</p>
+              <h3 id="ob-building-heading">The building here</h3>
+              <div id="ob-building-body"></div>
+            </section>
+            <div class="ob-dock" id="ob-dock">
+            <div class="ob-dock-tabs" role="tablist" aria-label="Chat about this place">
+              <button type="button" role="tab" id="ob-tab-chat" aria-controls="ob-chat-panel" aria-selected="true">Reimagine this place</button>
+              <button type="button" role="tab" id="ob-tab-ask" aria-controls="ob-ask-panel" aria-selected="false">Ask about this place</button>
+            </div>
+            <section class="ob-ask" id="ob-ask-panel" role="tabpanel" aria-labelledby="ob-tab-ask" hidden>
+              <h3 id="ob-ask-heading" class="sr-only">Ask about this place</h3>
+              <p class="ob-chat-note">Answers come from live Vexcel data through Vexcel's MCP server: heights, parcels, pools, vehicles, roofs, imagery dates.</p>
+              <div class="ob-chat-suggest" id="ob-ask-suggest"></div>
+              <form id="ob-ask-form" class="ob-chat-form">
+                <label for="ob-ask-input" class="sr-only">Question about this place</label>
+                <input id="ob-ask-input" maxlength="500" autocomplete="off" placeholder="e.g. How tall are the buildings around here?" />
+                <button class="primary" type="submit" id="ob-ask-send">Ask</button>
+              </form>
+              <div id="ob-answer" class="ob-answer" aria-live="polite" hidden></div>
+            </section>
+            <section class="ob-chat" id="ob-chat-panel" role="tabpanel" aria-labelledby="ob-tab-chat">
+              <h3 id="ob-chat-heading" class="sr-only">Reimagine this place</h3>
+              <p class="ob-chat-note" id="ob-chat-note"></p>
+              <ol id="ob-chat-log" class="ob-chat-log"></ol>
+              <div class="ob-chat-suggest" id="ob-chat-suggest"></div>
+              <form id="ob-chat-form" class="ob-chat-form">
+                <label for="ob-chat-input" class="sr-only">What should change?</label>
+                <input id="ob-chat-input" maxlength="600" autocomplete="off"
+                  placeholder="e.g. night, wet pavement, a food truck with string lights" />
+                <button class="primary" type="submit" id="ob-chat-send">Send</button>
+              </form>
+            </section>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </dialog>
+    <footer>
+      <span>Typecast / Exteriors and outdoors</span><span>Evidence stays visible. Unknown stays unknown.</span>
+    </footer>
+    <script type="module" src="./oblique.js"></script>
+  </body>
+</html>

@@ -1,0 +1,47 @@
+/* A room opens clean: the frame lines, lens and aspect controls and shot list wait for "Frame a shot". */
+dialog.vf.is-clean.is-clean .vf-frame,
+dialog.vf.is-clean.is-clean .vf-bottom,
+dialog.vf.is-clean.is-clean .vf-shotlist {
+  display: none;
+}
+
+.vf-framing {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid rgb(237 189 105 / 0.6);
+  border-radius: var(--control-radius, 6px);
+  background: rgb(28 32 33 / 0.9);
+  color: var(--accent, #edbd69);
+  font: 600 14px/1 var(--body, Barlow, sans-serif);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+.vf-framing svg {
+  width: 18px;
+  height: 18px;
+}
+.vf-framing kbd {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgb(237 189 105 / 0.14);
+  font: 600 12px/1.2 var(--body, Barlow, sans-serif);
+}
+.vf-framing.is-active {
+  background: var(--accent, #edbd69);
+  color: #1a1407;
+}
+.vf-framing.is-active kbd {
+  background: rgb(26 20 7 / 0.14);
+}
+dialog.vf.no-webgl .vf-framing {
+  display: none;
+}
+@media (max-width: 900px) {
+  .vf-framing kbd {
+    display: none;
+  }
+}
