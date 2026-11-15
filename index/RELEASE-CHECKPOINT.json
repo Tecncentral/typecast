@@ -18,6 +18,7 @@
   },
   "browser": {
     "save_scene_checks": 33,
+    "save_scene_check_commit": "39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3",
     "all_passed": true,
     "positive_case": "SYNTHETIC intercepted complete plan; not real private data",
     "default_fixtures": "honest non-result with unknown parking"
@@ -42,7 +43,7 @@
     "measured_customer_savings": false,
     "source": "https://www.ht399.org/app/uploads/2026/06/APPENDIX-A-Wage-Chart-Drivers-and-Locations-final-6.24.26.pdf"
   },
-  "providers_called": false,
+  "paid_ai_providers_called": false,
   "remaining": [
     "real private-cache rehearsal",
     "private-data commute filtering and live image-provider acceptance",
