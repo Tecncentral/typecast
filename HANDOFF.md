@@ -6,7 +6,7 @@
 User's words: "continue what chatgpt was doing which was fixing my hackprinceton project to be more on the business track." Hard requirements carried over from the Codex session: Business/Enterprise is the main track; **every number must be real, sourced data** (no invented savings); be careful with usage limits; other agents (Claude, Grok/Cursor, Gemini) are the coding workhorses and the coordinator verifies before integrating. Human Devpost submission is due **08:00 ET Sunday Nov 15**.
 
 ### 2. Current state
-- Branch **`ai/claude-business-integration`** (local only, NOT pushed), created from `ai/director-production-decisions` at `0580a8a` (itself 2 commits ahead of the pushed PR #43 head: Claude's hardening `90c9528` and its merge). The original branch is untouched.
+- Branch **`ai/claude-business-integration`** (pushed to `origin/ai/claude-business-integration` on Nov 15 ~02:20 ET at the user's request; no PR opened), created from `ai/director-production-decisions` at `0580a8a` (itself 2 commits ahead of the pushed PR #43 head: Claude's hardening `90c9528` and its merge). The original branch is untouched.
 - Merged here, in order: `origin/cursor/provider-boundary-audit-7eb1` (Grok W7: commute router and unreadable-frame fixes, `c56bfd8`); `origin/lane-b-cost` (teammate Udit: `data/rent_precompute.py`, `data/cost_model.py` and tests, `32123ae`); `origin/map-parking` (PR #50, teammate Zukhriddin: parking on the map and seam repair, `9c334aa`). One conflict, `docs/team/CONTRACT-CHANGES.md`, resolved by keeping both appended sections.
 - Added the one still-missing idea from Gemini's review: `index/producer-brief.js` rejects DEL and bidi override/isolate characters in exported memo text, with a regression in `index/tests/producer-brief.test.cjs` (`3c757bc`).
 - **`docs/BUSINESS-STATS.md`** (new): sourced problem and cost figures from a web search on Nov 15 (FilmLA shoot days, BLS producer/director pay, union and trade scout and location-manager rates), scenario arithmetic and pitch-ready lines. Each row says whether the source was opened or only seen in a search summary.
@@ -20,14 +20,14 @@ User's words: "continue what chatgpt was doing which was fixing my hackprinceton
 - No new features: the buyer/product/evidence debates (`../manager-drafts/business-*-debate.md`) chose honest cash-versus-capacity economics and the producer memo over feature sprawl.
 
 ### 4. Open issues and risks
-- Nothing is pushed. PR #43 on GitHub still ends at `dd6223c`. The `gh` CLI is not installed on this machine, so PR and CI state were not checked.
+- The branch is pushed, but no PR exists for it and draft PR #43 (`ai/director-production-decisions`) still ends at `dd6223c` on GitHub. The `gh` CLI is not installed on this machine, so PR and CI state were not checked.
 - Browser check was a mock-mode smoke only, not the scripted QA suites in `../manager-drafts/` and not real data.
 - In `docs/BUSINESS-STATS.md`, the FilmLA Q1/Q2 totals and the Peerspace/Giggster rental averages come from search summaries and were not opened; open them before putting them on a slide. The Local 399 chart was checked by the Codex coordinator, not reopened.
 - Not possible from this machine: real private-cache/GPU demo-laptop acceptance, a live OSRM route rehearsal, a live image-provider preview, the original Discord evidence for the filmmaker quote, Devpost track selection and submission.
 - `data/cost_model.py` placeholders must not be quoted in the video or Devpost text.
 
 ### 5. Next steps
-1. User decides: push `ai/claude-business-integration` and update draft PR #43 (or open a new PR to `dev`).
+1. Open a PR from `ai/claude-business-integration` to `dev` (https://github.com/Tecncentral/typecast/pull/new/ai/claude-business-integration), or fast-forward PR #43's branch to it, and check CI.
 2. Put the `docs/BUSINESS-STATS.md` pitch lines into the video script and Devpost text (`docs/VIDEO-CLAIMS.md`, `docs/devpost.md`), keeping the scenario wording.
 3. On the demo laptop with the private cache: rehearse one real-data commute filter and the day-rate recalculation per the two-minute script in `docs/BUSINESS-CASE.md`.
 4. Record the video from `docs/VIDEO-CLAIMS.md` and `docs/VIDEO-HANDOFF.md` (content only was requested; no more generated full videos).
