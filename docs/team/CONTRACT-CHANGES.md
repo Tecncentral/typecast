@@ -103,3 +103,18 @@ Additive, optional; consumer: viewer map and change summary.
   caveat that is not a blocker.
 No existing field or endpoint behavior changes.
 
+## Oblique search (exteriors and outdoors) — 2026-11-15
+
+New, additive endpoints; consumer: `web/oblique.html`.
+- `GET /api/oblique/areas` lists metro presets (LA, Houston) and the configured image model.
+- `POST /api/oblique/search {query, area}` runs Vexcel semantic search over ortho-tile embeddings in the
+  preset (capped at 16 records; oblique embeddings are not indexed for these collections), merges hits
+  within 140 m, fetches one Vexcel oblique per place, reads Vexcel DTM along a 200 m cross and DSM at the
+  centre (estimated terrain; never access or permission), and scores each oblique with one batched vision
+  call. Cached privately under `cache/oblique/<search id>/`; a repeat query makes no provider calls.
+- `POST /api/oblique/view {search_id, index, direction}` fetches one cardinal oblique once.
+- `POST /api/oblique/reimagine {..., message}` edits the latest version with
+  `TYPECAST_OBLIQUE_IMAGE_MODEL` (default `gpt-image-1-mini`) at `TYPECAST_OBLIQUE_IMAGE_QUALITY`
+  (default `low`); every result is labelled "AI-imagined, not the real place".
+No existing endpoint or response changes.
+

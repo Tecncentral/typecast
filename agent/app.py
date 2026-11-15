@@ -36,6 +36,68 @@ def aerial_metadata(property_id: str):
     return JSONResponse(metadata, headers={"Cache-Control": "no-store"})
 
 
+class ObliqueSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=300)
+    area: str = Field(pattern=r"^[a-z-]{1,40}$")
+
+
+class ObliqueViewRequest(BaseModel):
+    search_id: str = Field(pattern=r"^[0-9a-f]{16}$")
+    index: int = Field(ge=0, le=31)
+    direction: Literal["north", "east", "south", "west"]
+
+
+class ObliqueReimagineRequest(ObliqueViewRequest):
+    message: str = Field(min_length=1, max_length=600)
+
+
+@app.get("/api/oblique/areas")
+def oblique_areas():
+    from agent.oblique_search import AREAS, image_model
+    model, quality = image_model()
+    return {"areas": [{"id": key, "label": label, "city": city} for key, (label, city, *_rest) in AREAS.items()],
+            "image_model": model, "image_quality": quality}
+
+
+def _oblique_error(error: Exception) -> HTTPException:
+    from data.vexcel_client import ProviderError
+    if isinstance(error, (KeyError,)):
+        return HTTPException(404, "Search not found. Run the search again.")
+    if isinstance(error, ValueError):
+        return HTTPException(400, str(error))
+    if isinstance(error, ProviderError):
+        return HTTPException(502, str(error))
+    return HTTPException(500, "Oblique search failed.")
+
+
+@app.post("/api/oblique/search")
+def oblique_search(req: ObliqueSearchRequest):
+    from agent import oblique_search as oblique
+    try:
+        return oblique.search(req.query, req.area)
+    except Exception as error:  # noqa: BLE001 - sanitized below
+        raise _oblique_error(error) from None
+
+
+@app.post("/api/oblique/view")
+def oblique_view(req: ObliqueViewRequest):
+    from agent import oblique_search as oblique
+    try:
+        return {**oblique.view(req.search_id, req.index, req.direction),
+                "chat": oblique.chat(req.search_id, req.index, req.direction)}
+    except Exception as error:  # noqa: BLE001
+        raise _oblique_error(error) from None
+
+
+@app.post("/api/oblique/reimagine")
+def oblique_reimagine(req: ObliqueReimagineRequest):
+    from agent import oblique_search as oblique
+    try:
+        return oblique.reimagine(req.search_id, req.index, req.direction, req.message)
+    except Exception as error:  # noqa: BLE001
+        raise _oblique_error(error) from None
+
+
 class RefineRequest(BaseModel):
     thread_id: str = Field(pattern=state.THREAD_ID_PATTERN)
     message: str
