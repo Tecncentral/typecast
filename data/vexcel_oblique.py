@@ -18,7 +18,7 @@ import math
 import re
 import time
 
-from data.vexcel_budget import CAPS, check_and_record
+from data.vexcel_budget import caps, check_and_record
 from data.vexcel_client import VEXCEL_BASE, ProviderError, VexcelClient
 
 ENDPOINTS = {"embedding/extract", "oriented/extract", "dtm/elevation", "dsm/elevation"}
@@ -44,7 +44,7 @@ class ObliqueClient(VexcelClient):
 
     def search_tiles(self, text: str, lat: float, lon: float, radius_m: float, k: int = 16) -> list[dict]:
         """Ortho tiles whose embedding matches the text, best first; [] when nothing matches."""
-        k = min(k, CAPS["embedding"]["per_search"])
+        k = min(k, caps("embedding")["per_search"])
         try:
             raw = self._call("embedding/extract", {
                 "search-text": text[:300], "wkt": f"POINT({lon} {lat})", "buffer-meter": int(radius_m),

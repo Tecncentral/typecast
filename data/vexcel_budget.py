@@ -10,7 +10,10 @@ request still counts: billing may happen anyway. A 429 retry is the same call an
 again. Days are UTC. A corrupt ledger refuses every call rather than guess.
 
 The Vexcel specs state no price, quota or rate limit; they only say embedding/extract and
-oriented/query bill per record returned. Confirm the billing unit with the organizers.
+oriented/query bill per record returned. The billing unit is still unconfirmed; for the hackathon the
+team treats access as unmetered (DECISIONS.md), so a demo machine may raise any cap without code
+changes: TYPECAST_VEXCEL_<CATEGORY>_<LIMIT>, e.g. TYPECAST_VEXCEL_EMBEDDING_PER_DAY=2000. The ledger
+keeps recording either way.
 """
 
 from __future__ import annotations
@@ -39,6 +42,16 @@ CATEGORY = {
     "dtm/elevation": "elevation",
     "dsm/elevation": "elevation",
 }
+
+
+def caps(category: str) -> dict:
+    """The caps for a category: CAPS, raised or lowered by positive integer environment overrides."""
+    out = dict(CAPS[category])
+    for limit in out:
+        raw = os.getenv(f"TYPECAST_VEXCEL_{category.upper()}_{limit.upper()}", "").strip()
+        if raw.isdigit() and int(raw) > 0:
+            out[limit] = int(raw)
+    return out
 
 
 class BudgetExceeded(ProviderError):
@@ -103,17 +116,17 @@ def check_and_record(endpoint: str, count: int) -> None:
         raise ValueError("Unsupported Vexcel endpoint")
     if type(count) is not int or count < 1:
         raise ValueError("count must be a positive whole number")
-    caps = CAPS[category]
-    if "per_search" in caps and count > caps["per_search"]:
+    limits = caps(category)
+    if "per_search" in limits and count > limits["per_search"]:
         raise BudgetExceeded(
-            f"Vexcel {category} request of {count} exceeds the per-search cap of {caps['per_search']}"
+            f"Vexcel {category} request of {count} exceeds the per-search cap of {limits['per_search']}"
         )
     now = _now()
     with _exclusive():
         used = _used_today(category, now.date().isoformat())
-        if used + count > caps["per_day"]:
+        if used + count > limits["per_day"]:
             raise BudgetExceeded(
-                f"Vexcel {category} would exceed the daily cap of {caps['per_day']} ({used} used today)"
+                f"Vexcel {category} would exceed the daily cap of {limits['per_day']} ({used} used today)"
             )
         line = json.dumps(
             {
