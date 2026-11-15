@@ -2,13 +2,16 @@
 
 Fill this in only from a real conversation. Leave a field blank rather than guess.
 
-- Business or club:
-- Person and role:
-- Date, and how we talked (in person / call / chat):
-- Quote (their exact words):
-- Evidence (screenshot, photo or video; stored privately, linked here only with their OK):
-- What we changed because of them:
-- Permission to name them and use the quote on Devpost: yes / no / first name only
+- Business or club: **textbooknotebook**, an independent student film production. He has been making a film with his cast for the past semester and posts the behind-the-scenes on Instagram (@textbooknotebook, several hundred followers).
+- Person and role: **Mahimn Dave**, filmmaker behind textbooknotebook. *(Confirm his exact title with him: director, writer-director or producer.)*
+- Date, and how we talked: Nov 2026, during HackPrinceton, by voice recording. *(Add the exact date and time.)*
+- Quotes (his exact words, as transcribed by a teammate from the recording):
+  - On the problem: "There's a huge issue in the film industry right now regarding directors and their visions. It is that directors often have a lot of visions and set designs in mind, however there is a lot of money and budgeting that goes into scouting and visiting these places for exploring the buildings to see if it is what the director wants.. and it takes a lot of money, effort, and time to find these exact places because they have to manually go and scout."
+  - On Typecast: "This project would indeed be very very very helpful for directors, as they can just input their vision in words and the program understands their vision and actually gives them back places that aligns with their vision."
+  - Feature request: "One thing that I would really like added is.. Maybe show that place.. that particular scene and maybe edit that scene. For example, imagine you have a warehouse and the director says 'old 1980s warehouse' so change that image realistically.. maybe using AI tools.. And make it more 1980s themed so it helps the director imagine it better."
+- Evidence: the voice recording, stored privately by the team. Link it on Devpost only with his OK.
+- What we changed because of them: his request is the **Edit (AI)** chat, which restyles a real scan view from a prompt and keeps the walls and structure (`989b010`, merged 02:46 ET Nov 15). *(If the recording is from before 02:23 ET Nov 15, say he asked for it and we built it. If it's from later, say his request confirmed the feature we had just shipped. Don't claim we built it because of him.)*
+- Permission to name him and use the quote on Devpost: *(confirm with him: yes / no / first name only)*
 
 ## Who to ask (in order of value)
 
