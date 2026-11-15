@@ -35,6 +35,75 @@ let direction = "north";
 let map = null;
 let markers = [];
 let busy = false;
+let buildingToken = 0;
+
+const pct = (score) => (typeof score === "number" ? ` (${Math.round(score * 100)}% confidence)` : "");
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+function buildingRows(b) {
+  const rows = [];
+  if (b.type) rows.push(["Type", `${b.type[0].toUpperCase()}${b.type.slice(1)}${pct(b.type_score)}`]);
+  const size = [b.footprint_m2 ? `${Math.round(b.footprint_m2).toLocaleString("en-US")} m² footprint` : null,
+    b.height_m ? `about ${Math.round(b.height_m)} m tall` : "height unknown",
+    b.stories ? plural(b.stories, "storey") : null].filter(Boolean);
+  rows.push(["Size", size.join(" · ")]);
+  if (b.roof_shape || b.roof_material)
+    rows.push(["Roof", [b.roof_shape ? `${b.roof_shape}${pct(b.roof_shape_score)}` : null,
+      b.roof_material ? `${b.roof_material}${pct(b.roof_material_score)}` : null].filter(Boolean).join(" · ")]);
+  const objects = b.roof_objects.map((o) => plural(o.count, o.label));
+  if (b.solar === false && !b.roof_objects.some((o) => o.label.startsWith("solar"))) objects.push("no solar");
+  rows.push(["On the roof", objects.length ? objects.join(" · ") : "nothing detected"]);
+  rows.push(["Roof issues", b.roof_defects.length
+    ? b.roof_defects.map((d) => `${d.label}${typeof d.percent === "number" ? ` on ${Math.round(d.percent)}%` : ""}`).join(" · ")
+    : "none detected"]);
+  if (typeof b.ground_elevation_m === "number") rows.push(["Ground", `${Math.round(b.ground_elevation_m)} m above sea level`]);
+  if (b.imagery?.date) rows.push(["Imagery", `${b.imagery.date}${b.imagery.gsd_m ? ` · ${Math.round(b.imagery.gsd_m * 100)} cm per pixel` : ""}`]);
+  return rows;
+}
+
+const BUILD_IDEAS = [
+  "Add a rooftop solar array across the open flat roof, around the skylights and units",
+  "Turn the flat roof into a rooftop bar with string lights",
+  "Add one more storey with glass walls on top of the building",
+];
+
+async function loadBuilding(r) {
+  const token = ++buildingToken;
+  const section = $("#ob-building");
+  const body = $("#ob-building-body");
+  section.hidden = false;
+  body.replaceChildren(el("p", "Reading Vexcel Structure for this spot…", "ob-chat-note"));
+  try {
+    const b = await post("/api/oblique/building", { search_id: current.search_id, index: r.index, direction: "north" }, 90000);
+    if (token !== buildingToken) return;
+    r.building = b;
+    if (!b.found) {
+      body.replaceChildren(el("p", b.reason || "No building record here.", "ob-chat-note"));
+      return;
+    }
+    const list = el("dl");
+    for (const [k, v] of buildingRows(b)) list.append(el("dt", k), el("dd", v));
+    const ideas = el("div", undefined, "ob-chat-suggest");
+    for (const idea of BUILD_IDEAS) {
+      const chip = el("button", idea, "ob-chip ob-chip--small");
+      chip.type = "button";
+      chip.addEventListener("click", () => {
+        $("#ob-chat-input").value = idea;
+        $("#ob-chat-input").scrollIntoView({ block: "center", behavior: "smooth" });
+        $("#ob-chat-input").focus({ preventScroll: true });
+      });
+      ideas.append(chip);
+    }
+    body.replaceChildren(
+      list,
+      el("p", `${b.others_nearby ? `${plural(b.others_nearby, "other building")} within 25 m; the nearest is shown. ` : ""}Estimates from imagery: not load capacity, zoning, permits or ownership.`, "ob-fine"),
+      el("p", "Plan on this building (sends the building facts with your edit):", "ob-chat-note"),
+      ideas,
+    );
+  } catch (error) {
+    if (token === buildingToken) body.replaceChildren(el("p", error.message, "ob-chat-note"));
+  }
+}
 let city = null; // open 3D view
 let cityToken = 0;
 
@@ -67,6 +136,7 @@ async function openCity() {
     const { mountCity3D } = await import("./city3d.js");
     if (token !== cityToken) return;
     const view = await mountCity3D($("#ob-3d"), place.lat, place.lon, {
+      footprint: place.building?.found ? place.building.footprint : null,
       onStatus: (text) => {
         if (token !== cityToken) return;
         loading.hidden = !text;
@@ -345,6 +415,7 @@ function open(r) {
   three.title = "Vexcel 3D Cities: the textured city mesh around this place";
   three.addEventListener("click", openCity);
   dirs.append(three);
+  loadBuilding(r);
   $("#ob-answer").hidden = true;
   $("#ob-answer").replaceChildren();
   const askSuggest = $("#ob-ask-suggest");

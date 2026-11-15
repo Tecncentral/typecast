@@ -248,7 +248,13 @@ def reimagine(search_id: str, index: int, direction: str, message: str, *, clien
         image = image.convert("RGB").resize((1536, 1024), Image.LANCZOS)
         buf = io.BytesIO()
         image.save(buf, "PNG")
-    prompt = (f"This is a real 45-degree aerial oblique photograph of a place in {record['city']}. "
+    from agent.building import CACHE as STRUCTURE_CACHE, prompt_facts
+    import hashlib as _hashlib
+    place = next((r for r in record["results"] if r["index"] == index), {})
+    structure = STRUCTURE_CACHE / (_hashlib.sha256(f"{place.get('lat', 0):.6f},{place.get('lon', 0):.6f}".encode())
+                                   .hexdigest()[:20] + ".json")
+    facts = prompt_facts(json.loads(structure.read_text(encoding="utf-8"))) if structure.is_file() else ""
+    prompt = (f"This is a real 45-degree aerial oblique photograph of a place in {record['city']}. {facts} "
               f"Change it as requested, photorealistic, keeping the same camera angle, lighting and every part "
               f"of the place the request does not mention. Request: {message}. No text, captions or logos.")
     body = client._post("/images/edits", files={"image": ("oblique.png", buf.getvalue(), "image/png")},

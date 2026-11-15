@@ -114,6 +114,22 @@ def oblique_ask(req: ObliqueAskRequest):
         raise HTTPException(502, "The assistant could not answer right now.") from None
 
 
+@app.post("/api/oblique/building")
+def oblique_building(req: ObliqueViewRequest):
+    """Vexcel Structure facts for the building at a found place (one Vexcel call per place, cached)."""
+    from agent import oblique_search as oblique
+    from agent.building import building
+    from agent.vexcel_assistant import AssistantError
+    try:
+        record = oblique._load(req.search_id)
+        place = next(r for r in record["results"] if r["index"] == req.index)
+        return building(place["lat"], place["lon"])
+    except (KeyError, StopIteration):
+        raise HTTPException(404, "Place not found. Run the search again.") from None
+    except AssistantError as error:
+        raise HTTPException(502, str(error)) from None
+
+
 @app.post("/api/oblique/reimagine")
 def oblique_reimagine(req: ObliqueReimagineRequest):
     from agent import oblique_search as oblique
