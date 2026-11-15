@@ -7,6 +7,7 @@ import pathlib
 import re
 from typing import Optional
 from contracts.schemas import Property
+from data.costar_parking import recorded_parking
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 JOIN_PATH = ROOT / "cache/join.parquet"
@@ -88,7 +89,9 @@ def _live(where: str = "TRUE", parameters: list | None = None, limit: int | None
             if "listing_types" not in columns:
                 query = query.replace(",listing_types FROM", ",[]::VARCHAR[] AS listing_types FROM", 1)
             rows = connection.execute(query, values).fetchall()
-        return [Property(**dict(zip(_COLUMNS, row))) for row in rows]
+        recorded = recorded_parking()
+        return [Property(**dict(zip(_COLUMNS, row)), parking_spaces=recorded.get(str(row[0]), {}))
+                for row in rows]
     except Exception:
         # Database errors may contain source values; expose only a repair hint.
         raise RuntimeError("Private CoStar join is invalid; rebuild with python -m data.build_join.") from None

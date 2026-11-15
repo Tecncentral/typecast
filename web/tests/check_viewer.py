@@ -21,6 +21,12 @@ POLICE_SCENE = (
     "Parking for 3 trucks and 30 crew cars."
 )
 REFINEMENT = "need parking for 5 trucks"
+# The page rounds over-precise measurements for display (web/utils.js tidyText).
+SHOWN = "async (text) => (await import('/app/utils.js')).tidyText(text)"
+
+
+def shown(page, text):
+    return page.evaluate(SHOWN, text)
 CARD = "#results .pick-card"
 
 # Observe events delivered by the real EventSource, without adding progress.
@@ -110,7 +116,13 @@ def assert_cards(page, result):
         reason = card.locator(".pick-rationale")
         require(reason.locator("summary").is_visible(), "Card has no visible rationale summary")
         reason.locator("summary").click()
-        require(normalized(pick["reason"]) in normalized(reason.inner_text()),
+        # The page rounds over-precise measurements and renames the blocker
+        # prefix; compare against that same display formatting, nothing else.
+        expected = page.evaluate("async (text) => (await import('/app/utils.js')).readableReason(text)",
+                                 pick["reason"])
+        require(all(source in expected for source in ("CoStar", "Matterport", "Vexcel")),
+                "Display formatting dropped a source from the rationale")
+        require(normalized(expected) in normalized(reason.inner_text()),
                 "Expanded reason omits the API's full rationale")
         reason.locator("summary").click()
         extra = card.locator(".skeptic-more")
@@ -118,7 +130,7 @@ def assert_cards(page, result):
             extra.locator("summary").click()
         text = normalized(card.inner_text())
         for note in pick["skeptic_notes"]:
-            require(normalized(note) in text, "Card omits a returned skeptic note")
+            require(normalized(shown(page, note)) in text, "Card omits a returned skeptic note")
         if extra.count():
             extra.locator("summary").click()
         allowed = {path_only(shot["image_path"]) for shot in pick["shots"]}
@@ -168,10 +180,15 @@ def assert_changes(page, before, after):
             moved.append(property_id)
             require(normalized(pick["property"]["address"]) in text,
                     "Summary omits a new or moved pick")
-        old_notes = set(old["skeptic_notes"]) if old else set()
-        for note in set(pick["skeptic_notes"]) - old_notes - {"No objection."}:
+        if old is None:
+            # A newcomer's standing caveats stay on its card, counted in the summary.
+            if pick["skeptic_notes"]:
+                require(f"its {len(pick['skeptic_notes'])} caveats are on its card" in text.lower(),
+                        "Summary does not point to a newcomer's caveats")
+            continue
+        for note in set(pick["skeptic_notes"]) - set(old["skeptic_notes"]) - {"No objection."}:
             new_objections += 1
-            require(normalized(note) in text, "Summary omits a newly returned objection")
+            require(normalized(shown(page, note)) in text, "Summary omits a newly returned objection")
     for property_id in previous.keys() - current.keys():
         require(normalized(previous[property_id]["property"]["address"]) in text,
                 "Summary omits a removed pick")
@@ -245,7 +262,9 @@ def run_viewport(browser, args, width, height, report):
     context, page = open_page(browser, {"width": width, "height": height}, row)
     try:
         page.goto(args.base_url + "/app/", wait_until="networkidle")
-        require(page.locator("#scene").input_value() == POLICE_SCENE, "Default police scene changed")
+        require("WAREHOUSE" in page.locator("#scene").input_value(), "Default warehouse scene changed")
+        # The mock expectations below are written for the police scene.
+        page.locator("#scene").fill(POLICE_SCENE)
         require("MOCK" in page.locator("#source-mode").inner_text().upper(), "Config does not visibly say MOCK")
         page.locator("#run-button").click()
         page.wait_for_function("window.__viewerCheck.results.length === 1")
@@ -260,7 +279,7 @@ def run_viewport(browser, args, width, height, report):
         drawer = page.get_by_role("dialog")
         drawer.wait_for(state="visible")
         for item in before["picks"][0].get("evidence", []):
-            require(normalized(item["claim"]) in normalized(drawer.inner_text()),
+            require(normalized(shown(page, item["claim"])) in normalized(drawer.inner_text()),
                     "Evidence disclosure omits a returned claim")
         assert_no_contacts(page, before)
         assert_no_overflow(page)

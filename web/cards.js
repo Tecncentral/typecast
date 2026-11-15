@@ -1,4 +1,4 @@
-import { el, button, assetUrl } from "./utils.js";
+import { el, button, assetUrl, tidyText, readableReason } from "./utils.js";
 import {
   availability,
   createShotViewer,
@@ -116,7 +116,7 @@ function rationale(pick, logistics) {
     chip.title = `${source.count} supplied ${source.count === 1 ? "claim" : "claims"}; see every claim in View evidence`;
     sources.append(chip);
   }
-  body.append(sources, el("p", pick.reason || "No ranking reason was supplied.", "full-reason"));
+  body.append(sources, el("p", readableReason(pick.reason) || "No ranking reason was supplied.", "full-reason"));
   const flags = logistics.noise_flags ?? [];
   if (flags.length) {
     const list = el("ul", undefined, "noise-flags");
@@ -189,7 +189,7 @@ export function renderCards(
       const line = el("p", undefined, `skeptic-note ${isClear(note) ? "skeptic-clear" : ""} ${lead ? "skeptic-lead" : ""}`.trim());
       if (lead) line.append(el("span", "Skeptic", "skeptic-label"));
       if (isNew) line.append(el("span", "New · ", "new-objection"));
-      line.append(document.createTextNode(note));
+      line.append(document.createTextNode(tidyText(note)));
       return line;
     };
     if (!notes.length) skeptic.append(el("p", "No review supplied", "skeptic-note skeptic-unknown"));

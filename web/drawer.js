@@ -1,4 +1,4 @@
-import { el, button, assetUrl, formatNumber } from "./utils.js";
+import { el, button, assetUrl, formatNumber, tidyText, readableReason } from "./utils.js";
 import { createTour } from "./tour.js";
 
 const SOURCES = {
@@ -242,7 +242,7 @@ export function openEvidenceDrawer(
   });
   body.append(
     viewer.element,
-    el("p", pick.reason || "No ranking reason was supplied.", "detail-reason"),
+    el("p", readableReason(pick.reason) || "No ranking reason was supplied.", "detail-reason"),
   );
   const listing = detailSection("Property & availability");
   listing.append(
@@ -371,7 +371,7 @@ export function openEvidenceDrawer(
     skeptic.append(
       el(
         "p",
-        note,
+        tidyText(note),
         `skeptic-note ${/^no objection\.?$/i.test(note.trim()) ? "skeptic-clear" : ""}`,
       ),
     );
@@ -393,7 +393,7 @@ export function openEvidenceDrawer(
       const item = el("div", undefined, "evidence-line");
       item.append(
         statusTag(evidenceStatus(line.status), line.status),
-        el("p", line.claim || "No claim text supplied."),
+        el("p", tidyText(line.claim) || "No claim text supplied."),
       );
       group.append(item);
     }
