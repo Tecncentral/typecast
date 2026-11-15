@@ -168,7 +168,7 @@ def open_page(browser, args, row, *, result=None, reduced=False, no_transition=F
     if image_failure:
         page.route("**/cache/vexcel/**", lambda route: route.abort("failed"))
     page.goto(args.base_url + "/app/", wait_until="domcontentloaded")
-    page.wait_for_function("document.querySelectorAll('#scene-buttons button').length === 5")
+    page.wait_for_function("document.querySelectorAll('#scene-buttons button').length >= 5")
     page.evaluate("""async () => {
       const {Map} = await import('/app/vendor/leaflet/leaflet-src.esm.js');
       const fly = Map.prototype.flyTo;

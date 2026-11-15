@@ -466,3 +466,45 @@ def main_v2(argv=None) -> int:
         for text in pool.map(run, targets):
             print(text, flush=True)
     return 0
+
+
+def fill_v2(target: dict, client: OpenAIClient, log=print) -> int:
+    """Retry missing walls of a v2 set with its dressed neighbours as context (targeted, small spend)."""
+    out = worlds_dressed_dir(target["model_id"], target["sweep_id"])
+    record = json.loads((out / "dressed.json").read_text(encoding="utf-8"))
+    if record.get("pipeline") != "v2-wide-context":
+        return 0
+    real, start = _faces_for(target["model_id"], target["sweep_id"])
+    dressed = {f["source_heading_deg"]: np.asarray(Image.open(out / f["dressed"]).convert("RGB").resize((FACE, FACE)), np.float32)
+               for f in record["faces"]}
+    base = prompt_for(target["scene"], BRIEFS[target["scene_id"]])
+    added = 0
+    for h in [h for h in (90, 270, 0, 180) if h not in dressed]:
+        left, right = (h - 90) % 360, (h + 90) % 360
+        src = {h: start[h]}
+        if left in dressed: src[left] = dressed[left]
+        if right in dressed: src[right] = dressed[right]
+        view, valid = pano.render_view(src, h, VIEW_FOV, VIEW_W, VIEW_H)
+        view = pano.fill_invalid(view, valid)
+        bands = pano.band_mask(h, VIEW_FOV, VIEW_W, VIEW_H, 45.0).astype(np.float32)
+        for attempt in (1, 2):
+            outv = _edit_view(client, view, _wide_prompt(base, with_context=True))
+            aligned, info = pano.register(view, outv, weight=bands)
+            face, _ = pano.view_to_face(aligned, h, VIEW_FOV, h, FACE)
+            ok, checks = _gate(client, real[h], face, target["scene"])
+            ledger({"task": "dress-v2-fill", "model": DRESS_MODEL, "status": "dressed" if ok else "rejected", "heading": h})
+            log(f"  face {h:3d}° attempt {attempt}: {'dressed' if ok else 'rejected'} {checks}")
+            if ok:
+                Image.fromarray(np.clip(face, 0, 255).astype(np.uint8)).save(out / f"dressed_{h:03d}.jpg", "JPEG", quality=88)
+                Image.fromarray(real[h].astype(np.uint8)).resize((1024, 1024), Image.LANCZOS).save(out / f"real_{h:03d}.jpg", "JPEG", quality=85)
+                record["faces"].append({"source_heading_deg": h, "yaw_deg": float(h), "pitch_deg": 0.0, "tan_h": 1.0, "tan_v": 1.0,
+                                        "dressed": f"dressed_{h:03d}.jpg", "real": f"real_{h:03d}.jpg", **checks,
+                                        "registration": info, "attempts": attempt, "context": "fill"})
+                dressed[h] = face
+                added += 1
+                break
+    record["faces"].sort(key=lambda f: f["source_heading_deg"])
+    tmp = out / "dressed.json.part"
+    tmp.write_text(json.dumps(record, indent=2), encoding="utf-8")
+    tmp.replace(out / "dressed.json")
+    return added

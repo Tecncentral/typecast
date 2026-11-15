@@ -726,3 +726,182 @@
     flex-basis: 100%;
   }
 }
+
+/* ---------- Card cleanup: values first, one honesty line, quiet disclosure ---------- */
+.pick-card .shot-stage {
+  aspect-ratio: 4 / 3;
+}
+.pick-card .shot-image,
+.pick-card .strike-plate {
+  object-fit: cover; /* fill the card; the drawer still shows the whole frame */
+}
+.pick-card .pick-body :is(p, dl, figure, h4) {
+  padding: 0;
+}
+.pick-rank {
+  font: 700 26px/1 var(--brand, "Barlow Condensed", sans-serif);
+  letter-spacing: 0.01em;
+}
+.pick-header h3 {
+  font-size: 20px;
+}
+.pick-property-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin-top: 6px !important;
+  font-size: 15px;
+}
+.pick-property-meta .availability {
+  font-size: 15px;
+}
+.pick-body {
+  gap: 14px;
+  padding-top: 14px;
+}
+.pick-specs {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+}
+.pick-specs dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.spec-row {
+  display: grid;
+  grid-template-columns: 70px minmax(0, 1fr);
+  gap: 12px;
+  align-items: baseline;
+}
+.spec-row dt {
+  color: var(--muted);
+  font-size: 14px;
+}
+.spec-row dd {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.spec-note {
+  margin-left: 8px;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+}
+.pick-aerial {
+  width: 96px;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+.pick-gaps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.45;
+}
+.gaps-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text);
+  font-weight: 500;
+}
+.gaps-label::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+}
+.pick-rationale summary,
+.skeptic-more summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  list-style: none;
+  transition: color 160ms ease-out;
+}
+.pick-rationale summary::-webkit-details-marker,
+.skeptic-more summary::-webkit-details-marker {
+  display: none;
+}
+.pick-rationale summary:hover,
+.skeptic-more summary:hover {
+  color: var(--text);
+}
+.disclosure-chevron {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  transition: transform 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+details[open] > summary .disclosure-chevron {
+  transform: rotate(90deg);
+}
+.disclosure-body {
+  display: grid;
+  gap: 10px;
+  padding: 4px 0 6px 22px;
+}
+.pick-rationale .full-reason {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.pick-rationale .noise-flags {
+  margin: 0;
+  font-size: 14px;
+}
+.card-skeptic {
+  padding-top: 14px;
+}
+.card-skeptic .skeptic-note {
+  font-size: 15px;
+}
+.skeptic-label {
+  display: inline-block;
+  margin-right: 8px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--bg);
+  background: var(--warning, #e7a392);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+}
+.skeptic-more {
+  margin-top: 6px;
+}
+.skeptic-more[open] summary {
+  margin-bottom: 0;
+}
+.pick-actions .descent-replay {
+  flex: 0 0 auto;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  padding-inline: 4px;
+}
+.pick-actions .descent-replay:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}

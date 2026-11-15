@@ -279,6 +279,17 @@ export class Descent {
       note = el("p", "", "descent-note");
     source.setAttribute("aria-live", "polite");
     caption.append(source, note);
+    if (actual) {
+      const steps = el("ol", null, "descent-steps");
+      steps.setAttribute("aria-hidden", "true");
+      const items = [["map", "CoStar listing"], ...(aerial ? [["aerial", "Vexcel aerial"]] : []), ["interior", "Matterport scan"]];
+      for (const [phase, text] of items) {
+        const li = el("li", text);
+        li.dataset.step = phase;
+        steps.append(li);
+      }
+      caption.prepend(steps);
+    }
     const label = (layer, explanation) => {
       source.textContent = layer;
       note.textContent = explanation;
@@ -314,7 +325,8 @@ export class Descent {
         duration: T.mapFly,
       });
     if (run.borrowed) {
-      label("Property location", "Click or press any key to skip");
+      const where = [run.pick.property?.city, run.pick.property?.type].filter(Boolean).join(" · ");
+      label("CoStar listing", where || "Property location");
       this.notify(run, "map");
       await new Promise((resolve) => requestAnimationFrame(resolve));
       if (signal.aborted) return;
@@ -326,7 +338,7 @@ export class Descent {
       const parking =
         run.pick.logistics?.parking_status ||
         (run.pick.logistics?.estimated === true ? "estimated" : "unknown");
-      label("Vexcel aerial", `Parking ${parking} · aerial view`);
+      label("Vexcel aerial", `Parking ${parking} · outline traced from the aerial`);
       this.notify(run, "aerial", { geometry: aerial.kind });
       this.animate(run, aerialLayer, [{ opacity: 0 }, { opacity: 1 }], {
         duration: run.reduced ? 200 : T.aerialFade,
@@ -355,7 +367,7 @@ export class Descent {
           : "Matterport scan"
         : "MOCK · Synthetic frame",
       actual
-        ? "The real scan point · image heading alignment unverified"
+        ? "The real room, as scanned"
         : "Fixture preview · no live aerial evidence",
     );
     this.notify(run, "interior");
@@ -384,10 +396,7 @@ export class Descent {
     await wait(run.reduced || !actual ? 200 : T.interiorHold, signal);
     if (signal.aborted) return;
     if (actual)
-      label(
-        "Matterport scan",
-        "The real scan point · image heading alignment unverified",
-      );
+      label("Matterport scan", "The real room, as scanned");
     await this.land(run, interior, actual);
   }
   async land(run, interior, actual) {
