@@ -72,29 +72,59 @@ const driveOf = (i, id) => {
   return typeof row?.minutes === "number" ? row.minutes : null;
 };
 
+// Budget runs from $0 to a large ceiling. The track is curved (cubic) so the low end moves in
+// about $5 steps while the far right still reaches the ceiling; every value is a multiple of $5.
+// The number box beside it takes any exact amount, also in $5 steps.
+const BUDGET_FLOOR_MAX = 250000;
+const POSITIONS = 2000;
+const round5 = (v) => Math.max(0, Math.round(v / 5) * 5);
+const toDollars = (pos, max) => round5(max * Math.pow(pos / POSITIONS, 3));
+const toPosition = (dollars, max) => Math.round(POSITIONS * Math.cbrt(Math.min(1, Math.max(0, dollars / max))));
+
 function ensureBudgetSlider() {
   const totals = (filters.data?.costs?.picks || []).map((_, i) => costOf(i)).filter((v) => v != null);
   if (!totals.length || !$("#filter-bar")) return;
-  const step = 250;
-  const lo = Math.floor(Math.min(...totals) / step) * step;
-  const hi = Math.ceil(Math.max(...totals) / step) * step;
+  const max = Math.max(BUDGET_FLOOR_MAX, Math.ceil(Math.max(...totals) / 5) * 5);
   if (!filters.budgetField) {
-    const label = document.createElement("label");
+    const label = document.createElement("div");
     label.className = "budget-field budget-field--slider filter-budget";
     const text = document.createElement("span");
+    const row = document.createElement("div");
+    row.className = "filter-budget-row";
     const input = document.createElement("input");
     input.type = "range";
-    input.step = String(step);
-    label.append(text, input);
+    input.min = "0";
+    input.max = String(POSITIONS);
+    input.step = "1";
+    input.setAttribute("aria-label", "Max budget");
+    const exact = document.createElement("input");
+    exact.type = "number";
+    exact.min = "0";
+    exact.step = "5";
+    exact.inputMode = "numeric";
+    exact.setAttribute("aria-label", "Max budget in dollars");
+    row.append(input, exact);
+    label.append(text, row);
     $("#filter-bar").insertBefore(label, $("#filter-bar .filter-notes"));
-    input.addEventListener("input", () => { filters.budget = Number(input.value); applyFilters(); });
-    filters.budgetField = { label, text, input };
+    input.addEventListener("input", () => {
+      filters.budget = toDollars(Number(input.value), filters.budgetMax);
+      exact.value = String(filters.budget);
+      applyFilters();
+    });
+    exact.addEventListener("input", () => {
+      if (exact.value === "") return;
+      filters.budget = round5(Math.min(Number(exact.value), filters.budgetMax));
+      input.value = String(toPosition(filters.budget, filters.budgetMax));
+      applyFilters();
+    });
+    exact.addEventListener("change", () => { exact.value = String(filters.budget); });
+    filters.budgetField = { label, text, input, exact };
   }
-  const { input } = filters.budgetField;
-  input.min = String(Math.max(0, lo - step));
-  input.max = String(hi);
-  if (filters.budget == null || filters.budget > hi) filters.budget = hi; // new costs: start by showing everything
-  input.value = String(filters.budget);
+  filters.budgetMax = max;
+  filters.budgetField.exact.max = String(max);
+  if (filters.budget == null || filters.budget > max) filters.budget = max; // start by showing everything
+  filters.budgetField.input.value = String(toPosition(filters.budget, max));
+  filters.budgetField.exact.value = String(filters.budget);
 }
 
 function tag(card) {
@@ -151,7 +181,11 @@ function applyFilters() {
 function resetFilters() {
   const driveSlider = [...document.querySelectorAll('#filter-bar input[type="range"]')].find((x) => !x.closest(".filter-budget"));
   if (driveSlider) { driveSlider.value = driveSlider.max; driveSlider.dispatchEvent(new Event("input", { bubbles: true })); }
-  if (filters.budgetField) { filters.budget = Number(filters.budgetField.input.max); filters.budgetField.input.value = String(filters.budget); }
+  if (filters.budgetField) {
+    filters.budget = filters.budgetMax;
+    filters.budgetField.input.value = String(POSITIONS);
+    filters.budgetField.exact.value = String(filters.budget);
+  }
   applyFilters();
 }
 

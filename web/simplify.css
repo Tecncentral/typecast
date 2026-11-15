@@ -488,3 +488,7 @@ body[data-mode="exterior"] footer { display: none; }
 #results .pick-card { transition: opacity .35s, transform .35s cubic-bezier(.2,.7,.1,1), box-shadow .3s, border-color .3s; }
 #results .pick-card.is-filtered { display: none; }
 @starting-style { #results .pick-card:not(.is-filtered) { opacity: 0; transform: scale(.97); } }
+.filter-budget-row { display: flex; align-items: center; gap: 10px; }
+.filter-budget-row input[type="range"] { flex: 1; min-width: 140px; }
+.filter-bar .filter-budget-row input[type="number"] { width: 120px; }
+.filter-bar .filter-budget { max-width: 420px; flex-basis: 300px; }

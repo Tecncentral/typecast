@@ -124,3 +124,8 @@ Recommendation: safe to demo on mocks. Not run against live data or the private 
 - Each card shows "N min drive · est. $X" (or "unknown"). A line under the filters says "Showing N of M" and why, with Reset filters.
 - On mocks, drive times are unknown (routing is not called), so the drive slider cannot hide anything there; filtering by drive was checked with a routed commute response (25/55/80 min): 60 min left 2 of 3 cards, then a $7,250 budget left 1, and Reset brought back 3.
 - Checks: check_viewer.py --mobile --failure-states 7/7; verify.py 1082 passed / 1 xfailed; web tests 24/24. Screenshot: cache/screens/ui-simplify/v4-filtered.png.
+
+### UI simplify v5: budget slider $0 to $250,000 (11:40 UTC)
+
+- Max budget now runs from $0 to $250,000 (or the highest estimate, if larger), starting at the top so nothing is hidden. The track is cubic, so the low end moves in $5 steps ($30 → $35) and arrow keys move one notch; every value is a multiple of $5. A number box beside it takes an exact amount in $5 steps and stays in sync.
+- Checked: positions 100/102 give $30/$35, 400/401 give $2,000/$2,015; typing $6,000 hides all three mock picks (each is $6,196 without drive times) and Reset restores them. check_viewer.py 7/7; verify.py 1082 passed / 1 xfailed; web tests 24/24.
