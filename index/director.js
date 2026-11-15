@@ -1303,6 +1303,9 @@ async function runSave() {
   const r = readSaveForm(); if (r.error) { sv.error = r.error; return renderSavePanel(); }
   const req = { trucks: r.form.trucks, cars: r.form.cars, require_available: r.form.reqAvail };
   if (!saveCtxValid(sv.ctx)) { sv.phase = 'review'; sv.stale = true; return renderSavePanel(); }
+  if (req.trucks + req.cars === 0 && !req.require_available) {              // nothing to check: no request is sent
+    sv.outcome = TypecastChecks.saveSceneOutcome({ sid: sv.sid, req, before: { shot_id: sv.ctx.shot, property_id: sv.ctx.prop }, newResp: null }); sv.req = req; sv.phase = 'review'; return renderSavePanel();
+  }
   const body = { scenes: S.scenes.map(({ id, heading, description }) => ({ id, heading, description })), max_locations: clamp($('maxLoc').value, 1, 4, 3),
     forbidden_property_ids: [...S.forbidden], require_available: req.require_available, trucks: req.trucks, cars: req.cars };
   sv.form = r.form; sv.req = req; sv.error = ''; sv.phase = 'loading'; sv.ctrl = new AbortController(); const tok = sv.tok; renderSavePanel();
@@ -1393,7 +1396,7 @@ function renderSavePanel() {
     const upd = () => {
       const r = readSaveForm(); if (r.error) { live.textContent = r.error; return; }
       const fit = TypecastChecks.fitCheck({ scene: S.scenes.find((x) => x.id === sv.sid), cand: c, built: { trucks: r.form.trucks, cars: r.form.cars, require_available: r.form.reqAvail }, mode: S.resp?.mode });
-      const rows = fit.rows.filter((x) => /Parking|availability/i.test(x.label));
+      const veh = r.form.trucks + r.form.cars > 0, rows = fit.rows.filter((x) => (veh && /Parking/i.test(x.label)) || (r.form.reqAvail && /availability/i.test(x.label)));
       live.textContent = rows.length ? rows.map((x) => `${TypecastChecks.KIND_LABEL[x.kind]}: ${x.label}. ${x.detail}`).join(' ') : 'No vehicle or availability requirement is set yet.';
     };
     const mk = (label, v, max) => { const input = el('input', { type: 'number', min: '0', max: String(max), value: String(v), inputmode: 'numeric', 'aria-label': label }); return { input, label: el('label', {}, `${label} `, input) }; };
