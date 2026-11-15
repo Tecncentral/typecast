@@ -10,6 +10,10 @@ Current dispatch, November 15, 2026. Coordinator owns review, integration and pu
 
 Status at dispatch: Claude has begun writing `director-planning.test.cjs` and a fake-DOM harness; Grok W7 reports running; Gemini prompt was sent. These statements do not claim the tasks are complete or their code passes. Later acceptance and integration records supersede this snapshot.
 
+## Integration record, November 15 ~02:00 ET
+
+Supersedes the dispatch snapshot above. On branch `ai/claude-business-integration` (local, unpushed): Claude's hardening `90c9528` was already merged; Grok W7's provider-boundary fixes `c56bfd8`, teammate `lane-b-cost` `32123ae` and PR #50 `map-parking` `9c334aa` are now merged. Grok W8's PR #50 review was read and its single docs conflict reproduced and resolved. Gemini's patcher targeted the pre-hardening `producer-brief.js` and was not executed; its remaining idea (reject DEL and bidi control characters in memo text) was implemented by hand with a test. Gate on the merged head: Python 764 passed / 7 skipped with smoke and mock E2E; Node 288 passed / 1 skipped. `data/cost_model.py` is not wired to any UI and its placeholder figures are not pitch numbers. See `HANDOFF.md`.
+
 ## Business decisions already implemented
 
 The preceding buyer/product/evidence debate produced the cash-versus-capacity calculator and producer decision case in `c549e66`. Local acceptance: Python 693 passed / 7 skipped plus smoke/SSE/refine/unsent-draft E2E; Node 258 passed / 1 skipped; 18 new fixture-only browser checks. Exact-head CI passed. All economics remain scenarios until a producer supplies actual records; no customer savings are measured.

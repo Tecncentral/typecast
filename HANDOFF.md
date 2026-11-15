@@ -1,5 +1,44 @@
 # HANDOFF (coordinated, current)
 
+## Integration pass, November 15 2026 ~02:00 ET (Claude Code, continuing the Codex coordinator session)
+
+### 1. Goal
+User's words: "continue what chatgpt was doing which was fixing my hackprinceton project to be more on the business track." Hard requirements carried over from the Codex session: Business/Enterprise is the main track; **every number must be real, sourced data** (no invented savings); be careful with usage limits; other agents (Claude, Grok/Cursor, Gemini) are the coding workhorses and the coordinator verifies before integrating. Human Devpost submission is due **08:00 ET Sunday Nov 15**.
+
+### 2. Current state
+- Branch **`ai/claude-business-integration`** (local only, NOT pushed), created from `ai/director-production-decisions` at `0580a8a` (itself 2 commits ahead of the pushed PR #43 head: Claude's hardening `90c9528` and its merge). The original branch is untouched.
+- Merged here, in order: `origin/cursor/provider-boundary-audit-7eb1` (Grok W7: commute router and unreadable-frame fixes, `c56bfd8`); `origin/lane-b-cost` (teammate Udit: `data/rent_precompute.py`, `data/cost_model.py` and tests, `32123ae`); `origin/map-parking` (PR #50, teammate Zukhriddin: parking on the map and seam repair, `9c334aa`). One conflict, `docs/team/CONTRACT-CHANGES.md`, resolved by keeping both appended sections.
+- Added the one still-missing idea from Gemini's review: `index/producer-brief.js` rejects DEL and bidi override/isolate characters in exported memo text, with a regression in `index/tests/producer-brief.test.cjs` (`3c757bc`).
+- Verified on the merged head (Windows, shared venv `../typecast/.venv`, `TYPECAST_USE_MOCKS=1`, fixed engine, zero provider calls): `python scripts/verify.py` **764 passed, 7 skipped**, smoke and mock E2E PASS; all Node suites **289 tests, 288 pass, 0 fail, 1 browser-only skip**.
+
+### 3. Key decisions and why
+- **Cost model merged as code only, not wired into `/director` or the pitch.** `data/cost_model.py` labels its own inputs "benchmark (supplied, unverified)" and "ASSUMPTION, needs a real quote" (set construction $40/sq ft, CGI $1,500/shot and scouting trip $400 are placeholders). Showing them as savings would break the real-data rule and contradict `docs/BUSINESS-CASE.md` ("No set-construction savings are added"). The only sourced dollar figure for the pitch remains the AICP / Teamsters Local 399 **$957.58/day** scout-manager rate and the 3-day scenario **$2,872.74**, always stated as a scenario.
+- **Gemini's returned patcher script was not run.** It targets `producer-brief.js` as of `c549e66`; its anchors no longer exist after `90c9528`, which already screens AWS keys, bearer tokens and private keys. Only the bidi-control check was missing, and it was written by hand.
+- **PR #50 merged into this branch** because Grok W8's read-only review (`docs/PR50-INTEGRATION-REVIEW.md` on `origin/cursor/pr50-integration-review-f212`) found only the docs conflict, and the gate passes here. This does not merge PR #50 into `dev`; that is the teammate's call.
+- No new features: the buyer/product/evidence debates (`../manager-drafts/business-*-debate.md`) chose honest cash-versus-capacity economics and the producer memo over feature sprawl.
+
+### 4. Open issues and risks
+- Nothing is pushed. PR #43 on GitHub still ends at `dd6223c`. The `gh` CLI is not installed on this machine, so PR and CI state were not checked.
+- No browser pass was run on the merged tree (map-parking changes `web/index.html`, `web/map.js`, `web/app.js`). The Python and Node gates pass; the look of `/` and `/director` together is unverified.
+- Not possible from this machine: real private-cache/GPU demo-laptop acceptance, a live OSRM route rehearsal, a live image-provider preview, the original Discord evidence for the filmmaker quote, Devpost track selection and submission.
+- `data/cost_model.py` placeholders must not be quoted in the video or Devpost text.
+
+### 5. Next steps
+1. User decides: push `ai/claude-business-integration` and update draft PR #43 (or open a new PR to `dev`).
+2. Browser smoke of the merged tree: `/` map with parking overlay, masthead link to `/director`, commute slider, cost panel, memo export.
+3. On the demo laptop with the private cache: rehearse one real-data commute filter and the day-rate recalculation per the two-minute script in `docs/BUSINESS-CASE.md`.
+4. Record the video from `docs/VIDEO-CLAIMS.md` and `docs/VIDEO-HANDOFF.md` (content only was requested; no more generated full videos).
+5. Human: select Business/Enterprise on Devpost and submit before 08:00 ET.
+
+### 6. How to resume
+- Repo worktree: `C:\Users\lfitz\Documents\Codex\2026-11-14\i-r\work\claude-unified` (remote `https://github.com/Tecncentral/typecast`). Coordinator notes and debates: `..\manager-drafts\`. Deliverables: `..\..\outputs\` (start with `Typecast-Business-Case.md`).
+- Gates, from Git Bash so globs expand: `TYPECAST_USE_MOCKS=1 ../typecast/.venv/Scripts/python.exe scripts/verify.py` and `node --test bridge/core.test.mjs index/tests/*.test.js index/tests/*.test.cjs index/tests/*.mjs web/tests/*.test.mjs web/tests/*.test.cjs`.
+- Prior coordinator transcript: `~/.codex/sessions/2026/11/14/rollout-2026-11-14T03-39-21-*.jsonl`. Gemini review conversation: https://gemini.google.com/app/3c841599e7b2b4a1 . Grok worker link: `docs/EXTERNAL-AI-WORK.md`.
+
+---
+
+## Earlier coordinated notes
+
 **November 15 business update:** the team chose **Business/Enterprise**. See `docs/BUSINESS-CASE.md`, `docs/TRACK-SELECTION.md` and `index/AI-CONTINUATION.md` before the historical notes below. PR #43 now includes real road-time constraint plumbing, an editable cost scenario with a sourced commercial day-rate example, broader scene direction and explicit imagined-image previews. Quoted filmmaker feedback and permission are user-reported, not measured savings. Local acceptance: 693 Python pass/7 skip, 233 Node pass/1 skip, 19 browser checks (SYNTHETIC proposal/image responses, no paid calls). Real cache/route rehearsal and live image-provider preview remain for the demo laptop. Human Devpost track selection/submission is still needed.
 
 ## Current Status — Save the scene (`39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3`)
