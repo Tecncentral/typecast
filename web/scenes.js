@@ -25,4 +25,9 @@ export const SCENES = [
     scene:
       "INT. HOUSTON APARTMENT - DAY. Two friends talk in a bright furnished living room with large windows, city views, a sofa and an open kitchen or counter nearby. Natural daylight and a comfortable residential feel. Parking for 2 trucks and 10 crew cars. No required building age.",
   },
+  {
+    label: "Roller disco, 1979",
+    scene:
+      "INT. LOS ANGELES ROLLER DISCO - NIGHT. 1979. Teenagers skate in circles across a long open hall with a polished wooden floor and a high ceiling, under a mirror ball and coloured lights. Room for a DJ booth and benches along the walls. Parking for 3 trucks and 15 crew cars.",
+  },
 ];
