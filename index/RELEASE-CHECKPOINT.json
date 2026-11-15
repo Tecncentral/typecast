@@ -1,0 +1,33 @@
+{
+  "validated_commit": "72c638536b18b62b59ca533f7b88b54959f23f50",
+  "save_scene_code_commit": "39077b6ca7bafd0f127dbbb307ff1fc69fbbdef3",
+  "integrated_dev": "fe779ce",
+  "branch": "ai/director-production-decisions",
+  "pull_request": "https://github.com/Tecncentral/typecast/pull/43",
+  "mode": "mock/fixed",
+  "python": {
+    "passed": 676,
+    "skipped": 7
+  },
+  "node": {
+    "passed": 228,
+    "skipped": 1,
+    "failed": 0,
+    "todo": 0
+  },
+  "browser": {
+    "save_scene_checks": 33,
+    "all_passed": true,
+    "positive_case": "SYNTHETIC intercepted complete plan; not real private data",
+    "default_fixtures": "honest non-result with unknown parking"
+  },
+  "providers_called": false,
+  "remaining": [
+    "real private-cache rehearsal",
+    "GPU/splat walk acceptance",
+    "live model and production-tool trace",
+    "microphone",
+    "human submission"
+  ],
+  "publication": "Check PR remote head and CI for current published status; no PR merge into dev/main performed."
+}
