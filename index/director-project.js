@@ -107,12 +107,13 @@
         checks[key] = { state: c.state, note: stripCtl(c.note == null ? '' : text(c.note, 'check note', 200, true)).trim() };
       }
     }
+    // A capacity needs its source to count as verified. A number without one is kept as an incomplete note, never dropped.
     let verified = null;
     if (value.verified != null) {
       record(value.verified, 'verified capacity');
       const capacity = count(value.verified.capacity, 'verified capacity');
       const source = stripCtl(value.verified.source == null ? '' : text(value.verified.source, 'capacity source', 80, true)).trim();
-      if (capacity != null && source) verified = { capacity, source };      // a number without a stated source is not kept
+      if (capacity != null || source) verified = { capacity, source };
     }
     const tasks = [];
     if (value.tasks != null) {

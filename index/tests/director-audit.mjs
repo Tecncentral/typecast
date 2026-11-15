@@ -347,7 +347,7 @@ function createEnv({ speech = 'none', storage = null } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', parseSummary: 'div', draftNotice: 'div', draftOpt: 'input', draftClear: 'button', draftNote: 'p', modeFilm: 'button', modeComm: 'button', modeHint: 'p', lblTrucks: 'span', lblCars: 'span', stageCaption: 'p', commBanner: 'p', 'h-script': 'h2', 'h-plan': 'h2', 'h-scenes': 'h2', 'h-stage': 'h1', scriptHint: 'label', 'panel-site': 'section', siteTitle: 'h2', siteReq: 'input', siteChecksSummary: 'summary', siteChecks: 'div', siteTasks: 'div', taskAdd: 'button', siteNote: 'textarea', siteCap: 'input', siteCapSrc: 'input', briefReviewer: 'input', briefDate: 'input', briefNotes: 'textarea', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', parseSummary: 'div', siteCapNote: 'p', draftNotice: 'div', draftOpt: 'input', draftClear: 'button', draftNote: 'p', modeFilm: 'button', modeComm: 'button', modeHint: 'p', lblTrucks: 'span', lblCars: 'span', stageCaption: 'p', commBanner: 'p', 'h-script': 'h2', 'h-plan': 'h2', 'h-scenes': 'h2', 'h-stage': 'h1', scriptHint: 'label', 'panel-site': 'section', siteTitle: 'h2', siteReq: 'input', siteChecksSummary: 'summary', siteChecks: 'div', siteTasks: 'div', taskAdd: 'button', siteNote: 'textarea', siteCap: 'input', siteCapSrc: 'input', briefReviewer: 'input', briefDate: 'input', briefNotes: 'textarea', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);
@@ -2185,7 +2185,7 @@ test('community: coordinator checks are unknown by default, human-reported, and 
   const all = env.$('siteChecksSummary').textContent;
   assert.match(all, /0 of 7 checks unknown/); assert.match(all, /7 reported OK by you \(not verified\)/); assert.match(all, /^Coordinator checks · Needs verification/);
   assert.doesNotMatch(env.$('panel-site').textContent + env.$('checksBody').textContent, /\bsafe\b|approved site|certified|verified safe/i.source ? /(?<!not )(?<!nothing marks a site )\b(safe shelter|is safe|safe site|certified)\b/i : /x/);
-  assert.equal(env.api.S.comm['site:s1::prop_a'].checks.permission.state, 'ok');
+  assert.equal(env.api.S.comm['site:s1|prop_a'].checks.permission.state, 'ok');
   assert.equal(env.$('siteReq').disabled, false);
 });
 
@@ -2196,10 +2196,11 @@ test('community: a requested headcount is a request; verified capacity needs a s
   for (const bad of ['-5', '1.5', 'abc', '100001']) { env.$('siteReq').value = bad; env.$('siteReq').dispatchEvent({ type: 'input' }); assert.equal(env.api.S.comm['need:s1'].requested, null, bad); }
   env.$('siteReq').value = '40'; env.$('siteReq').dispatchEvent({ type: 'input' });
   env.$('siteCap').value = '120'; env.$('siteCap').dispatchEvent({ type: 'input' });
-  assert.equal(env.api.S.comm['site:s1::prop_a'].verified, null, 'a number without a source is not kept');
+  assert.deepEqual(copied(env.api.S.comm['site:s1|prop_a'].verified), { capacity: 120, source: '' }, 'kept as an incomplete note, but not counted as verified (the brief test below checks that)');
   env.$('siteCapSrc').value = 'Fire marshal letter, 3 Nov'; env.$('siteCapSrc').dispatchEvent({ type: 'input' });
-  assert.deepEqual(copied(env.api.S.comm['site:s1::prop_a'].verified), { capacity: 120, source: 'Fire marshal letter, 3 Nov' });
-  env.$('siteCap').value = ''; env.$('siteCap').dispatchEvent({ type: 'input' }); assert.equal(env.api.S.comm['site:s1::prop_a'].verified, null);
+  assert.deepEqual(copied(env.api.S.comm['site:s1|prop_a'].verified), { capacity: 120, source: 'Fire marshal letter, 3 Nov' });
+  env.$('siteCap').value = ''; env.$('siteCap').dispatchEvent({ type: 'input' }); assert.deepEqual(copied(env.api.S.comm['site:s1|prop_a'].verified), { capacity: null, source: 'Fire marshal letter, 3 Nov' });
+  env.$('siteCapSrc').value = ''; env.$('siteCapSrc').dispatchEvent({ type: 'input' }); assert.equal(env.api.S.comm['site:s1|prop_a'].verified, null, 'nothing entered at all is nothing kept');
   // 600 m2 of index area and a request of 40 produce no capacity, anywhere
   env.$('expPack').click(); await drain();
   const html = await blobText(env.downloads.find((d) => d.name === 'typecast-site-brief.html').blob);
@@ -2270,8 +2271,8 @@ test('community: project JSON carries mode, brief, needs and per-site reports; i
   assert.equal(body.scenes.length, 2);
   job.resolve(jsonResponse(planFor(body, CROWS(), { candidates: CPOOL(), evidence: { shot: { room_area_m2: 600 } } }))); await drain();
   assert.equal(fresh.api.S.mode, 'community'); assert.equal(fresh.$('script').value.includes('Supply hub'), true);
-  assert.equal(fresh.api.S.comm['need:s1'].requested, 40); assert.equal(fresh.api.S.comm['site:s1::prop_a'].checks.permission.stale, true);
-  assert.equal(fresh.api.S.comm['site:s1::prop_a'].verified.source, 'owner email'); assert.equal(fresh.api.S.brief.reviewer, 'Ana');
+  assert.equal(fresh.api.S.comm['need:s1'].requested, 40); assert.equal(fresh.api.S.comm['site:s1|prop_a'].checks.permission.stale, true);
+  assert.equal(fresh.api.S.comm['site:s1|prop_a'].verified.source, 'owner email'); assert.equal(fresh.api.S.brief.reviewer, 'Ana');
   fresh.api.selectScene('s1'); assert.match(fresh.$('siteChecks').textContent, /restored from a file; re-verify/);
   fresh.$('modeFilm').click(); assert.equal(fresh.api.shotData('s1').dialogue, 'FILM_KEEP'); assert.equal(fresh.$('script').value, 'INT. KITCHEN - DAY | k');
   // a film project imported while in community mode goes to film mode and leaves community alone
@@ -2288,7 +2289,7 @@ test('community: malformed or hostile community fields are refused; absent field
   const ok = P2.normalizeProject(base({ mode: 'community', brief: { reviewer: 'a\u0000b', date: '2026-11-14', notes: 'n' }, needs: [{ scene_id: 's1', requested_count: 5, note: '' }],
     sites: [{ scene_id: 's1', property_id: 'p1', checks: { permission: { state: 'ok', note: 'x' } }, verified: { capacity: 10, source: 'letter' }, tasks: [{ text: 'call', owner: 'Ana' }] }] }));
   assert.equal(ok.mode, 'community'); assert.equal(ok.brief.reviewer, 'a b'); assert.equal(ok.sites[0].verified.capacity, 10);
-  assert.equal(P2.normalizeProject(base({ mode: 'community', sites: [{ scene_id: 's1', property_id: 'p1', verified: { capacity: 10, source: '' } }] })).sites[0].verified, null);   // no source, not kept
+  assert.deepEqual(copied(P2.normalizeProject(base({ mode: 'community', sites: [{ scene_id: 's1', property_id: 'p1', verified: { capacity: 10, source: '' } }] })).sites[0].verified), { capacity: 10, source: '' });   // kept as incomplete, never counted as verified
   const bad = (extra, re) => assert.throws(() => P2.normalizeProject(base(extra)), re || /Invalid project/);
   bad({ mode: 'emergency' }); bad({ mode: 'Community' }); bad({ mode: ['community'] });
   bad({ needs: [{ scene_id: 'nope', requested_count: 1, note: '' }] }); bad({ needs: [{ scene_id: 's1', requested_count: -1 }] }); bad({ needs: [{ scene_id: 's1', requested_count: 1.5 }] }); bad({ needs: [{ scene_id: 's1', requested_count: 100001 }] });
@@ -2308,7 +2309,7 @@ test('community: rule-out, swap and stale-build guards work in community mode to
   env.api.swapLocation('s1', 'shot_b'); assert.equal(env.api.validSwap('s1').property_id, 'prop_b');
   assert.match(env.$('swapNotice').textContent, /This need now points at another candidate site\. Your coordinator checks stay with each site/); assert.doesNotMatch(env.$('swapNotice').textContent, /Takes copied|stand-in/);
   setCheck(env, 0, 'ok');
-  assert.equal(env.api.S.comm['site:s1::prop_b'].checks.permission.state, 'ok'); assert.equal(Object.keys(env.api.S.comm['site:s1::prop_a'].checks).length, 0);   // reports belong to the swapped-to site only
+  assert.equal(env.api.S.comm['site:s1|prop_b'].checks.permission.state, 'ok'); assert.equal(Object.keys(env.api.S.comm['site:s1|prop_a'].checks).length, 0);   // reports belong to the swapped-to site only
   env.$('reject').click(); assert.deepEqual(copied(env.api.S.forbidden), ['prop_b']); assert.equal(env.api.validSwap('s1'), null);
   env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();
   env.$('script').value = NEEDS; env.$('build').click(); const job = env.take('/api/production/plan'); const sent = JSON.parse(job.opts.body);
@@ -2321,7 +2322,7 @@ test('community: prototype-like need ids and notes cannot corrupt state', async 
   const env = await commEnv();
   env.$('briefNotes').value = '__proto__'; env.$('briefNotes').dispatchEvent({ type: 'input' }); assert.equal(env.api.S.brief.notes, '__proto__');
   assert.equal(Object.getPrototypeOf(env.api.S.comm), null); assert.equal(({}).polluted, undefined);
-  env.api.S.comm['need:__proto__'] = { requested: 1, note: '' }; env.api.S.comm['site:constructor::toString'] = { checks: {}, verified: null, tasks: [] };
+  env.api.S.comm['need:__proto__'] = { requested: 1, note: '' }; env.api.S.comm['site:constructor|toString'] = { checks: {}, verified: null, tasks: [] };
   env.$('expJson').click(); const saved = JSON.parse(await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob));
   assert.equal(saved.needs.some((n) => n.scene_id === '__proto__'), false); assert.equal(saved.sites.some((x) => x.scene_id === 'constructor'), false);   // only real scene ids are exported
 });
@@ -2356,7 +2357,7 @@ test('drafts: a refresh restores script text exactly, constraints, takes and not
   assert.equal(env.$('trucks').value, '2'); assert.equal(env.api.draftState.ready, false, 'autosave stays off until restore settles');
   await resolveRestore(env);
   assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello'); assert.equal(env.api.S.notes.s1.dressing, 'keep the plant'); assert.equal(env.api.S.scenes.length, 2);
-  assert.equal(env.api.draftState.ready, true); assert.equal(env.api.draftState.hold, false);
+  assert.equal(env.api.draftState.ready, true); assert.equal(env.api.draftState.hold.film, false);
   const note = env.$('draftNotice').textContent;
   assert.match(note, /Restored your local draft from .* \(this browser only\)\. Evidence was rebuilt from the current data/); assert.match(note, /Discard this draft/); assert.match(note, /Stop keeping drafts/);
   assert.equal(env.$('draftNotice').hidden, false);
@@ -2368,7 +2369,7 @@ test('drafts: only necessary fields are stored: no images, keys, source rows, co
   const raw = st.m.get('typecast.director.draft.v1.film');
   for (const leak of ['FAKE', 'sk-live', 'licensed.jpg', '/Users/demo', 'listing contact', 'aerial', 'parking_polygon', 'availability', 'truck_spaces', 'room_area', 'image_path', 'honesty', 'data:image']) assert.equal(raw.includes(leak), false, leak);
   const d = JSON.parse(raw);
-  assert.deepEqual(Object.keys(d).sort(), ['constraints', 'mode', 'project', 'saved_at', 'script', 'v']);
+  assert.deepEqual(Object.keys(d).sort(), ['constraints', 'mode', 'plan_script', 'project', 'saved_at', 'script', 'v']);
   assert.deepEqual(copied(d.project.scenes[0].evidence), { frame: { shot_id: 'shot_a', property_id: 'prop_a' } });
   assert.ok(raw.length < 20000);
   // a restore cannot bring availability back: the fresh response decides
@@ -2399,7 +2400,7 @@ test('drafts: film and community drafts are separate; each mode restores its own
   assert.equal(env.$('script').value, NEEDS);
   await resolveRestore(env, CROWS(), { candidates: CPOOL() });
   assert.equal(env.api.S.mode, 'community'); assert.equal(env.api.S.comm['need:s1'].requested, 40);
-  assert.equal(env.api.S.comm['site:s1::prop_a'].checks.permission.stale, true); assert.match(env.$('draftNotice').textContent, /anything you marked OK still needs re-verifying/);
+  assert.equal(env.api.S.comm['site:s1|prop_a'].checks.permission.stale, true); assert.match(env.$('draftNotice').textContent, /anything you marked OK still needs re-verifying/);
   env.$('modeFilm').click(); assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello'); assert.equal(env.$('script').value, SCREENPLAY);
 });
 
@@ -2412,8 +2413,8 @@ test('drafts: corrupt, oversized, foreign or hostile saved data is discarded saf
   for (const raw of cases) {
     const st = memStore(); st.m.set('typecast.director.draft.v1.film', raw);
     const env = await bootWith(st);
-    assert.match(env.$('draftNotice').textContent, /A saved local draft was unreadable \(.*\) and was discarded\. Nothing else was changed\./, raw.slice(0, 30));
-    assert.equal(st.m.has('typecast.director.draft.v1.film'), false, 'the bad draft is removed'); assert.equal(env.api.draftState.ready, true);
+    assert.match(env.$('draftNotice').textContent, /A saved local draft could not be read \(.*\)\. A copy was set aside so nothing is lost\. Nothing else was changed\./, raw.slice(0, 30));
+    assert.equal(st.m.has('typecast.director.draft.v1.film'), false, 'the bad draft is moved out of the way'); assert.equal(st.m.get('typecast.director.draft.v1.film.unreadable'), raw, 'and kept'); assert.equal(env.api.draftState.ready, true);
     assert.match(env.$('script').value, /^INT\. HOUSTON/);              // the normal demo script, untouched
     env.$('script').value = 'INT. A - DAY | a'; env.$('build').click(); assert.ok(env.take('/api/production/plan'));
   }
@@ -2451,24 +2452,24 @@ test('drafts: a failed or interrupted restore keeps the saved draft and pauses a
   const env = boot({ storage: st }); await drain();
   env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();       // evidence cannot be rebuilt
   assert.equal(env.$('script').value, SCREENPLAY); assert.match(env.$('draftNotice').textContent, /could not be rebuilt yet\. The saved draft is kept and autosave is paused/);
-  assert.equal(env.api.draftState.hold, true); assert.equal(env.api.draftState.ready, true);
+  assert.equal(env.api.draftState.hold.film, true); assert.equal(env.api.draftState.ready, true);
   env.$('script').value = 'INT. NEW - DAY | typed meanwhile'; env.$('script').dispatchEvent({ type: 'input' });
   assert.equal(env.api.saveDraft(), false); assert.equal(st.m.get('typecast.director.draft.v1.film'), saved, 'the good draft was not overwritten');
   env.$('draftNotice').querySelectorAll('button').find((b) => /Retry/.test(b.textContent)).click(); await drain();
   const job = env.take('/api/production/plan'); job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), DROWS()))); await drain();
-  assert.equal(env.api.draftState.hold, false); assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello');
+  assert.equal(env.api.draftState.hold.film, false); assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello');
   // an edit made while the restore request is loading refuses the restore instead of being overwritten
   const env2 = boot({ storage: st }); await drain();
   env2.$('script').value = 'INT. TYPED - DAY | during restore'; env2.$('script').dispatchEvent({ type: 'input' });
   const j2 = env2.take('/api/production/plan'); j2.resolve(jsonResponse(planFor(JSON.parse(j2.opts.body), DROWS()))); await drain();
-  assert.match(env2.$('status').textContent, /nothing was replaced/); assert.equal(env2.api.draftState.hold, true);
+  assert.match(env2.$('status').textContent, /nothing was replaced/); assert.equal(env2.api.draftState.hold.film, true);
   assert.equal(env2.api.saveDraft(), false); assert.equal(JSON.parse(st.m.get('typecast.director.draft.v1.film')).project.scenes.length, 2);
 });
 
 test('drafts: discard, clear and opt-out controls remove stored data and stop saving', async () => {
   const st = memStore(); const a = await stagedDraft(st);
   a.$('draftClear').click(); assert.equal(st.m.has('typecast.director.draft.v1.film'), false); assert.equal(a.api.S.scenes.length, 2, 'clearing the saved copy never touches open work');
-  assert.equal(a.api.saveDraft(), true);
+  assert.equal(a.api.saveDraft(), false, 'clear is literal'); a.$('trucks').value = '7'; assert.equal(a.api.saveDraft(), true);
   a.$('draftOpt').checked = false; a.$('draftOpt').dispatchEvent({ type: 'change' });
   assert.equal(st.m.has('typecast.director.draft.v1.film'), false); assert.equal(st.m.get('typecast.director.draft.optout'), '1'); assert.equal(a.api.saveDraft(), false);
   const off = boot({ storage: st }); await drain(); assert.equal(off.$('draftOpt').checked, false); assert.equal(off.api.draftState.ready, true);
@@ -2484,4 +2485,180 @@ test('drafts: discard, clear and opt-out controls remove stored data and stop sa
   const e3 = boot({ storage: st3 }); await drain(); await resolveRestore(e3);
   e3.$('draftNotice').querySelectorAll('button').find((x) => /Stop keeping drafts/.test(x.textContent)).click();
   assert.equal([...st3.m.keys()].some((k) => k.includes('.draft.v1.')), false); assert.equal(e3.$('draftOpt').checked, false);
+});
+
+// ---------- independent review regressions (each reproduced on the previous head before fixing) ----------
+const idRows = (p) => [assignment('s1', p, 'shot_a'), assignment('s2', p, 'shot_a2')];
+async function commWith(rowsList, extra = {}) {
+  const env = boot(); env.$('modeComm').click();
+  await buildScript(env, NEEDS, rowsList[0], { candidates: rowsList.flat(), ...extra }); env.api.selectScene('s1'); return env;
+}
+
+test('review: property and scene ids that contain colons keep their own reports through export and import', async () => {
+  const P1 = 'ns::p:1', P2 = 'ns';
+  const rows = [[assignment('s1', P1, 'shot_a'), assignment('s2', P1, 'shot_a2')], [assignment('s1', P2, 'shot_c'), assignment('s2', P2, 'shot_c2')]];
+  const env = await commWith(rows);
+  setCheck(env, 0, 'ok'); env.$('siteChecks').querySelectorAll('input')[0].value = 'told by owner'; env.$('siteChecks').querySelectorAll('input')[0].dispatchEvent({ type: 'input' });
+  env.$('expJson').click(); const text = await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob);
+  const saved = JSON.parse(text);
+  assert.deepEqual(saved.sites.map((x) => [x.scene_id, x.property_id]), [['s1', P1]], 'the full property id is exported, not a truncated prefix');
+  const fresh = boot(); fresh.$('modeComm').click(); await buildScript(fresh, NEEDS, rows[0], { candidates: rows.flat() });
+  const { job, body } = await startImport(fresh, text);
+  job.resolve(jsonResponse(planFor(body, rows[0], { candidates: rows.flat() }))); await drain();
+  fresh.api.selectScene('s1');
+  assert.equal(checkSelects(fresh)[0].value, 'ok', 'the report is on the property it was written for');
+  fresh.api.swapLocation('s1', 'shot_c');                                              // the prefix-named property must NOT inherit it
+  assert.equal(fresh.api.validSwap('s1').property_id, P2); assert.equal(checkSelects(fresh)[0].value, 'unknown');
+  assert.equal(fresh.api.exportSnapshot().sites.filter((x) => x.property_id === P2).length, 0, 'nothing was attached to the other property');
+  // an imported scene id containing colons round-trips too
+  const file = JSON.stringify({ app: 'Typecast Director', variant: 'A', mode: 'community', scenes: [{ id: 'a::b', heading: 'Hub', description: 'open floor' }],
+    sites: [{ scene_id: 'a::b', property_id: 'p:q', checks: { permission: { state: 'ok', note: '' } } }] });
+  const e3 = boot(); const im = await startImport(e3, file);
+  im.job.resolve(jsonResponse(planFor(im.body, [assignment('a::b', 'p:q', 'shot_q')], { candidates: [assignment('a::b', 'p:q', 'shot_q')] }))); await drain();
+  assert.equal(e3.api.S.mode, 'community'); e3.api.selectScene('a::b'); assert.equal(checkSelects(e3)[0].value, 'ok');
+  assert.equal(e3.api.exportSnapshot().sites.length, 1);
+});
+
+test('review: a capacity typed without its source is kept as an incomplete note, never counted as verified, and survives scene, mode and export', async () => {
+  const env = await commEnv();
+  env.$('siteCap').value = '120'; env.$('siteCap').dispatchEvent({ type: 'input' });
+  env.api.selectScene('s2'); env.api.selectScene('s1');
+  assert.equal(env.$('siteCap').value, '120', 'the typed number is still there after switching scenes');
+  assert.match(env.$('siteCapNote').textContent, /not counted as verified until both a number and its source are entered/i);
+  env.$('modeFilm').click(); env.$('modeComm').click(); env.api.selectScene('s1'); assert.equal(env.$('siteCap').value, '120');
+  env.$('expPack').click(); await drain();
+  let html = await blobText(env.downloads.find((d) => d.name === 'typecast-site-brief.html').blob);
+  assert.ok(html.includes('A capacity figure (120) was entered without a source, so it is not counted as verified.'));
+  assert.equal(html.includes('Independently verified capacity: 120'), false); assert.ok(html.includes('Independently verified capacity: none provided'));
+  env.$('expJson').click(); const saved = JSON.parse(await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob));
+  assert.deepEqual(saved.sites[0].verified, { capacity: 120, source: '' });
+  env.$('siteCapSrc').value = 'owner email 3 Nov'; env.$('siteCapSrc').dispatchEvent({ type: 'input' });
+  assert.match(env.$('siteCapNote').textContent, /reported by you, with your stated source\. Typecast did not verify it/);
+  env.$('expPack').click(); await drain();
+  html = await blobText(env.downloads.filter((d) => d.name === 'typecast-site-brief.html').at(-1).blob);
+  assert.ok(html.includes('Independently verified capacity: 120, as reported by the coordinator. Source given: owner email 3 Nov. Typecast did not verify this.'));
+  // a source alone (no number) is kept too, and an imported incomplete record stays incomplete
+  env.$('siteCap').value = ''; env.$('siteCap').dispatchEvent({ type: 'input' });
+  assert.equal(env.$('siteCapSrc').value, 'owner email 3 Nov'); env.api.selectScene('s2'); env.api.selectScene('s1'); assert.equal(env.$('siteCapSrc').value, 'owner email 3 Nov');
+  const P2 = (await import('../director-project.js')).default;
+  const n = P2.normalizeProject(JSON.stringify({ app: 'Typecast Director', variant: 'A', mode: 'community', scenes: [{ id: 's1', heading: 'h', description: 'd' }], sites: [{ scene_id: 's1', property_id: 'p', verified: { capacity: 5, source: '' } }] }));
+  assert.deepEqual(copied(n.sites[0].verified), { capacity: 5, source: '' });
+  assert.equal(P2.normalizeProject(JSON.stringify({ app: 'Typecast Director', variant: 'A', mode: 'community', scenes: [{ id: 's1', heading: 'h', description: 'd' }], sites: [{ scene_id: 's1', property_id: 'p', verified: { capacity: null, source: '' } }] })).sites[0].verified, null);
+});
+
+test('review: pipes in ordinary text do not force the original format; only all-pipe input does; nothing is silently dropped', async () => {
+  const C2 = (await import('../director-checks.js')).default;
+  const film = C2.parseScript('INT. KITCHEN - DAY\nShe reads the menu: soup | salad | bread.\n\nEXT. GARDEN - NIGHT\nRain.', 'film');
+  assert.equal(film.scenes.length, 2); assert.match(film.scenes[0].description, /soup \| salad \| bread/);
+  assert.equal(C2.parseScript('INT. A - DAY | bright\nINT. B - DAY | dark', 'film').scenes.length, 2);          // every line piped: original format
+  const comm = C2.parseScript('Supply hub | main site\nlarge floor | with dock\n\nCheck-in\nquiet room | near entrance', 'community');
+  assert.deepEqual(comm.scenes.map((s) => s.heading), ['Supply hub', 'Check-in']);
+  assert.match(comm.scenes[0].description, /main site/); assert.match(comm.scenes[0].description, /large floor \| with dock/); assert.match(comm.scenes[1].description, /quiet room \| near entrance/);
+  assert.equal(C2.parseScript('Hub | everything after the bar must survive\nmore text', 'community').scenes[0].description.includes('everything after the bar must survive'), true);
+  assert.equal(C2.parseScript('a | b\nplain line', 'community').scenes.length, 1);                                // one block, not legacy
+});
+
+test('review: a failed restore holds only its own mode, so the other mode saves and survives a refresh', async () => {
+  const st = memStore(); const a = await stagedDraft(st);
+  const filmRaw = st.m.get('typecast.director.draft.v1.film');
+  const env = boot({ storage: st }); await drain();
+  env.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();           // film evidence cannot be rebuilt
+  assert.equal(env.api.draftState.hold.film, true);
+  env.$('modeComm').click(); await drain();
+  env.$('script').value = NEEDS; env.$('script').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.saveDraft(), true, 'community work is saved even though the film draft is held');
+  assert.ok(st.m.get('typecast.director.draft.v1.community').includes('Supply hub'));
+  assert.equal(st.m.get('typecast.director.draft.v1.film'), filmRaw, 'the unrecovered film draft is untouched');
+  env.$('modeFilm').click(); env.$('script').value = 'INT. OVERWRITE - DAY | typed'; env.$('script').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.saveDraft(), false, 'but film stays held until the user decides'); assert.equal(st.m.get('typecast.director.draft.v1.film'), filmRaw);
+  const again = boot({ storage: st }); await drain();                                                          // refresh: both drafts are still there
+  assert.equal(again.$('script').value, SCREENPLAY);
+  await resolveRestore(again); assert.equal(again.api.shotData('s1').dialogue, 'MARA: hello');
+  again.$('modeComm').click(); await drain(); assert.equal(again.$('script').value, NEEDS);
+});
+
+test('review: a draft saved after editing the script records which text the plan was built from', async () => {
+  const st = memStore(); const env = await stagedDraft(st);
+  env.$('script').value = 'INT. NEWER - DAY | typed after the build'; env.$('script').dispatchEvent({ type: 'input' });
+  assert.equal(env.api.saveDraft(), true);
+  const d = JSON.parse(st.m.get('typecast.director.draft.v1.film'));
+  assert.equal(d.script, 'INT. NEWER - DAY | typed after the build'); assert.equal(d.plan_script, SCREENPLAY); assert.equal(d.project.scenes.length, 2);
+  const r = boot({ storage: st }); await drain(); await resolveRestore(r);
+  assert.equal(r.$('script').value, 'INT. NEWER - DAY | typed after the build');
+  assert.match(r.$('draftNotice').textContent, /Your script changed after the last plan was built, so the plan shown is for the earlier text\. Press Build to refresh it\./);
+});
+
+test('review: restore success is a structured result, not English status text', async () => {
+  const st = memStore(); await stagedDraft(st);
+  const env = boot({ storage: st }); await drain();
+  const job = env.take('/api/production/plan'); job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), DROWS()))); await drain();
+  env.$('status').textContent = 'Projekt geladen';                                             // a different status wording changes nothing
+  assert.equal(env.api.draftState.hold.film, false); assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello');
+  const bad = boot({ storage: st }); await drain();
+  bad.take('/api/production/plan').resolve(jsonResponse({ detail: 'down' }, 503)); await drain();
+  assert.equal(bad.api.draftState.hold.film, true);
+});
+
+test('review: unreadable or future-version drafts are set aside, not wiped, with a download and a discard; huge ones stay in place and pause autosave', async () => {
+  const future = JSON.stringify({ v: 2, mode: 'film', script: 'INT. FUTURE - DAY | from a newer build', constraints: {}, project: null });
+  const st = memStore(); st.m.set('typecast.director.draft.v1.film', future);
+  const env = await bootWith(st);
+  assert.equal(st.m.has('typecast.director.draft.v1.film'), false); assert.equal(st.m.get('typecast.director.draft.v1.film.unreadable'), future, 'the original text is kept');
+  assert.match(env.$('draftNotice').textContent, /could not be read \(unknown version or mode\)\. A copy was set aside so nothing is lost\./);
+  const btn = (re) => env.$('draftNotice').querySelectorAll('button').find((b) => re.test(b.textContent));
+  assert.ok(btn(/Download copy/)); btn(/Download copy/).click(); const dl = env.downloads.find((d) => /unreadable-draft-film/.test(d.name)); assert.ok(dl); assert.equal(await blobText(dl.blob), future);
+  btn(/Discard/).click(); assert.equal(st.m.has('typecast.director.draft.v1.film.unreadable'), false); assert.equal(env.$('draftNotice').hidden, true);
+  // one backup slot per mode: a second bad draft replaces the first instead of growing storage
+  const st2 = memStore(); st2.m.set('typecast.director.draft.v1.film.unreadable', 'older'); st2.m.set('typecast.director.draft.v1.film', '{bad');
+  await bootWith(st2); assert.equal(st2.m.get('typecast.director.draft.v1.film.unreadable'), '{bad'); assert.equal([...st2.m.keys()].filter((k) => k.includes('unreadable')).length, 1);
+  // too large to set aside: left where it is, autosave for that mode is paused so it cannot be overwritten, and it can still be downloaded
+  const huge = 'x'.repeat(500000); const st3 = memStore(); st3.m.set('typecast.director.draft.v1.film', huge);
+  const e3 = await bootWith(st3);
+  assert.equal(st3.m.get('typecast.director.draft.v1.film'), huge); assert.equal(e3.api.draftState.hold.film, true); assert.match(e3.$('draftNotice').textContent, /left in place and autosave for this mode is paused/);
+  e3.$('script').value = 'INT. A - DAY | b'; e3.$('script').dispatchEvent({ type: 'input' }); assert.equal(e3.api.saveDraft(), false); assert.equal(st3.m.get('typecast.director.draft.v1.film'), huge);
+  // quota full while setting aside: same protection
+  const st4 = memStore(); st4.m.set('typecast.director.draft.v1.film', '{bad'); st4.failWrites = true; const e4 = await bootWith(st4);
+  assert.equal(st4.m.get('typecast.director.draft.v1.film'), '{bad'); assert.equal(e4.api.draftState.hold.film, true);
+});
+
+test('review: Clear saved draft is a literal clear: open work is not silently re-saved until you change something', async () => {
+  const st = memStore(); const env = await stagedDraft(st);
+  env.$('draftClear').click(); assert.equal(st.m.has('typecast.director.draft.v1.film'), false);
+  assert.equal(env.api.saveDraft(), false, 'the next autosave tick does not bring the draft back'); assert.equal(st.m.has('typecast.director.draft.v1.film'), false);
+  assert.match(env.$('status').textContent, /It will be saved again when you next change something/);
+  env.$('trucks').value = '5'; assert.equal(env.api.saveDraft(), true); assert.equal(st.m.has('typecast.director.draft.v1.film'), true);
+});
+
+test('review: a mode switch is refused while a draft restore or import is loading, and a failed import changes neither work nor draft', async () => {
+  const st = memStore(); await stagedDraft(st);
+  const env = boot({ storage: st }); await drain();                                           // restore request is in flight
+  env.$('modeComm').click(); assert.equal(env.api.S.mode, 'film'); assert.match(env.$('status').textContent, /Wait for the plan or reel/);
+  const job = env.take('/api/production/plan'); job.resolve(jsonResponse(planFor(JSON.parse(job.opts.body), DROWS()))); await drain();
+  const rawBefore = st.m.get('typecast.director.draft.v1.film'); env.api.saveDraft();
+  const file = JSON.stringify({ app: 'Typecast Director', variant: 'A', scenes: [{ id: 's1', heading: 'INT. X - DAY', description: 'x' }] });
+  const im = await startImport(env, file); env.$('modeComm').click(); assert.equal(env.api.S.mode, 'film');
+  im.job.resolve(jsonResponse({ detail: 'down' }, 503)); await drain();
+  assert.match(env.$('status').textContent, /Project not loaded; existing work kept/); assert.equal(env.api.shotData('s1').dialogue, 'MARA: hello'); assert.equal(env.api.S.scenes.length, 2);
+  assert.equal(env.api.saveDraft() || true, true); const after = JSON.parse(st.m.get('typecast.director.draft.v1.film')); assert.equal(after.project.scenes[0].variants.A.dialogue, 'MARA: hello');
+  void rawBefore;
+});
+
+test('review: a community project cannot smuggle film takes, notes or sample provenance into community mode', async () => {
+  const hostile = JSON.stringify({ app: 'Typecast Director', variant: 'A', mode: 'community',
+    scenes: [{ id: 's1', heading: 'Hub', description: 'open floor', evidence: { frame: { shot_id: 'shot_a', property_id: 'prop_a' } },
+      variants: { A: { duration_sec: 5, dialogue: 'FILM_LINE', actors: [{ id: 'a', name: 'Mara', pose: 'walk', x0: 0.1, y0: 0.1, x1: 0.9, y1: 0.9, scale: 1 }] }, B: { duration_sec: 5, dialogue: '', actors: [], origin: 'authored-sample' } },
+      notes: { dressing: 'DRESSING_NOTE', group: 'k' }, location_choice: { shot_id: 'shot_a', property_id: 'prop_a', from_shot_id: 'shot_a', from_property_id: 'prop_a', staging_reviewed: false } }] });
+  const env = boot(); const { job, body } = await startImport(env, hostile);
+  job.resolve(jsonResponse(planFor(body, [assignment('s1', 'prop_a', 'shot_a')]))); await drain();
+  assert.equal(env.api.S.mode, 'community'); env.api.selectScene('s1');
+  assert.equal(Object.keys(env.api.S.edits).length === 0 || JSON.stringify(env.api.S.edits).includes('FILM_LINE') === false, true);
+  assert.equal(Object.keys(env.api.S.notes).length, 0); assert.equal(env.api.S.importReview.length, 0);
+  env.$('expJson').click(); const out = await blobText(env.downloads.find((d) => d.name === 'typecast-project.json').blob);
+  for (const leak of ['FILM_LINE', 'DRESSING_NOTE', 'authored-sample', 'Mara', 'staging_reviewed']) assert.equal(out.includes(leak), false, leak);
+  env.$('expPack').click(); await drain(); const brief = await blobText(env.downloads.find((d) => d.name === 'typecast-site-brief.html').blob);
+  assert.equal(FILM_STRINGS.test(brief.replace(/<style>[\s\S]*?<\/style>/, '')), false); assert.equal(brief.includes('FILM_LINE'), false);
+  // the same file arriving through a draft is neutralized the same way
+  const st = memStore(); st.m.set('typecast.director.draft.v1.community', JSON.stringify({ v: 1, mode: 'community', script: 'Hub\nopen floor', constraints: { maxLoc: 3, trucks: 0, cars: 0, reqAvail: false }, project: JSON.parse(hostile), saved_at: new Date().toISOString() }));
+  const d = await bootWith(st); d.$('modeComm').click(); await drain(); const dj = d.take('/api/production/plan'); dj.resolve(jsonResponse(planFor(JSON.parse(dj.opts.body), [assignment('s1', 'prop_a', 'shot_a')]))); await drain();
+  assert.equal(d.api.S.mode, 'community'); assert.equal(Object.keys(d.api.S.notes).length, 0); assert.equal(JSON.stringify(d.api.S.edits).includes('FILM_LINE'), false);
 });

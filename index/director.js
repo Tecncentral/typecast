@@ -12,7 +12,7 @@ const DEMO = [
   'INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.',
   'INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.',
 ].join('\n');
-const S = { mode: 'film', comm: Object.create(null), brief: { reviewer: '', date: '', notes: '' }, swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
+const S = { mode: 'film', builtScript: '', comm: Object.create(null), brief: { reviewer: '', date: '', notes: '' }, swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
@@ -167,7 +167,7 @@ async function build(reuse) {
   const prev = assignMap();
   // What this request was built from. If any of it changes while the answer is in flight, the answer is for older inputs.
   const sig = () => JSON.stringify([reuse ? null : $('script').value, constraints(), [...S.forbidden]]);
-  const sent = sig();
+  const sent = sig(), scriptSent = $('script').value;
   busy(true); status('Requesting production plan from backend…');
   try {
     const data = await api('/api/production/plan', body);
@@ -175,7 +175,7 @@ async function build(reuse) {
     if (sig() !== sent) return status('That plan was built for your earlier script, constraints or rejections, which changed while it loaded. Nothing was replaced and your work is kept. Press Build plan again.', true);
     applyForbidden(data);
     orderPlans(data);
-    S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {}; S.swaps = Object.create(null); S.swapUndo = null; S.built = { trucks: body.trucks, cars: body.cars, require_available: body.require_available };
+    S.scenes = scenes; S.resp = data; S.planIdx = 0; S.frameOverrides = {}; S.builtScript = reuse ? S.builtScript : scriptSent; S.swaps = Object.create(null); S.swapUndo = null; S.built = { trucks: body.trucks, cars: body.cars, require_available: body.require_available };
     if (!scenes.some((s) => s.id === S.sceneId)) { S.sceneId = scenes[0].id; S.actorIdx = 0; }
     noteFrameChanges(prev); renderAll();
     if (data.plans.length) status(`${modeNote(data)}${data.plans.length} candidate plan(s) returned. ${T('Candidates are not verified shootability.', 'Candidates are not verified, approved or available sites.')}`, data.mode === 'mock');
@@ -1064,8 +1064,8 @@ const constraints = () => ({ max_locations: Math.floor(clamp($('maxLoc').value, 
   trucks: Math.floor(clamp($('trucks').value, 0, 20, 0)), cars: Math.floor(clamp($('cars').value, 0, 50, 0)) });
 async function importProject(file) {
   $('impProject').value = '';
-  if (!file) return;
-  if (S.planBusy) return status('Wait for the current plan or project import to finish.', true);
+  if (!file) return false;
+  if (S.planBusy) { status('Wait for the current plan or project import to finish.', true); return false; }
   // Claim the operation and snapshot the user's state before the first await, so nothing
   // typed during a slow file read or evidence request can be overwritten.
   busy(true);
@@ -1092,6 +1092,9 @@ async function importProject(file) {
     if (JSON.stringify(constraints()) !== JSON.stringify(limits))
       throw new Error('location or vehicle constraints changed while evidence was loading, so the result would not match the visible controls. Import again');
     const restored = TypecastProject.restoreEdits(project, data);
+    if (target === 'community') {                                          // community plans carry no film takes, notes, sample provenance or staging reviews
+      restored.edits = {}; restored.notes = Object.create(null); restored.reviewNeeded = []; restored.swaps = Object.create(null); restored.transfers = Object.create(null);
+    }
     // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
     Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
       edits: restored.edits, frameOverrides: restored.frameOverrides, importReview: restored.reviewNeeded,
@@ -1101,12 +1104,14 @@ async function importProject(file) {
     $('script').value = scenes.map((scene) => `${scene.heading} | ${scene.description}`.replace(/[\r\n]+/g, ' ')).join('\n');
     $('varA').setAttribute('aria-pressed', String(S.variant === 'A'));
     $('varB').setAttribute('aria-pressed', String(S.variant === 'B'));
+    S.builtScript = $('script').value;
     if (project.mode === 'community') communityRestore(restored);
     renderAll(); renderBriefFields();
     status(project.mode === 'community'
       ? `${modeNote(data)}Project loaded with fresh evidence. ${restored.sites.length} saved site record(s) restored. Coordinator checks marked OK need re-verifying; nothing here approves a site.`
       : `${modeNote(data)}Project loaded with fresh evidence. ${restored.restored} scene draft(s) restored to exact saved frames; ${restored.reviewNeeded.length} retained for review.`, project.mode !== 'community' && !!restored.reviewNeeded.length);
-  } catch (e) { status(`Project not loaded; existing work kept: ${e.message}`, true); }
+    return true;
+  } catch (e) { status(`Project not loaded; existing work kept: ${e.message}`, true); return false; }
   finally { busy(false); }
 }
 $('impProject').addEventListener('change', (event) => importProject(event.target.files[0]));
@@ -1257,10 +1262,10 @@ const COMM_DEMO = [
   'Volunteer check-in and briefing', 'A quiet room for about 30 volunteers to check in and be briefed, an accessible entrance and restrooms nearby.', '',
   'Cold storage and staging', 'Floor area for pallets and a vehicle bay for refrigerated trucks, no more than 600 m2.',
 ].join('\n');
-const MODE_KEYS = ['scenes', 'resp', 'planIdx', 'sceneId', 'variant', 'forbidden', 'edits', 'frameChange', 'frameOverrides', 'importReview', 'actorIdx',
+const MODE_KEYS = ['builtScript', 'scenes', 'resp', 'planIdx', 'sceneId', 'variant', 'forbidden', 'edits', 'frameChange', 'frameOverrides', 'importReview', 'actorIdx',
   'undo', 'swaps', 'transfer', 'alt', 'swapUndo', 'notes', 'built', 'compare', 'comm', 'brief'];
 function freshMode(m) {
-  return { scenes: [], resp: null, planIdx: 0, sceneId: null, variant: 'A', forbidden: [], edits: {}, frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0,
+  return { builtScript: '', scenes: [], resp: null, planIdx: 0, sceneId: null, variant: 'A', forbidden: [], edits: {}, frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0,
     undo: null, swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false,
     comm: Object.create(null), brief: { reviewer: '', date: '', notes: '' },
     inputs: { script: m === 'film' ? DEMO : '', maxLoc: '3', trucks: '0', cars: '0', reqAvail: false } };
@@ -1318,7 +1323,10 @@ $('modeComm').addEventListener('click', () => setMode('community'));
 
 // ---- community records: needs belong to a need, checks belong to one candidate site ----
 const needRec = (sid) => (S.comm[`need:${sid}`] ||= { requested: null, note: '' });
-const siteRec = (sid, pid) => (S.comm[`site:${sid}::${pid}`] ||= { checks: Object.create(null), verified: null, tasks: [] });
+// Scene and property ids never contain '|', so the first bar splits a site key without ambiguity (ids may contain colons).
+const siteKey = (sid, pid) => `site:${sid}|${pid}`;
+const parseSiteKey = (key) => { const bar = key.indexOf('|'); return bar < 0 ? null : { sid: key.slice(5, bar), pid: key.slice(bar + 1) }; };
+const siteRec = (sid, pid) => (S.comm[siteKey(sid, pid)] ||= { checks: Object.create(null), verified: null, tasks: [] });
 const curSite = () => { const a = S.mode === 'community' && S.sceneId ? assignFor(S.sceneId) : null; return a ? { sid: S.sceneId, pid: a.property_id } : null; };
 function siteChecksSummary(rec) { return TypecastChecks.communityStatusText(rec); }
 function renderSite() {
@@ -1334,7 +1342,8 @@ function renderSite() {
   for (const id of inputs) $(id).disabled = false;
   const need = needRec(cs.sid), rec = siteRec(cs.sid, cs.pid);
   $('siteReq').value = need.requested == null ? '' : String(need.requested); $('siteNote').value = need.note;
-  $('siteCap').value = rec.verified ? String(rec.verified.capacity) : ''; $('siteCapSrc').value = rec.verified ? rec.verified.source : '';
+  $('siteCap').value = rec.verified && rec.verified.capacity != null ? String(rec.verified.capacity) : ''; $('siteCapSrc').value = rec.verified ? rec.verified.source : '';
+  renderCapNote(rec);
   const rows = TypecastChecks.COMMUNITY_CHECKS.map((c) => {
     const cur = rec.checks[c.key] || { state: 'unknown', note: '' };
     const sel = el('select', { id: `chk-${c.key}`, 'aria-label': `${c.label}: status` });
@@ -1369,10 +1378,18 @@ function renderTasks(cs, rec) {
 $('taskAdd').addEventListener('click', () => { const cs = curSite(); if (!cs) return; const rec = siteRec(cs.sid, cs.pid); if (rec.tasks.length >= 6) return; S.rev++; rec.tasks.push({ text: '', owner: '' }); renderTasks(cs, rec); });
 $('siteReq').addEventListener('input', (e) => { const cs = curSite(); if (!cs) return; S.rev++; needRec(cs.sid).requested = TypecastChecks.countOf(e.target.value); });
 $('siteNote').addEventListener('input', (e) => { const cs = curSite(); if (!cs) return; S.rev++; needRec(cs.sid).note = TypecastChecks.textOf(e.target.value, 600); });
+const capComplete = (v) => !!v && v.capacity != null && !!v.source;
+function renderCapNote(rec) {
+  const v = rec.verified;
+  $('siteCapNote').textContent = capComplete(v) ? 'Counted as a capacity reported by you, with your stated source. Typecast did not verify it.'
+    : v ? 'Kept as your note, but not counted as verified until both a number and its source are entered.'
+    : 'Shown beside the request in the brief. Typecast never calculates capacity from floor area, photos, listings or parking.';
+}
 function setVerified() {
   const cs = curSite(); if (!cs) return; S.rev++;
-  const cap = TypecastChecks.countOf($('siteCap').value), src = TypecastChecks.textOf($('siteCapSrc').value, 80);
-  siteRec(cs.sid, cs.pid).verified = cap != null && src ? { capacity: cap, source: src } : null;       // a number without its source is not kept
+  const cap = TypecastChecks.countOf($('siteCap').value), src = TypecastChecks.textOf($('siteCapSrc').value, 80), rec = siteRec(cs.sid, cs.pid);
+  rec.verified = cap == null && !src ? null : { capacity: cap, source: src };       // incomplete input is kept, and only a complete pair counts as verified
+  renderCapNote(rec);
 }
 $('siteCap').addEventListener('input', setVerified); $('siteCapSrc').addEventListener('input', setVerified);
 function renderBriefFields() {
@@ -1391,12 +1408,13 @@ function communityExport() {
   }
   for (const key of Object.keys(S.comm)) {
     if (!key.startsWith('site:')) continue;
-    const [sid, pid] = key.slice(5).split('::'), r = S.comm[key];
-    if (!S.scenes.some((s) => s.id === sid) || !pid || sites.length >= 48) continue;
+    const k = parseSiteKey(key), r = S.comm[key];
+    if (!k || !S.scenes.some((s) => s.id === k.sid) || !k.pid || sites.length >= 48) continue;
+    const sid = k.sid, pid = k.pid;
     const checks = {};
     for (const c of TypecastChecks.COMMUNITY_CHECKS) { const x = r.checks[c.key]; if (x && TypecastChecks.isState(x.state) && (x.state !== 'unknown' || x.note)) checks[c.key] = { state: x.state, note: TypecastChecks.textOf(x.note, 200) }; }
     const tasks = r.tasks.filter((t) => t.text).slice(0, 6).map((t) => ({ text: t.text, owner: t.owner || '' }));
-    if (Object.keys(checks).length || r.verified || tasks.length) sites.push({ scene_id: sid, property_id: safeId(pid), checks, verified: r.verified ? { capacity: r.verified.capacity, source: r.verified.source } : null, tasks });
+    if (Object.keys(checks).length || r.verified || tasks.length) sites.push({ scene_id: sid, property_id: pid, checks, verified: r.verified ? { capacity: r.verified.capacity, source: r.verified.source } : null, tasks });
   }
   return { mode: 'community', brief: { reviewer: S.brief.reviewer, date: S.brief.date, notes: S.brief.notes }, needs, sites };
 }
@@ -1406,19 +1424,19 @@ function communityRestore(restored) {
   for (const x of restored.sites) {
     const r = siteRec(x.scene_id, x.property_id);
     for (const [k, c] of Object.entries(x.checks)) r.checks[k] = { state: c.state, note: c.note, stale: c.state === 'ok' };      // restored "OK" must be re-verified
-    r.verified = x.verified ? { ...x.verified } : null; r.tasks = x.tasks.map((t) => ({ ...t }));
+    r.verified = x.verified ? { capacity: x.verified.capacity, source: x.verified.source } : null; r.tasks = x.tasks.map((t) => ({ ...t }));
   }
 }
 const orphanSites = () => Object.keys(S.comm).filter((k) => {
   if (!k.startsWith('site:')) return false;
-  const [sid, pid] = k.slice(5).split('::'), sc = S.resp?.scenes?.find((s) => s.id === sid);
-  return !sc || !(sc.candidates || []).some((c) => c.shot?.property_id === pid);
+  const p = parseSiteKey(k), sc = p && S.resp?.scenes?.find((s) => s.id === p.sid);
+  return !sc || !(sc.candidates || []).some((c) => c.shot?.property_id === p.pid);
 }).length;
 
 // ---- Site Brief: the printable export for community mode ----
 function briefModel(s, i) {
   const a = assignFor(s.id); if (!a) return { s, i, a: null };
-  const need = S.comm[`need:${s.id}`] || { requested: null, note: '' }, rec = S.comm[`site:${s.id}::${a.property_id}`] || { checks: {}, verified: null, tasks: [] };
+  const need = S.comm[`need:${s.id}`] || { requested: null, note: '' }, rec = S.comm[siteKey(s.id, a.property_id)] || { checks: {}, verified: null, tasks: [] };
   const fit = fitFor(s.id), counts = TypecastChecks.communityCounts(rec), summary = evidenceSummary(s.id);
   const cand = (S.resp?.scenes?.find((x) => x.id === s.id)?.candidates || []);
   const alts = altChoices(s.id).map((c) => ({ pid: safeId(c.shot.property_id), sim: typeof c.shot.score === 'number' ? c.shot.score.toFixed(2) : 'unknown',
@@ -1465,7 +1483,8 @@ async function exportBrief() {
       const sheet = E('div', null, 'sheet');
       sheet.append(E('h3', 'Requested count and capacity'),
         E('p', `Requested: ${m.need.requested == null ? 'not entered' : m.need.requested} participants or volunteers (a request).`),
-        E('p', m.rec.verified ? `Independently verified capacity: ${m.rec.verified.capacity}, as reported by the coordinator. Source given: ${m.rec.verified.source}. Typecast did not verify this.` : 'Independently verified capacity: none provided. Typecast does not calculate capacity from floor area, photos, listings or parking.'),
+        E('p', capComplete(m.rec.verified) ? `Independently verified capacity: ${m.rec.verified.capacity}, as reported by the coordinator. Source given: ${m.rec.verified.source}. Typecast did not verify this.` : 'Independently verified capacity: none provided. Typecast does not calculate capacity from floor area, photos, listings or parking.'),
+        ...(m.rec.verified && !capComplete(m.rec.verified) ? [E('p', m.rec.verified.capacity != null ? `A capacity figure (${m.rec.verified.capacity}) was entered without a source, so it is not counted as verified.` : 'A capacity source note was entered without a number, so no capacity is recorded.', 'unk')] : []),
         E('h4', 'Fit evidence (sources, not a score; only simple wording in your needs is read)'), ul(m.fit.rows.map((r) => `${TypecastChecks.KIND_LABEL[r.kind]}: ${r.label}. ${r.detail}${r.source ? ` Source: ${r.source}.` : ''}`)),
         E('h4', 'Coordinator checks (reported by the coordinator, not verified by Typecast)'),
         ul(TypecastChecks.COMMUNITY_CHECKS.map((c) => { const x = m.rec.checks[c.key] || { state: 'unknown', note: '' }; return `${c.label}: ${TypecastChecks.CHECK_STATE_LABEL[x.state]}${x.state === 'ok' && x.stale ? ' (restored from a file; re-verify)' : ''}${x.note ? ` — ${x.note}` : ''}`; })),
@@ -1489,7 +1508,8 @@ async function exportBrief() {
 // review drafts. Autosave is held while a saved draft is not reflected on screen, so it cannot overwrite a good draft.
 const DRAFT_V = 1, DRAFT_MAX = 300000, DRAFT_OPT = 'typecast.director.draft.optout';
 const draftKey = (m) => `typecast.director.draft.v${DRAFT_V}.${m}`;
-const draftState = { ready: false, hold: false, last: '', failed: false, unavailable: false };
+const draftState = { ready: false, hold: { film: false, community: false }, last: '', failed: false, unavailable: false };
+const unreadKey = (m) => `${draftKey(m)}.unreadable`, UNREAD_MAX = 400000;
 function lstore() { try { return window.localStorage || null; } catch { return null; } }
 function lget(k) { try { return lstore()?.getItem(k) ?? null; } catch { return null; } }
 function ldel(k) { try { lstore()?.removeItem(k); } catch { /* storage may be blocked */ } }
@@ -1500,6 +1520,7 @@ function draftEnvelope() {
   const c = constraints();
   return { v: DRAFT_V, mode: S.mode, script: $('script').value.slice(0, TypecastChecks.LIMITS.chars),
     constraints: { maxLoc: c.max_locations, trucks: c.trucks, cars: c.cars, reqAvail: c.require_available },
+    plan_script: S.resp && S.scenes.length ? S.builtScript : null,
     project: S.resp && S.scenes.length ? draftProject() : null };
 }
 // The saved project keeps only what is needed to rebuild: scene text, takes, notes, reports and frame identifiers. Source facts are re-fetched.
@@ -1510,7 +1531,7 @@ function draftProject() {
       variants, ...(location_choice ? { location_choice } : {}), ...(notes ? { notes } : {}) })) };
 }
 function saveDraft() {
-  if (!draftState.ready || draftState.hold || S.planBusy || !draftOn()) return false;
+  if (!draftState.ready || draftState.hold[S.mode] || S.planBusy || !draftOn()) return false;
   const env = draftEnvelope();
   if (!env) return false;
   const body = JSON.stringify(env);
@@ -1530,16 +1551,26 @@ function showDraftNotice(msg, buttons = []) {
   n.append(el('p', { text: msg }), el('div', { class: 'row' }, ...buttons)); n.hidden = false;
 }
 function draftButton(text, fn, primary) { const b = el('button', { type: 'button', text, ...(primary ? { class: 'primary' } : {}) }); b.addEventListener('click', fn); return b; }
-function discardDraft(m = S.mode) { ldel(draftKey(m)); draftState.hold = false; draftState.last = ''; }
+function discardDraft(m = S.mode) { ldel(draftKey(m)); ldel(unreadKey(m)); draftState.hold[m] = false; draftState.last = ''; }
 function readDraft(m) {
   const raw = lget(draftKey(m));
   if (raw == null) return null;
-  const bad = (why) => { ldel(draftKey(m)); showDraftNotice(`A saved local draft was unreadable (${why}) and was discarded. Nothing else was changed.`, [draftButton('Dismiss', () => showDraftNotice(''))]); return null; };
+  // Unreadable or newer-version drafts are never wiped: one bounded copy is set aside (per mode) with download and discard buttons.
+  const bad = (why) => {
+    let kept = false;
+    if (typeof raw === 'string' && raw.length <= UNREAD_MAX) { try { lstore().setItem(unreadKey(m), raw); kept = true; } catch { kept = false; } }
+    if (kept) ldel(draftKey(m)); else draftState.hold[m] = true;            // could not set it aside: leave it and pause autosave so it is not overwritten
+    const copy = () => { const t = lget(kept ? unreadKey(m) : draftKey(m)); if (t != null) download(new Blob([t], { type: 'text/plain' }), `typecast-unreadable-draft-${m}.txt`); };
+    showDraftNotice(`A saved local draft could not be read (${why}). ${kept ? 'A copy was set aside so nothing is lost.' : 'It was left in place and autosave for this mode is paused so it is not overwritten.'} Nothing else was changed.`,
+      [draftButton('Download copy', copy), draftButton('Discard it', () => { ldel(unreadKey(m)); ldel(draftKey(m)); draftState.hold[m] = false; showDraftNotice(''); status('The unreadable draft was discarded.'); })]);
+    return null;
+  };
   if (typeof raw !== 'string' || raw.length > DRAFT_MAX * 1.2) return bad('too large');
   let d; try { d = JSON.parse(raw); } catch { return bad('not valid data'); }
   if (!d || typeof d !== 'object' || Array.isArray(d) || d.v !== DRAFT_V || d.mode !== m) return bad('unknown version or mode');
   if (typeof d.script !== 'string' || d.script.length > TypecastChecks.LIMITS.chars) return bad('bad script');
   const c = d.constraints; if (!c || typeof c !== 'object') return bad('bad constraints');
+  if (d.plan_script != null && (typeof d.plan_script !== 'string' || d.plan_script.length > TypecastChecks.LIMITS.chars)) return bad('bad plan text');
   let projectText = null;
   if (d.project != null) {
     try { projectText = JSON.stringify(d.project); const p = TypecastProject.normalizeProject(projectText); if ((p.mode || 'film') !== m) throw new Error('mode'); } catch { return bad('invalid project'); }
@@ -1550,21 +1581,22 @@ async function restoreDraft(m = S.mode) {
   if (!lstore() || !draftOn()) return false;
   const r = readDraft(m);
   if (!r) return false;
-  draftState.hold = true;                                                 // a saved draft exists that the screen does not reflect yet
+  draftState.hold[m] = true;                                              // a saved draft exists that the screen does not reflect yet
   const c = r.d.constraints, clampN = (v, lo, hi, d0) => { const n = Math.floor(Number(v)); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d0; };
   $('script').value = r.d.script; $('maxLoc').value = String(clampN(c.maxLoc, 1, 4, 3)); $('trucks').value = String(clampN(c.trucks, 0, 20, 0));
   $('cars').value = String(clampN(c.cars, 0, 50, 0)); $('reqAvail').checked = c.reqAvail === true; renderParse();
   const when = r.savedAt ? ` from ${new Date(r.savedAt).toLocaleString()}` : '';
   const buttons = (retry) => [...(retry ? [draftButton('Retry rebuilding evidence', () => restoreDraft(m), true)] : []),
     draftButton('Discard this draft', () => { discardDraft(m); if (S.mode === m) { applyModeState(freshMode(m)); applyModeUI(); renderAll(); renderParse(); } showDraftNotice(''); status('Local draft discarded.'); }),
-    draftButton('Stop keeping drafts', () => { try { lstore().setItem(DRAFT_OPT, '1'); } catch { /* ignore */ } ldel(draftKey('film')); ldel(draftKey('community')); draftState.hold = false; $('draftOpt').checked = false; showDraftNotice(''); status('Local drafts are off and saved drafts were removed.'); })];
-  if (!r.projectText) { draftState.hold = false; showDraftNotice(`Restored your local draft${when} (this browser only): your text and settings. No plan had been built.`, buttons(false)); return true; }
+    draftButton('Stop keeping drafts', () => { try { lstore().setItem(DRAFT_OPT, '1'); } catch { /* ignore */ } for (const x of ['film', 'community']) { ldel(draftKey(x)); ldel(unreadKey(x)); draftState.hold[x] = false; } $('draftOpt').checked = false; showDraftNotice(''); status('Local drafts are off and saved drafts were removed.'); })];
+  if (!r.projectText) { draftState.hold[m] = false; showDraftNotice(`Restored your local draft${when} (this browser only): your text and settings. No plan had been built.`, buttons(false)); return true; }
   const file = { size: r.projectText.length, text: async () => r.projectText };
-  await importProject(file);
-  const ok = !!S.resp && S.scenes.length > 0 && /Project loaded with fresh evidence/.test($('status').textContent);
+  const ok = await importProject(file);                                    // a structured result, not a status string
   if (ok) {
     $('script').value = r.d.script; renderParse();                      // keep exactly what was typed, not the re-joined scene lines
-    draftState.hold = false; draftState.last = ''; showDraftNotice(`Restored your local draft${when} (this browser only). Evidence was rebuilt from the current data; frames that no longer match are kept for review, and anything you marked OK still needs re-verifying.`, buttons(false));
+    S.builtScript = typeof r.d.plan_script === 'string' ? r.d.plan_script : r.d.script;
+    const changed = typeof r.d.plan_script === 'string' && r.d.plan_script !== r.d.script;
+    draftState.hold[m] = false; draftState.last = ''; showDraftNotice(`Restored your local draft${when} (this browser only). Evidence was rebuilt from the current data; frames that no longer match are kept for review, and anything you marked OK still needs re-verifying.${changed ? ' Your script changed after the last plan was built, so the plan shown is for the earlier text. Press Build to refresh it.' : ''}`, buttons(false));
   } else showDraftNotice(`Restored the text of your local draft${when}, but its plan could not be rebuilt yet. The saved draft is kept and autosave is paused so it cannot be overwritten.`, buttons(true));
   return ok;
 }
@@ -1577,9 +1609,13 @@ async function initDraft() {
 }
 $('draftOpt').addEventListener('change', (e) => {
   if (e.target.checked) { try { lstore().removeItem(DRAFT_OPT); } catch { /* ignore */ } status('Local drafts are on for this browser.'); }
-  else { try { lstore().setItem(DRAFT_OPT, '1'); } catch { /* ignore */ } ldel(draftKey('film')); ldel(draftKey('community')); draftState.hold = false; draftState.last = ''; showDraftNotice(''); status('Local drafts are off and saved drafts were removed.'); }
+  else { try { lstore().setItem(DRAFT_OPT, '1'); } catch { /* ignore */ } for (const x of ['film', 'community']) { ldel(draftKey(x)); ldel(unreadKey(x)); draftState.hold[x] = false; } draftState.last = ''; showDraftNotice(''); status('Local drafts are off and saved drafts were removed.'); }
 });
-$('draftClear').addEventListener('click', () => { ldel(draftKey(S.mode)); draftState.hold = false; draftState.last = ''; showDraftNotice(''); status(`Saved ${S.mode === 'community' ? 'community' : 'film'} draft cleared. Your open work is unchanged.`); });
+$('draftClear').addEventListener('click', () => {
+  ldel(draftKey(S.mode)); ldel(unreadKey(S.mode)); draftState.hold[S.mode] = false; showDraftNotice('');
+  const env = draftEnvelope(); draftState.last = env ? JSON.stringify(env) : '';          // a literal clear: the open work is not saved again until you change something
+  status(`Saved ${S.mode === 'community' ? 'community' : 'film'} draft cleared. Your open work is unchanged. It will be saved again when you next change something.`);
+});
 if (typeof setInterval === 'function') setInterval(saveDraft, 1500);
 if (typeof document.addEventListener === 'function') document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') saveDraft(); });
 window.addEventListener('pagehide', () => { saveDraft(); });

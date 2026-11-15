@@ -201,8 +201,9 @@
       if (cur.length) blocks.push(cur);
       if (blocks.length > LIMITS.scenes) return finish({ error: `Max ${LIMITS.scenes} needs (found ${blocks.length}).` });
       const scenes = blocks.map((b, i) => {
-        const h = cut(clean(b[0].split('|')[0]), LIMITS.heading, notes, `Need ${i + 1} title`);
-        const d = cut(clean(b.slice(1).join(' ')) || h.text, LIMITS.description, notes, `Need ${i + 1} description`);
+        const bar = b[0].indexOf('|');                                   // "Title | more": the text after the bar is part of the need, never dropped
+        const h = cut(clean(bar < 0 ? b[0] : b[0].slice(0, bar)), LIMITS.heading, notes, `Need ${i + 1} title`);
+        const d = cut(clean([bar < 0 ? '' : b[0].slice(bar + 1), ...b.slice(1)].join(' ')) || h.text, LIMITS.description, notes, `Need ${i + 1} description`);
         return { id: `s${i + 1}`, heading: h.text, description: d.text, truncated: h.truncated || d.truncated, dialogue_lines: 0 };
       });
       return finish({ scenes });
