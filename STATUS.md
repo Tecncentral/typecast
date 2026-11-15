@@ -19,9 +19,13 @@ Details: `docs/team/status-lane-b.md` and `data/VEXCEL.md`. Live data exists onl
 - osm repair: the German Overpass endpoint returned HTTP 406 and Private.coffee timed out. The default is now the North America regional endpoint, and 19 of 19 indexed properties have OSM cached. Noise screening is estimated for all 19 (six with proximity flags) and parking estimates rose from 9 to 14 using mapped OSM polygons. OSM is used only in precompute, never during a scout request.
 - private cache setup: put the sponsor kit at `cache/costar-hackathon-kit/` (or pass `--kit <path>`); it needs both mapping CSVs, `schemas/enums.json` and all eight JSONL files. Put `VEXCEL_API_KEY` in `.env`. Nothing under `cache/` is committed. Keep it out of cloud-synced folders and share the join and Vexcel cache by direct private copy.
 - commands: `python -m data.build_join`, then `TYPECAST_USE_MOCKS=0 python -m data.vexcel_precompute` (default input is `cache/shot-index/CURRENT`; `--property-id <id>` picks one; `--refresh` after a coordinate change; `--offline` makes no network calls; rerun without `--refresh` to fill only missing OSM).
-- tests: `pytest data/tests` in both modes. In live mode the two mock-only tests in `test_data.py` skip with a reason. On Windows, 6 fixture errors in `test_costar_live.py` come from CSV newlines; that fix is on another lane.
+- tests: `pytest data/tests` in both modes. In live mode the one mock-only test in `test_data.py` skips with a reason.
 - gaps: parking is unknown for some properties (5 of the 19 indexed, 3 of the 10 cached here). Walking distance is unknown for all, because sources do not establish a connected route and entrance. Shot-fit is unknown because directional Matterport depth is unmeasured (Lane A). Most availability is unknown. Imagery cannot show permission, truck clearance, current availability or sound level; noise is a proximity estimate.
-- waiting on: the other lane's Windows newline fix; Lane A's shot index for default precompute.
+- waiting on: Lane A's shot index for default precompute.
+- done: `data/rent_precompute.py` grades each property's rent A, B or C by reliability. `data/cost_model.py` compares a found location, a build set, a standing set and CGI as scenario estimates, not verified savings. Both have tests. PR #54.
+- done: a spending guard and 429 retry for Vexcel oblique calls, with tests. PR #55. It depends on #51.
+- open: construction per sq ft and CGI per shot are placeholders that need real quotes. Multifamily rents are mostly ground-floor retail, not apartment rent. The demo set should be the 9 QA buildings, and it needs their Vexcel caches. Drive time and a radius filter are pending the #43 comparison. Sending Vexcel imagery to outside AI models is unconfirmed. The Vexcel billing unit is unconfirmed.
+- done: an offline radius filter, `data/radius.py`, straight-line distance and not drive time, in PR #58. The 9 QA buildings now all have Vexcel caches with `logistics.json`: parking and noise are estimated and walking distance is unknown. That closes the cache item in the open line above.
 
 ## Owner 3 (agent/)
 - works: fixed-order pipeline + FastAPI endpoints on mocks
