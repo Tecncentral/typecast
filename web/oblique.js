@@ -554,6 +554,13 @@ async function init() {
       option.value = area.id;
       $("#ob-area").append(option);
     }
+    // Pre-fill from a link (?q=&city=LA|HOU). Never submits: a Vexcel search is billable.
+    const link = new URLSearchParams(location.search);
+    const preset = (link.get("q") || "").trim().slice(0, 300);
+    if (preset) $("#ob-query").value = preset;
+    const cityName = { LA: "Los Angeles", HOU: "Houston" }[link.get("city")];
+    const match = cityName && [...$("#ob-area").options].find((o) => o.textContent.includes(cityName));
+    if (match) $("#ob-area").value = match.value;
   } catch {
     status("Cannot reach the local service. Check that it is running.", "error");
   }
