@@ -541,6 +541,65 @@
   min-height: 44px;
   font-size: 15px;
 }
+/* The Ask / Reimagine chats float at the bottom of the place window, so they are in view on open. */
+.ob-dock {
+  position: sticky;
+  bottom: 0;
+  z-index: 5;
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 12px 14px 14px;
+  border: 1px solid #edbd6955;
+  border-radius: 12px;
+  background: #15191af5;
+  box-shadow: 0 -12px 36px #000c;
+  backdrop-filter: blur(10px);
+}
+.ob-dock .ob-ask,
+.ob-dock .ob-chat {
+  padding-top: 0;
+  border-top: 0;
+}
+.ob-dock-tabs {
+  display: flex;
+  gap: 6px;
+}
+.ob-dock-tabs button {
+  min-height: 34px;
+  padding: 5px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ob-dock-tabs button[aria-selected="true"] {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #131617;
+}
+.ob-dock .ob-chat-suggest {
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.ob-dock .ob-chat-suggest::-webkit-scrollbar {
+  display: none;
+}
+.ob-dock .ob-chat-suggest > * {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.ob-dock .ob-chat-log {
+  max-height: 150px;
+}
+.ob-dock .ob-answer {
+  max-height: 240px;
+  overflow: auto;
+}
 @media (max-width: 1000px) {
   .ob-layout,
   .ob-place-body {

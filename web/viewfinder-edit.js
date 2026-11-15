@@ -87,7 +87,9 @@ function build(vf) {
     toggle.append(b);
   }
   toggle.hidden = true;
-  stage.append(img, label, toggle);
+  const generating = el("p", "gen-label", "Imagining…");
+  generating.setAttribute("aria-hidden", "true");
+  stage.append(img, label, toggle, generating);
   const side = el("div", "vf-edit-side");
   const note = el("p", "vf-edit-note");
   const ideas = el("div", "vf-edit-ideas");
@@ -182,6 +184,7 @@ function build(vf) {
     if (!message || s.busy) return;
     s.busy = true;
     send.disabled = input.disabled = true;
+    stage.classList.add("is-generating");
     note.textContent = "Editing… about 10–30 s.";
     try {
       const body = { message, ...(s.editId ? { edit_id: s.editId } : {
@@ -199,11 +202,13 @@ function build(vf) {
       s.selected = null;
       s.showing = "imagined";
       input.value = "";
-      note.textContent = "Done. Send another change to build on it, or compare Real / Imagined.";
       paint();
+      await img.decode().catch(() => {});  // lift the effect once the new version is on screen
+      note.textContent = "Done. Send another change to build on it, or compare Real / Imagined.";
     } catch (error) {
       note.textContent = error.message;
     } finally {
+      stage.classList.remove("is-generating");
       s.busy = false;
       send.disabled = input.disabled = false;
       input.focus();

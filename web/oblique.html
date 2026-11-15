@@ -75,6 +75,7 @@
               <div id="ob-3d" class="ob-3d" hidden></div>
               <p id="ob-ai-label" class="ob-ai-label" hidden></p>
               <p id="ob-loading" class="ob-loading" hidden>Loading the oblique…</p>
+              <p class="gen-label" aria-hidden="true">Imagining…</p>
             </div>
             <div class="ob-viewer-controls">
               <div class="ob-dirs" role="group" aria-label="Oblique direction" id="ob-dirs"></div>
@@ -92,8 +93,13 @@
               <h3 id="ob-building-heading">The building here</h3>
               <div id="ob-building-body"></div>
             </section>
-            <section class="ob-ask" aria-labelledby="ob-ask-heading">
-              <h3 id="ob-ask-heading">Ask about this place</h3>
+            <div class="ob-dock" id="ob-dock">
+            <div class="ob-dock-tabs" role="tablist" aria-label="Chat about this place">
+              <button type="button" role="tab" id="ob-tab-chat" aria-controls="ob-chat-panel" aria-selected="true">Reimagine this place</button>
+              <button type="button" role="tab" id="ob-tab-ask" aria-controls="ob-ask-panel" aria-selected="false">Ask about this place</button>
+            </div>
+            <section class="ob-ask" id="ob-ask-panel" role="tabpanel" aria-labelledby="ob-tab-ask" hidden>
+              <h3 id="ob-ask-heading" class="sr-only">Ask about this place</h3>
               <p class="ob-chat-note">Answers come from live Vexcel data through Vexcel's MCP server: heights, parcels, pools, vehicles, roofs, imagery dates.</p>
               <div class="ob-chat-suggest" id="ob-ask-suggest"></div>
               <form id="ob-ask-form" class="ob-chat-form">
@@ -103,8 +109,8 @@
               </form>
               <div id="ob-answer" class="ob-answer" aria-live="polite" hidden></div>
             </section>
-            <section class="ob-chat" aria-labelledby="ob-chat-heading">
-              <h3 id="ob-chat-heading">Reimagine this place</h3>
+            <section class="ob-chat" id="ob-chat-panel" role="tabpanel" aria-labelledby="ob-tab-chat">
+              <h3 id="ob-chat-heading" class="sr-only">Reimagine this place</h3>
               <p class="ob-chat-note" id="ob-chat-note"></p>
               <ol id="ob-chat-log" class="ob-chat-log"></ol>
               <div class="ob-chat-suggest" id="ob-chat-suggest"></div>
@@ -115,6 +121,7 @@
                 <button class="primary" type="submit" id="ob-chat-send">Send</button>
               </form>
             </section>
+            </div>
           </aside>
         </div>
       </div>

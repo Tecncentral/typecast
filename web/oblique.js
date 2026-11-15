@@ -515,8 +515,10 @@ async function send(event) {
   const message = input.value.trim();
   if (!message || !place) return;
   const button = $("#ob-chat-send");
+  const stage = $(".ob-stage");
   button.disabled = true;
   input.disabled = true;
+  stage.classList.add("is-generating");
   $("#ob-chat-note").textContent = "Reimagining… about 10–30 s.";
   try {
     chatState = await post("/api/oblique/reimagine", {
@@ -529,13 +531,22 @@ async function send(event) {
     showing = "imagined";
     selected = null;
     paint();
+    await $("#ob-image").decode().catch(() => {});  // lift the effect once the new version is on screen
     $("#ob-chat-note").textContent = "Done. Send another change to build on it, or switch Real / Imagined.";
   } catch (error) {
     $("#ob-chat-note").textContent = error.message;
   } finally {
+    stage.classList.remove("is-generating");
     button.disabled = false;
     input.disabled = false;
   }
+}
+
+function dockTab(which) {
+  $("#ob-tab-chat").setAttribute("aria-selected", String(which === "chat"));
+  $("#ob-tab-ask").setAttribute("aria-selected", String(which === "ask"));
+  $("#ob-chat-panel").hidden = which !== "chat";
+  $("#ob-ask-panel").hidden = which !== "ask";
 }
 
 async function init() {
@@ -544,6 +555,8 @@ async function init() {
   $("#ob-form").addEventListener("submit", run);
   $("#ob-chat-form").addEventListener("submit", send);
   $("#ob-ask-form").addEventListener("submit", ask);
+  $("#ob-tab-chat").addEventListener("click", () => dockTab("chat"));
+  $("#ob-tab-ask").addEventListener("click", () => dockTab("ask"));
   $("#ob-close").addEventListener("click", () => $("#ob-place").close());
   $("#ob-place").addEventListener("close", closeCity);
   for (const b of document.querySelectorAll("#ob-compare button"))
