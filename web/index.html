@@ -72,6 +72,7 @@
           <label for="scene" class="sr-only"
             >Describe the scene and crew requirements</label
           >
+          <div class="scene-box">
           <textarea
             id="scene"
             name="scene"
@@ -81,6 +82,8 @@
             spellcheck="false"
           >
 INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial warehouse with exposed roof structure, a concrete floor and an open aisle; stored boxes or pallets can remain at the sides. Daylight from high openings. Parking for 2 trucks and 10 crew cars. No required building age.</textarea>
+          <button type="button" id="scene-clear" class="scene-clear" aria-label="Clear the scene text">Clear</button>
+          </div>
           <button id="run-button" class="primary" type="submit">
             Scout
           </button>
@@ -214,6 +217,9 @@ INT. LOS ANGELES WAREHOUSE - DAY. Two couriers exchange a case in an industrial 
               maxlength="4000"
             /><button id="refine-button" class="primary" type="submit">
               Refine shortlist
+            </button
+            ><button id="refine-reset" class="reset-button" type="button" hidden>
+              Back to original
             </button>
           </div>
         </form>

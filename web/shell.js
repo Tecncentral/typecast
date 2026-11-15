@@ -136,3 +136,15 @@ $("#scene").addEventListener("input", () => {
 });
 
 apply(routeFromHash());
+
+/* ---------- Clear the scene box ---------- */
+const clearButton = $("#scene-clear");
+const syncClear = () => { clearButton.hidden = !$("#scene").value.trim(); };
+clearButton.addEventListener("click", () => {
+  const box = $("#scene");
+  box.value = "";
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+  box.focus();
+});
+$("#scene").addEventListener("input", syncClear);
+syncClear();

@@ -18,6 +18,8 @@ const progress = new Progress();
 const descent = new Descent($("#location-map"));
 let config = null,
   response = null,
+  original = null, // the shortlist before any follow-up, for "Back to original"
+  serverPicks = null, // the service's current saved shortlist for this thread (drafts use its ranks)
   busy = false,
   stream = null,
   ticker = null,
@@ -410,9 +412,12 @@ function remember(data, message) {
   $("#previous-results").prepend(snapshot);
   $("#history-section").hidden = false;
 }
-function showResult(data, previous, message) {
+function showResult(data, previous, message, { restored = false } = {}) {
   validateResult(data);
   response = data;
+  if (!restored) serverPicks = data.picks;
+  if (!previous && !restored) original = data;
+  $("#refine-reset").hidden = !original || data === original;
   document.body.classList.add("has-results");
   metadata(data.source_mode, data.engine);
   for (const event of data.events || []) progress.add(event);
@@ -591,12 +596,18 @@ async function refine(event) {
 }
 async function draftNote(pick) {
   if (busy || draftBusy || !response) return;
-  const current = response.picks.find(
-    (value) =>
-      value.property.property_id === pick.property.property_id &&
-      value.rank === pick.rank,
+  // Drafts are saved by rank from the service's current shortlist. After "Back to original"
+  // the screen and the service can differ, so look the building up there by property.
+  const current = (serverPicks || response.picks).find(
+    (value) => value.property.property_id === pick.property.property_id,
   );
-  if (!current) return;
+  if (!current) {
+    const status = $("#draft-status");
+    status.hidden = false;
+    status.textContent =
+      "This building is not in the service's current shortlist after the follow-up, so no draft was saved. Refine or scout again to draft a note for it.";
+    return status.textContent;
+  }
   draftBusy = true;
   controls();
   const status = $("#draft-status");
@@ -649,6 +660,12 @@ $("#scene").addEventListener("input", () =>
 );
 $("#scene-form").addEventListener("submit", scout);
 $("#refine-form").addEventListener("submit", refine);
+$("#refine-reset").addEventListener("click", () => {
+  if (busy || draftBusy || !original || response === original) return;
+  showResult(original, null, null, { restored: true });
+  $("#run-status").textContent = "Back to the original shortlist · no new search";
+  $("#shortlist-section").scrollIntoView({ behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" });
+});
 window.addEventListener("pagehide", () => {
   descent.cancel("hidden", false);
   stream?.close();

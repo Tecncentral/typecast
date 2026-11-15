@@ -140,3 +140,10 @@ Recommendation: safe to demo on mocks. Not run against live data or the private 
 
 - POST /api/production/plan rejects more than 8 scenes (HTTP 422, checked: 8 ok, 9 rejected). The brief now reads up to 60 headings, says "Script: N scenes detected. The planner takes 8 at a time, so Scout plans scenes 1–8" when there are more, sends the first 8, and the results say "Planned scenes 1–8 of N … scenes 9–N were not planned".
 - Checked in the browser: 3-scene example → one /api/production/plan call, "3 scenes · 1 location · 0 company moves"; 10-scene script → "8 scenes · …" plus the not-planned line, no error; Director's Room sheet opens with the pasted script. Live planning (private index) not checked here.
+
+### Resets: "Back to original" and "Clear" (12:01 UTC)
+
+- "Back to original" appears beside Refine shortlist after a follow-up. It redisplays the shortlist from before any follow-up, in the browser, with no new search, and clears What changed and Earlier takes.
+- The service keeps only the latest shortlist per thread (refine overwrites shortlist.json; requirements are not overwritten, so a later refine still starts from the original brief). Draft note therefore looks each building up in the service's current shortlist by property: a building still there is drafted at its server rank; one the follow-up dropped is refused with an explanation and no /approve call. Checked on mocks: after reset, 400 Demo Way is #2 on screen and #3 on the server, and the draft was sent as rank 3; 500 Fixture Rd (dropped) was refused.
+- "Clear" sits inside the scene box whenever it has text; it empties the box and focuses it.
+- Checks: check_viewer.py --mobile --failure-states 7/7; verify.py 1082 passed / 1 xfailed; web tests 24/24.

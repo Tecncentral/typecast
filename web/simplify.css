@@ -546,3 +546,39 @@ body[data-mode="exterior"] footer { display: none; }
 #scene-buttons button[data-preview]::after, #example-script[data-preview]::after { left: 0; right: auto; width: min(560px, 100%); }
 #scene-buttons button:last-child::after { left: 0; right: auto; }
 #scene-buttons button[data-preview]::after, #example-script[data-preview]::after { box-sizing: border-box; }
+
+/* Scene box with a Clear control inside its top-right corner */
+.scene-box { position: relative; flex: 1 1 auto; min-width: 0; display: flex; }
+.scene-box > textarea { flex: 1; width: 100%; padding-right: 76px; }
+.scene-clear {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-raised);
+  color: var(--muted);
+  font: 500 13px var(--body);
+  cursor: pointer;
+  opacity: .8;
+  transition: opacity .2s, color .2s, border-color .2s;
+}
+.scene-clear:hover, .scene-clear:focus-visible { opacity: 1; color: var(--text); border-color: var(--accent); }
+
+/* Back to original, beside Refine */
+.reset-button {
+  margin-left: 10px;
+  padding: 0 18px;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  background: none;
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.reset-button:hover { border-color: var(--accent); color: var(--accent); }
+.scene-box > #scene { padding-right: 84px; }
+.scene-clear { opacity: 1; }
