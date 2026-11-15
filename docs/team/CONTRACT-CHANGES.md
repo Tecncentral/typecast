@@ -104,6 +104,7 @@ or out-of-bounds geometry and falls back to revealing the supplied annotated
 aerial unchanged. No new polygon or building-centroid claim is inferred. No
 existing response schema or endpoint behavior changes.
 
+
 ## Director project JSON: production decisions (client-only, additive) - 2026-11-14
 
 Owner: lane-a (Director). Producer and consumer: `index/director.js` and `index/director-project.js`; no backend, `contracts/schemas.py` or TypeScript change, no coordinate or unit change.
