@@ -97,6 +97,26 @@ def main():
             require(walked <= start["free_max"] + 0.01 and moved["at_edge"], "the camera walked past the set's limit")
         require(abs(moved["position"][1] - start["eye"][1]) < 1e-6, "eye height changed")
         page.screenshot(path=str(args.screens_dir / "walked.png"))
+        if start["room"]:
+            # Stand-ins: P brings on the cast, B adds one, each stands on walkable floor, P clears.
+            page.keyboard.press("p")
+            page.wait_for_timeout(1200)
+            cast = page.evaluate("""async () => { const {walkState} = await import('/app/viewfinder-walk.js');
+              const w = walkState(window.__vf), g = w.grid;
+              const on = (m) => g.walk[Math.floor((m.z - g.minZ) / g.cell) * g.nx + Math.floor((m.x - g.minX) / g.cell)] === 1;
+              return {size: w.cast.size, walkers: w.cast.members.filter(m => m.route).length, on_floor: w.cast.members.every(on),
+                      height_units: w.cast.members[0].figure.root.scale.y * 1.75, shown: getComputedStyle(document.querySelector('.vf-cast')).display}; }""")
+            require(cast["size"] == 3 and cast["walkers"] == 1 and cast["on_floor"], f"the default cast is wrong: {cast}")
+            require(abs(cast["height_units"] / k - 1.75) < 1e-6 and cast["shown"] != "none", "stand-ins are not life size")
+            page.screenshot(path=str(args.screens_dir / "stand-ins.png"))
+            page.keyboard.press("b")
+            page.wait_for_timeout(300)
+            require(page.evaluate("(async () => (await import('/app/viewfinder-walk.js')).walkState(window.__vf).cast.size)()") == 4,
+                    "B did not add a stand-in")
+            page.keyboard.press("p")
+            page.wait_for_timeout(300)
+            require(page.evaluate("(async () => (await import('/app/viewfinder-walk.js')).walkState(window.__vf).cast.size)()") == 0,
+                    "P did not clear the stand-ins")
         aspect = page.evaluate("window.__vf.state.aspect.id")
         page.keyboard.press("a")
         page.keyboard.press("d")
