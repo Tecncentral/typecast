@@ -2,7 +2,7 @@
 
 **Current team choice (Nov 15): Business/Enterprise**, superseding the earlier track stated below. Use `docs/BUSINESS-CASE.md` for the current demonstration: real scene → commute constraint → reviewed visualization → editable cost comparison. Film is the customer industry; the judging story is production decisions and potential avoided scouting cost.
 
-Track: Entertainment & Media (sponsor slate: CoStar, LangChain Deep Agents, Amazon; Peri conditional on event-time consultation evidence). Hard cap: 120 seconds. One presenter drives, one watches the clock. Scenes are the `DEMO` text in `index/director.js` (kitchen, living room, bedroom) unless you load your own.
+Track: Business/Enterprise (sponsor slate: CoStar, LangChain Deep Agents, Amazon; Peri conditional on affiliation and original event-time consultation evidence). Hard cap: 120 seconds. One presenter drives, one watches the clock. Use `docs/BUSINESS-CASE.md` for the current cost-focused demonstration; the creative actions below are supporting material.
 
 Framing (a design hypothesis, not a measured result): Typecast helps a producer judge earlier whether to adapt an existing room or build a set, using real indexed frames, real source constraints, and clearly labeled 2D rehearsal or cached AI dressing. It makes no savings claim, no win guarantee, and no filmmaker endorsement claim.
 
