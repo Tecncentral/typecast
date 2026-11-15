@@ -81,6 +81,7 @@
     </div>
     <div id="frameNotice" class="notice" hidden></div>
     <div id="swapNotice" class="notice" hidden role="status"></div>
+    <section id="savePanel" class="save-panel" hidden data-film-only aria-label="Save the scene"><h2>Save the scene</h2><div id="saveBody"></div></section>
     <div id="compareStrip" class="compare-strip" role="status" hidden data-film-only></div>
     <div class="screen"><canvas id="stage" width="1280" height="720" tabindex="0" aria-label="Stage. Drag an actor body to set start, the ring to set end. Arrow keys nudge selected actor start, Shift plus arrows nudge end."></canvas></div>
     <div class="transport">
@@ -91,6 +92,7 @@
       <div class="transport-tools">
         <button id="addActor" type="button" data-film-only>Add stand-in</button>
         <button id="lookAround" type="button" disabled data-film-only>Look around 360°</button>
+        <button id="saveBtn" type="button" aria-expanded="false" aria-controls="savePanel" disabled data-film-only>Save the scene</button>
         <button id="reject" type="button" class="danger" disabled>Reject location</button>
       </div>
     </div>

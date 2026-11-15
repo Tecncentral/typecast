@@ -27,7 +27,7 @@ const DIRECTOR_HTML = readFileSync(join(DIR, '..', 'director.html'), 'utf8');
 const FOOTER = `
 globalThis.__director = {
   S, frameAt, shotData, sanitizeShot, exportSnapshot, provText, drawStage,
-  selectScene, setVariant, BADGE, safeId, setMode, saveDraft, restoreDraft, draftState, initDraft, draftKey, swapLocation, altChoices, validSwap, fitFor, continuityMap, decisionFor, viewShot, undoSwap, backToPlanned,
+  selectScene, setVariant, BADGE, safeId, setMode, openSave, runSave, applySave, undoSave, closeSave, saveDraft, restoreDraft, draftState, initDraft, draftKey, swapLocation, altChoices, validSwap, fitFor, continuityMap, decisionFor, viewShot, undoSwap, backToPlanned,
 };
 `;
 
@@ -347,7 +347,7 @@ function createEnv({ speech = 'none', storage = null } = {}) {
     ax0: 'input', ay0: 'input', ax1: 'input', ay1: 'input', micNote: 'p', micStart: 'button',
     micStop: 'button', instr: 'textarea', gen: 'button', undo: 'button', proposal: 'div',
     pSum: 'p', pNote: 'p', pDiff: 'ul', applyB: 'button', discard: 'button', evidence: 'div',
-    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', parseSummary: 'div', siteCapNote: 'p', draftNotice: 'div', draftOpt: 'input', draftClear: 'button', draftNote: 'p', modeFilm: 'button', modeComm: 'button', modeHint: 'p', lblTrucks: 'span', lblCars: 'span', stageCaption: 'p', commBanner: 'p', 'h-script': 'h2', 'h-plan': 'h2', 'h-scenes': 'h2', 'h-stage': 'h1', scriptHint: 'label', 'panel-site': 'section', siteTitle: 'h2', siteReq: 'input', siteChecksSummary: 'summary', siteChecks: 'div', siteTasks: 'div', taskAdd: 'button', siteNote: 'textarea', siteCap: 'input', siteCapSrc: 'input', briefReviewer: 'input', briefDate: 'input', briefNotes: 'textarea', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
+    impProject: 'input', plannerOut: 'div', projectReview: 'div', lookAround: 'button', expReel: 'button', cancelReel: 'button', planner: 'a', expPng: 'button', expJson: 'button', expPack: 'button', cmpAB: 'button', loadSample: 'button', compareStrip: 'div', originTag: 'p', parseSummary: 'div', siteCapNote: 'p', saveBtn: 'button', savePanel: 'section', saveBody: 'div', draftNotice: 'div', draftOpt: 'input', draftClear: 'button', draftNote: 'p', modeFilm: 'button', modeComm: 'button', modeHint: 'p', lblTrucks: 'span', lblCars: 'span', stageCaption: 'p', commBanner: 'p', 'h-script': 'h2', 'h-plan': 'h2', 'h-scenes': 'h2', 'h-stage': 'h1', scriptHint: 'label', 'panel-site': 'section', siteTitle: 'h2', siteReq: 'input', siteChecksSummary: 'summary', siteChecks: 'div', siteTasks: 'div', taskAdd: 'button', siteNote: 'textarea', siteCap: 'input', siteCapSrc: 'input', briefReviewer: 'input', briefDate: 'input', briefNotes: 'textarea', swapNotice: 'div', sceneChecks: 'details', checksSummary: 'summary', checksBody: 'div', prodNotes: 'details', noteDressing: 'textarea', noteGroup: 'input',
   };
   for (const [id, tag] of Object.entries(tags)) {
     const el = new Element(tag, document);

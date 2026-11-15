@@ -125,6 +125,35 @@
     }
     return { scene_id: sid, property_id: pid, checks, verified, tasks };
   }
+  // Saved "Save the scene" decision: a historical review record. Identifiers, whitelisted statuses and bounded numbers/text only.
+  const PSTATUS = ['measured', 'estimated', 'unknown'], AVAIL = ['available', 'not_available', 'unknown'];
+  const small = (v, name, hi) => { if (v == null) return null; if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > hi) fail(`${name} out of range`); return v; };
+  function reqOf(v, name) {
+    record(v, name);
+    const t = v.trucks, c = v.cars;
+    if (!Number.isInteger(t) || t < 0 || t > 20 || !Number.isInteger(c) || c < 0 || c > 200 || typeof v.require_available !== 'boolean') fail(`${name} is invalid`);
+    return { trucks: t, cars: c, require_available: v.require_available };
+  }
+  function sideOf(v, name) {
+    if (v == null) return null;
+    record(v, name);
+    if (!PSTATUS.includes(v.parking_status) || !AVAIL.includes(v.availability)) fail(`${name} status`);
+    if (v.enough_parking !== null && typeof v.enough_parking !== 'boolean') fail(`${name} capacity flag`);
+    return { shot_id: id(v.shot_id, `${name} shot id`), property_id: id(v.property_id, `${name} property id`), parking_status: v.parking_status, enough_parking: v.enough_parking,
+      availability: v.availability, area_m2: small(v.area_m2, 'area', 1e6), ceiling_m: small(v.ceiling_m, 'ceiling', 1000), similarity: small(v.similarity, 'similarity', 1) };
+  }
+  function lines(v, name, max, limit) {
+    if (!Array.isArray(v) || v.length > max) fail(`${name} must list at most ${max} items`);
+    return v.map((x) => stripCtl(text(x, name, limit)).trim());
+  }
+  function decisionOf(v) {
+    record(v, 'decision');
+    if (v.v !== 1) fail('unsupported decision version');
+    if (v.scope !== 'whole_plan' || typeof v.totals_recalculated !== 'boolean') fail('decision scope');
+    return { v: 1, decided_at: stripCtl(text(v.decided_at, 'decision date', 30)).trim(), original: reqOf(v.original, 'original requirement'), revised: reqOf(v.revised, 'revised requirement'),
+      before: sideOf(v.before, 'before'), after: sideOf(v.after, 'after'), scope: 'whole_plan', totals_recalculated: v.totals_recalculated, moved_scenes: Number.isInteger(v.moved_scenes) && v.moved_scenes >= 0 && v.moved_scenes <= 8 ? v.moved_scenes : fail('moved scenes'),
+      differences: lines(v.differences, 'decision differences', 8, 240), unresolved: lines(v.unresolved, 'decision unresolved items', 8, 200) };
+  }
   function frame(value) {
     record(value, 'frame identity');
     return { shot_id: id(value.shot_id, 'shot id'), property_id: id(value.property_id, 'property id') };
@@ -149,6 +178,7 @@
         description: text(scene.description, 'description', 1000),
         evidence: savedFrame ? { frame: savedFrame } : null, variants: savedVariants };
       if (scene.notes != null) out.notes = notesOf(scene.notes);
+      if (scene.decision != null) out.decision = decisionOf(scene.decision);
       if (scene.location_choice != null) {
         if (!savedFrame) fail('a location choice needs a saved frame identity');
         out.location_choice = choiceOf(scene.location_choice);
@@ -193,6 +223,8 @@
     if (!Array.isArray(assignments)) fail('current plan has no assignments');
     const edits = Object.create(null), frameOverrides = Object.create(null), reviewNeeded = [], swaps = Object.create(null), transfers = Object.create(null), notes = Object.create(null);
     for (const scene of project.scenes) if (scene.notes && (scene.notes.dressing || scene.notes.group)) notes[scene.id] = scene.notes;
+    const decisions = Object.create(null);
+    for (const scene of project.scenes) if (scene.decision) decisions[scene.id] = scene.decision;
     const saved = project.scenes.filter((scene) => scene.variants).map((scene) => ({
       scene_id: scene.id, frame: scene.evidence.frame, variants: scene.variants, choice: scene.location_choice || null,
     })).concat(project.review_needed);
@@ -216,12 +248,17 @@
         if (swap) {
           swaps[slot] = { shot_id: entry.choice.shot_id, property_id: entry.choice.property_id, from_shot_id: entry.choice.from_shot_id, from_property_id: entry.choice.from_property_id };
           if (!entry.choice.staging_reviewed) transfers[`${entry.scene_id}::${entry.frame.shot_id}`] = { from_shot_id: entry.choice.from_shot_id, from_property_id: entry.choice.from_property_id, reviewed: false };
-        } else frameOverrides[slot] = entry.frame.shot_id;
+        } else {
+          frameOverrides[slot] = entry.frame.shot_id;
+          // a carried-over (unreviewed) draft stays unreviewed even when the frame is now the planned one
+          if (entry.choice && entry.choice.shot_id === entry.frame.shot_id && !entry.choice.staging_reviewed)
+            transfers[`${entry.scene_id}::${entry.frame.shot_id}`] = { from_shot_id: entry.choice.from_shot_id, from_property_id: entry.choice.from_property_id, reviewed: false };
+        }
         restored++;
       } else reviewNeeded.push({ ...entry, reason: 'Saved frame is unavailable, ineligible, assigned to another property, or another draft is already restored. Review staging before reuse.' });
     }
     if (reviewNeeded.length > 8) fail('too many unresolved drafts; retain the original file');
-    return { edits, frameOverrides, reviewNeeded, restored, swaps, transfers, notes, mode: project.mode || 'film', brief: project.brief || null, needs: project.needs || [], sites: project.sites || [] };
+    return { edits, frameOverrides, reviewNeeded, restored, swaps, transfers, notes, decisions, mode: project.mode || 'film', brief: project.brief || null, needs: project.needs || [], sites: project.sites || [] };
   }
   const api = { normalizeProject, restoreEdits, MAX_BYTES };
   if (typeof module === 'object' && module.exports) module.exports = api;

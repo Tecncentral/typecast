@@ -313,6 +313,15 @@ canvas.comparing { cursor: default; }
 .chk-row select, .chk-row input, .task-row input { width: 100%; }
 .task-row { display: grid; grid-template-columns: 1fr 110px auto; gap: 6px; margin-bottom: 6px; }
 @media (max-width: 560px) { .task-row { grid-template-columns: 1fr; } }
+.save-panel { margin: 0 0 12px; padding: 12px 14px; border: 1px solid var(--accent); border-radius: 8px; background: var(--surface); }
+.save-panel h2 { margin: 0 0 6px; font-size: 18px; }
+.save-panel h3 { margin: 8px 0 6px; font-size: 15px; }
+.save-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.save-card { margin: 0; }
+.save-card img { width: 100%; height: auto; display: block; border: 1px solid var(--line); border-radius: 4px; }
+.save-card figcaption { font-size: 13px; color: var(--muted); padding-top: 4px; }
+.save-panel .constraints label { display: block; }
+@media (max-width: 560px) { .save-compare { grid-template-columns: 1fr; } }
 .sample-box { margin: 14px 0 6px; padding: 10px 12px; border: 1px dashed var(--control-line); border-radius: 6px; }
 .sample-box p { margin-bottom: 8px; }
 

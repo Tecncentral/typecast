@@ -12,7 +12,7 @@ const DEMO = [
   'INT. HOUSTON APARTMENT LIVING ROOM - DAY | A furnished Houston apartment living room with a sofa and broad windows; a visitor waits.',
   'INT. HOUSTON APARTMENT BEDROOM - DAY | A Houston apartment bedroom with a bed and daylight from a window; a woman packs a suitcase.',
 ].join('\n');
-const S = { mode: 'film', builtScript: '', comm: Object.create(null), brief: { reviewer: '', date: '', notes: '' }, swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
+const S = { mode: 'film', save: null, saveTx: null, decisions: Object.create(null), builtScript: '', comm: Object.create(null), brief: { reviewer: '', date: '', notes: '' }, swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false, rev: 0, scenes: [], resp: null, planIdx: 0, planBusy: false, sceneId: null, variant: 'A', forbidden: [], edits: {},
   frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0, imgs: {}, pending: null, undo: null, gen: { ctrl: null, tok: 0 },
   play: { on: false, acc: 0, start: 0, raf: 0, q: [], total: 0 } };
 
@@ -59,7 +59,9 @@ const assignFor = (sid) => {
   const chosen = S.frameOverrides[`${S.planIdx}::${sid}`];
   return chosen ? { ...a, shot_id: chosen, manual_frame: true } : a;
 };
-const anySwap = () => S.scenes.some((s) => validSwap(s.id));
+// A swap chosen by Save the scene that equals the revised plan's own assignment does not make the plan totals stale.
+const swapStale = (s) => { const sw = validSwap(s.id); if (!sw) return false; if (sw.via !== 'save') return true; return (plan()?.assignments || []).find((x) => x.scene_id === s.id)?.shot_id !== sw.shot_id; };
+const anySwap = () => S.scenes.some(swapStale);
 function candFor(sid, shotId) {
   const sc = S.resp?.scenes?.find((s) => s.id === sid);
   return sc?.candidates?.find((c) => c.shot?.shot_id === shotId) || null;
@@ -158,7 +160,7 @@ const MOCK_NOTE = 'MOCK FIXTURE RESULTS: placeholder frames, fixture rankings an
 const modeNote = (data) => (data?.mode === 'mock' ? MOCK_NOTE : '');
 async function build(reuse) {
   if (S.planBusy) return;
-  stopPlay(); cancelGen(); clearPending();
+  stopPlay(); cancelGen(); clearPending(); if (S.save) closeSave();
   let scenes;
   try { scenes = reuse ? S.scenes : parseScenes(); } catch (e) { return status(e.message, true); }
   const body = { scenes, max_locations: clamp($('maxLoc').value, 1, 4, 3), forbidden_property_ids: [...S.forbidden],
@@ -189,6 +191,7 @@ async function build(reuse) {
   } finally { busy(false); }
 }
 function reject() {
+  if (S.save) closeSave();
   const a = assignFor(S.sceneId);
   if (!a) return status('This scene has no assigned location to reject.', true);
   if (!S.forbidden.includes(a.property_id)) S.forbidden.push(a.property_id);
@@ -709,23 +712,26 @@ function backToPlanned() {
 function renderSwapNotice() {
   const n = $('swapNotice'), sid = S.sceneId, sw = validSwap(sid), t = S.transfer[keyOf(sid)] ;
   n.replaceChildren();
-  if (!sw) { n.hidden = true; return; }
-  const unreviewed = !!(t && !t.reviewed) && S.mode === 'film';
+  const unrev0 = !!(t && !t.reviewed) && S.mode === 'film';
+  if (!sw && !unrev0) { n.hidden = true; return; }
+  const eff = sw || { from_property_id: t.from_property_id, property_id: assignFor(sid)?.property_id, from_shot_id: t.from_shot_id };
+  const unreviewed = unrev0;
   const row = el('div', { class: 'row' });
   if (unreviewed) {
     const ok = el('button', { type: 'button', class: 'primary', text: 'Staging looks right on this frame' });
     ok.addEventListener('click', () => { S.rev++; t.reviewed = true; renderAll(); status('Marked reviewed by eye on this exact frame. That is artistic alignment, not a survey: room fit remains unverified.'); });
     row.append(ok);
   }
+  if (S.saveTx && S.saveTx.sid === sid && S.saveTx.rev === S.rev) { const u = el('button', { type: 'button', text: 'Undo Save the scene' }); u.addEventListener('click', undoSave); row.append(u); }
   if (S.swapUndo && S.swapUndo.sid === sid) { const u = el('button', { type: 'button', text: 'Undo swap' }); u.addEventListener('click', undoSwap); row.append(u); }
-  if (sw.dest_kept) { const use = el('button', { type: 'button', text: 'Use my current takes here instead' }); use.addEventListener('click', useCurrentTakesHere); row.append(use); }
+  if (sw && sw.dest_kept) { const use = el('button', { type: 'button', text: 'Use my current takes here instead' }); use.addEventListener('click', useCurrentTakesHere); row.append(use); }
   if (S.alt[keyOf(sid)]) { const sw2 = el('button', { type: 'button', text: 'Switch to the other saved staging' }); sw2.addEventListener('click', switchStaging); row.append(sw2); }
-  const back = el('button', { type: 'button', text: 'Back to planned location' }); back.addEventListener('click', backToPlanned); row.append(back);
+  if (sw && sw.via !== 'save') { const back = el('button', { type: 'button', text: 'Back to planned location' }); back.addEventListener('click', backToPlanned); row.append(back); }
   // The main sentence depends on what actually happened to the takes on this frame.
-  const main = S.mode === 'community' ? 'This need now points at another candidate site. Your coordinator checks stay with each site, so re-check this one. Nothing here approves a site.' : sw.dest_kept ? 'This frame already had its own staging, so it was kept; your current takes were not copied. Room fit remains unverified.'
+  const main = S.mode === 'community' ? 'This need now points at another candidate site. Your coordinator checks stay with each site, so re-check this one. Nothing here approves a site.' : sw && sw.dest_kept ? 'This frame already had its own staging, so it was kept; your current takes were not copied. Room fit remains unverified.'
     : unreviewed ? 'Takes copied to this frame for review. Review stand-in placement; room fit remains unverified.'
     : 'The plan summary and company moves were not recalculated for this choice. Reviewing by eye is artistic alignment, not a survey: room fit remains unverified.';
-  n.append(el('p', { text: `Location swapped for scene ${sceneNumber(sid)}: ${safeId(sw.from_property_id)} → ${safeId(sw.property_id)}. ${main}` }),
+  n.append(el('p', { text: `Location ${eff.via === 'save' ? 'changed by Save the scene' : 'swapped'} for scene ${sceneNumber(sid)}: ${safeId(eff.from_property_id)} → ${safeId(eff.property_id)}. ${main}` }),
     el('p', { class: 'meta', text: T('The earlier scan identity does not apply to this frame. Stand-ins are uncalibrated screen space, and source warnings and provenance labels stay as shown.', 'The earlier site identity does not apply to this frame. Source warnings and provenance labels stay as shown.') }),
     ...(S.alt[keyOf(sid)] ? [el('p', { class: 'meta', text: 'A second saved staging exists for this frame. It lives in this session only; the project file saves the one shown.' })] : []), row);
   n.hidden = false;
@@ -754,6 +760,7 @@ function renderChecks() {
   $('checksSummary').textContent = `${S.mode === 'community' ? 'Site fit evidence' : 'Fit check'} · ${TypecastChecks.fitSummaryText(fit)}${real.length ? ` · ${real.length} continuity note${real.length === 1 ? '' : 's'}` : ''}`;
   body.append(el('p', { class: 'meta', text: `Only fields the sources supplied are compared. Unknown stays unknown, and image similarity is not a fit score. Only simple wording in your ${S.mode === 'community' ? 'needs' : 'script'} (at least / no more than / more than / less than with m², ft² or a ceiling height) is read; other needs are not extracted.` }),
     el('ul', { class: 'chk-list' }, ...fit.rows.map(checkRow)));
+  const hist = S.mode === 'film' ? decisionHistoryNodes(sid) : null; if (hist) body.append(hist);
   if (cont.length) {
     body.append(el('h4', { text: 'Continuity (from your link)' }), el('ul', { class: 'chk-list' }, ...cont.map((c) => el('li', { class: `chk chk-${c.level === 'verified' ? 'conflict' : c.level === 'potential' ? 'unknown' : 'info'}` },
       el('b', { text: `${c.level === 'verified' ? 'Mismatch' : c.level === 'potential' ? 'Possible mismatch' : 'Cannot compare'}: ` }), el('span', { text: c.text }), el('small', { text: ` Next: ${c.action}` })))));
@@ -794,7 +801,7 @@ function toggleCompare() {
 }
 function renderAll() {
   renderProjectReview();
-  renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames(); renderStageHead(); renderCompareStrip(); renderSwapNotice(); renderChecks(); renderNotes(); renderSite();
+  renderPlan(); renderRail(); renderTimeline(); renderInspector(); renderFrameNotice(); renderFrames(); renderStageHead(); renderCompareStrip(); renderSwapNotice(); renderChecks(); renderNotes(); renderSite(); renderSavePanel(); refreshSaveStale();
   $('evidence').replaceChildren(evidenceNodes(S.sceneId));
   const a = assignFor(S.sceneId), pl = $('planner');
   $('lookAround').disabled = S.planBusy || !a;
@@ -810,6 +817,7 @@ function edited() { S.rev++; invalidateProposal(); stopPlay(); draw(); renderTim
 function selectScene(sid) {
   stopPlay(); cancelGen();
   if (S.pending) { clearPending(); status('Pending proposal discarded because the scene changed.'); }
+  if (S.save) closeSave();
   S.sceneId = sid; S.actorIdx = 0; renderAll();
 }
 function setVariant(v) {
@@ -930,6 +938,7 @@ function sceneProduction(sid) {
   const out = {}, sw = validSwap(sid), t = S.transfer[keyOf(sid)], n = S.notes[sid];
   if (sw) out.location_choice = { shot_id: safeId(sw.shot_id), property_id: safeId(sw.property_id), from_shot_id: safeId(sw.from_shot_id), from_property_id: safeId(sw.from_property_id), staging_reviewed: !(t && !t.reviewed) };
   if (n && (n.dressing || n.group)) out.notes = { dressing: cleanText(n.dressing, 600), group: cleanText(n.group, 12) };
+  if (S.mode === 'film' && S.decisions[sid]) out.decision = deep(S.decisions[sid]);
   return out;
 }
 function exportSnapshot() {
@@ -951,7 +960,7 @@ function decisionFor(sid) {
   const take = (v) => sanitizeShot(shotData(sid, v), true);
   return { number: sceneNumber(sid), property: safeId(a.property_id), shot: safeId(a.shot_id), swap: sw ? { from: safeId(sw.from_property_id) } : null,
     carried: !!(t && !t.reviewed), takes: { A: take('A'), B: take('B') }, fit, cont, notes: S.notes[sid] || null,
-    checklist: TypecastChecks.checklist(fit, cont, { carried: !!(t && !t.reviewed) }) };
+    saved: S.decisions[sid] || null, checklist: TypecastChecks.checklist(fit, cont, { carried: !!(t && !t.reviewed) }) };
 }
 function decisionNodes(E, d, activeVariant) {
   const box = E('div', null, 'sheet');
@@ -965,6 +974,12 @@ function decisionNodes(E, d, activeVariant) {
     box.append(E('p', `Take ${v}: ${t.duration_sec}s, ${t.actors.length} stand-in${t.actors.length === 1 ? '' : 's'}${t.dialogue ? `, line: ${t.dialogue}` : ', no dialogue'}${t.origin ? ' · AUTHORED SAMPLE (pre-written, not AI-generated)' : ''}.`, 'meta'));
   }
   const ul = (items) => { const u = E('ul'); items.forEach((i) => u.append(E('li', i))); return u; };
+  if (d.saved) {
+    const r = d.saved, u0 = (items) => { const u = E('ul'); items.forEach((i) => u.append(E('li', i))); return u; };
+    box.append(E('h4', 'Saved decision (historical record, not current source data)'),
+      E('p', `Recorded ${r.decided_at.slice(0, 10)}. Requirement ${r.original.trucks} truck(s), ${r.original.cars} car(s)${r.original.require_available ? ', available listing' : ''} → ${r.revised.trucks} truck(s), ${r.revised.cars} car(s)${r.revised.require_available ? ', available listing' : ''}. Property ${r.before ? r.before.property_id : 'none'} (frame ${r.before ? r.before.shot_id : 'none'}) → ${r.after ? r.after.property_id : 'none'} (frame ${r.after ? r.after.shot_id : 'none'}). Scope: the whole plan was re-planned${r.moved_scenes ? `; ${r.moved_scenes} other scene(s) moved` : ''}. This is a planning comparison, not an approval, an agent trace or a feasibility statement.`),
+      u0(r.differences), E('h4', 'Unresolved when decided'), u0(r.unresolved));
+  }
   box.append(E('h4', 'Fit evidence (sources, not a score; only simple wording in your script is read)'), ul(d.fit.rows.map((r) => `${TypecastChecks.KIND_LABEL[r.kind]}: ${r.label}. ${r.detail}${r.source ? ` Source: ${r.source}.` : ''}`)));
   const real = d.cont;
   if (real.length) box.append(E('h4', 'Continuity (from your link)'), ul(real.map((c) => `${c.level === 'verified' ? 'Mismatch' : c.level === 'potential' ? 'Possible mismatch' : 'Cannot compare'}: ${c.text} Next: ${c.action}`)));
@@ -1066,6 +1081,7 @@ async function importProject(file) {
   $('impProject').value = '';
   if (!file) return false;
   if (S.planBusy) { status('Wait for the current plan or project import to finish.', true); return false; }
+  if (S.save) closeSave();
   // Claim the operation and snapshot the user's state before the first await, so nothing
   // typed during a slow file read or evidence request can be overwritten.
   busy(true);
@@ -1098,7 +1114,7 @@ async function importProject(file) {
     // Commit only after validation and retrieval succeed. Imported evidence never becomes source truth.
     Object.assign(S, { scenes, resp: data, planIdx: 0, sceneId: scenes[0].id, actorIdx: 0,
       edits: restored.edits, frameOverrides: restored.frameOverrides, importReview: restored.reviewNeeded,
-      swaps: restored.swaps, transfer: restored.transfers, notes: restored.notes, alt: Object.create(null), swapUndo: null, built: { trucks: limits.trucks, cars: limits.cars, require_available: limits.require_available },
+      swaps: restored.swaps, transfer: restored.transfers, notes: restored.notes, decisions: target === 'film' ? restored.decisions : Object.create(null), saveTx: null, alt: Object.create(null), swapUndo: null, built: { trucks: limits.trucks, cars: limits.cars, require_available: limits.require_available },
       frameChange: {}, forbidden: [], undo: null, variant: project.variant });
     $('undo').disabled = true;
     $('script').value = scenes.map((scene) => `${scene.heading} | ${scene.description}`.replace(/[\r\n]+/g, ' ')).join('\n');
@@ -1252,6 +1268,182 @@ $('expReel').addEventListener('click', exportReel);
 $('cancelReel').addEventListener('click', () => reelCtrl && reelCtrl.abort());
 window.addEventListener('pagehide', () => { if (rec) rec.stop(); if (reelCtrl) reelCtrl.abort(); stopPlay(); });
 
+// ================= Save the scene (film mode only) =================
+// One coherent interaction: keep the current candidate and both takes, add a real requirement, let the planner re-check the pool,
+// review a bounded before/after comparison, and only then apply it. Nothing changes until "Apply alternative", and Undo restores the
+// exact previous state. It uses the existing planner request; it is not an agent and no model is called.
+let saveTok = 0;
+const saveCtx = (sid) => { const a = assignFor(sid); return { sid, shot: a?.shot_id, prop: a?.property_id, resp: S.resp, script: $('script').value, cons: JSON.stringify(constraints()), forb: JSON.stringify(S.forbidden), planIdx: S.planIdx, mode: S.mode }; };
+const saveCtxValid = (c) => !!c && c.mode === S.mode && c.sid === S.sceneId && c.resp === S.resp && c.planIdx === S.planIdx && c.script === $('script').value
+  && c.cons === JSON.stringify(constraints()) && c.forb === JSON.stringify(S.forbidden) && assignFor(c.sid)?.shot_id === c.shot && assignFor(c.sid)?.property_id === c.prop;
+function closeSave(why) {
+  if (S.save?.ctrl) S.save.ctrl.abort();
+  saveTok++; S.save = null; renderSavePanel();
+  if (why) status(why);
+}
+function openSave() {
+  if (S.mode !== 'film') return;
+  if (S.save) return closeSave();
+  const sid = S.sceneId, a = sid && assignFor(sid);
+  if (!a || S.planBusy || reelCtrl) return status('Build a plan and wait for it to finish before saving a scene.', true);
+  cancelGen(); clearPending(); stopPlay();
+  const c = constraints();
+  S.save = { phase: 'form', sid, ctx: saveCtx(sid), form: { trucks: c.trucks, cars: c.cars, reqAvail: c.require_available }, tok: ++saveTok };
+  renderSavePanel(); S.save?.els?.trucks?.focus?.();
+}
+function readSaveForm() {
+  const e = S.save?.els; if (!e) return { error: 'The form is not open.' };
+  const t = Number(e.trucks.value), c = Number(e.cars.value), form = { trucks: Math.floor(t), cars: Math.floor(c), reqAvail: e.avail.checked };
+  if (!Number.isInteger(t) || t < 0 || t > 20) return { error: 'Trucks must be a whole number from 0 to 20.' };
+  if (!Number.isInteger(c) || c < 0 || c > 50) return { error: 'Cars must be a whole number from 0 to 50.' };
+  return { form };
+}
+async function runSave() {
+  const sv = S.save; if (!sv || sv.phase === 'loading') return;
+  const r = readSaveForm(); if (r.error) { sv.error = r.error; return renderSavePanel(); }
+  const req = { trucks: r.form.trucks, cars: r.form.cars, require_available: r.form.reqAvail };
+  if (!saveCtxValid(sv.ctx)) { sv.phase = 'review'; sv.stale = true; return renderSavePanel(); }
+  const body = { scenes: S.scenes.map(({ id, heading, description }) => ({ id, heading, description })), max_locations: clamp($('maxLoc').value, 1, 4, 3),
+    forbidden_property_ids: [...S.forbidden], require_available: req.require_available, trucks: req.trucks, cars: req.cars };
+  sv.form = r.form; sv.req = req; sv.error = ''; sv.phase = 'loading'; sv.ctrl = new AbortController(); const tok = sv.tok; renderSavePanel();
+  try {
+    const data = await api('/api/production/plan', body, sv.ctrl.signal);
+    if (S.save !== sv || tok !== saveTok) return;
+    if (!Array.isArray(data.scenes) || !Array.isArray(data.plans)) throw new Error('Malformed plan response');
+    if (data.mode !== S.resp?.mode) throw new Error('The data source mode changed, so the two plans are not comparable');
+    if (!saveCtxValid(sv.ctx)) { sv.phase = 'review'; sv.stale = true; sv.ctrl = null; return renderSavePanel(); }
+    applyForbidden(data); orderPlans(data);
+    const a = assignFor(sv.sid), old = S.built || constraints();
+    sv.outcome = TypecastChecks.saveSceneOutcome({ sid: sv.sid, req, oldReq: { trucks: old.trucks, cars: old.cars, require_available: old.require_available }, before: { shot_id: a.shot_id, property_id: a.property_id },
+      oldCand: candFor(sv.sid, a.shot_id), newResp: data, forbidden: [...S.forbidden], oldAssign: Object.fromEntries(S.scenes.map((s) => { const x = assignFor(s.id); return [s.id, x ? { shot_id: x.shot_id, property_id: x.property_id } : null]; }).filter(([, v]) => v)) });
+    sv.resp = data; sv.phase = 'review'; sv.ctrl = null;
+  } catch (e) {
+    if (e.name === 'AbortError' || S.save !== sv || tok !== saveTok) return;
+    sv.phase = 'error'; sv.error = `Could not check the pool: ${e.message}. Nothing changed.`; sv.ctrl = null;
+  }
+  renderSavePanel();
+}
+const np = (o) => Object.assign(Object.create(null), o || {});
+const deep = (o) => JSON.parse(JSON.stringify(o ?? null));
+function snapshotAll() {
+  const inp = { maxLoc: $('maxLoc').value, trucks: $('trucks').value, cars: $('cars').value, reqAvail: $('reqAvail').checked };
+  return { inp, resp: S.resp, planIdx: S.planIdx, forbidden: [...S.forbidden], built: deep(S.built), builtScript: S.builtScript, sceneId: S.sceneId,
+    swaps: deep(S.swaps), transfer: deep(S.transfer), alt: deep(S.alt), edits: deep(S.edits), frameChange: deep(S.frameChange), frameOverrides: deep(S.frameOverrides),
+    importReview: deep(S.importReview), decisions: deep(S.decisions), notes: deep(S.notes), swapUndo: deep(S.swapUndo), undo: deep(S.undo), actorIdx: S.actorIdx, variant: S.variant };
+}
+function restoreAll(t) {
+  $('maxLoc').value = t.inp.maxLoc; $('trucks').value = t.inp.trucks; $('cars').value = t.inp.cars; $('reqAvail').checked = t.inp.reqAvail;
+  S.resp = t.resp; S.planIdx = t.planIdx; S.forbidden = [...t.forbidden]; S.built = deep(t.built); S.builtScript = t.builtScript; S.sceneId = t.sceneId; S.actorIdx = t.actorIdx; S.variant = t.variant;
+  S.swaps = np(deep(t.swaps)); S.transfer = np(deep(t.transfer)); S.alt = np(deep(t.alt)); S.edits = deep(t.edits) || {}; S.frameChange = deep(t.frameChange) || {}; S.frameOverrides = deep(t.frameOverrides) || {};
+  S.importReview = deep(t.importReview) || []; S.decisions = np(deep(t.decisions)); S.notes = np(deep(t.notes)); S.swapUndo = deep(t.swapUndo); S.undo = deep(t.undo);
+  $('undo').disabled = !S.undo;
+}
+function applySave() {
+  const sv = S.save, o = sv?.outcome;
+  if (!sv || sv.phase !== 'review' || !o || o.kind !== 'alternative' || !o.afterCand || !sv.resp) return;
+  if (!saveCtxValid(sv.ctx)) { sv.stale = true; return renderSavePanel(); }
+  const sid = sv.sid, cand = o.afterCand;
+  // The chosen candidate must be an eligible member of the revised response itself, never an id from an older pool.
+  const inPool = (sv.resp.scenes.find((x) => x.id === sid)?.candidates || []).some((c) => c === cand && c.eligible !== false && !S.forbidden.includes(c.shot.property_id));
+  if (!inPool) { sv.stale = true; return renderSavePanel(); }
+  const tx = snapshotAll(), before = assignFor(sid), prev = assignMap(), oldKey = keyOf(sid), oldReq = S.built || constraints();
+  stopPlay(); cancelGen(); clearPending();
+  // 1. the request controls and the plan change together, so what you see is what was planned
+  $('trucks').value = String(sv.req.trucks); $('cars').value = String(sv.req.cars); $('reqAvail').checked = sv.req.require_available;
+  S.resp = sv.resp; S.planIdx = 0; S.frameOverrides = {}; S.swaps = np(); S.swapUndo = null; S.built = { trucks: sv.req.trucks, cars: sv.req.cars, require_available: sv.req.require_available };
+  noteFrameChanges(prev); delete S.frameChange[sid];
+  // 2. this scene moves to the chosen candidate; both takes come along as unreviewed drafts and nothing is overwritten
+  const k = `${S.planIdx}::${sid}`, newKey = `${sid}::${cand.shot.shot_id}`;
+  S.swaps[k] = { shot_id: cand.shot.shot_id, property_id: cand.shot.property_id, from_shot_id: before.shot_id, from_property_id: before.property_id, via: 'save' };
+  if (S.edits[oldKey] && hasWork(S.edits[oldKey])) {
+    if (!S.edits[newKey] || !hasWork(S.edits[newKey])) { S.edits[newKey] = clone(S.edits[oldKey]); S.transfer[newKey] = { from_shot_id: before.shot_id, from_property_id: before.property_id, reviewed: false }; }
+    else if (JSON.stringify(S.edits[newKey]) !== JSON.stringify(S.edits[oldKey])) S.swaps[k].dest_kept = true;
+  }
+  // 3. the historical decision record
+  S.decisions[sid] = TypecastChecks.decisionRecord(o, { trucks: oldReq.trucks, cars: oldReq.cars, require_available: oldReq.require_available }, sv.req, new Date().toISOString());
+  S.rev++; S.save = null; saveTok++; renderAll();
+  S.saveTx = { sid, tx, rev: S.rev };
+  status(`Applied: scene ${sceneNumber(sid)} now uses ${safeId(cand.shot.property_id)} for ${sv.req.trucks} truck${sv.req.trucks === 1 ? '' : 's'}. Both takes were copied as unreviewed drafts; the previous frame and its takes are kept. Undo restores everything.`);
+  renderSwapNotice();
+}
+function undoSave() {
+  const t = S.saveTx;
+  if (!t || t.rev !== S.rev) return status('Undo is available only until you change something else; use Back to planned location instead.', true);
+  stopPlay(); cancelGen(); clearPending(); closeSave();
+  restoreAll(t.tx); S.saveTx = null; S.rev++; renderAll();
+  status('Save the scene was undone: the previous plan, requirements, frame, takes and notes are exactly as they were.');
+}
+const saveOutcomeText = {
+  already: 'The current frame already satisfies these requirements according to the planner data (estimates are not approvals). Nothing to change.',
+};
+function renderSavePanel() {
+  const panel = $('savePanel'), body = $('saveBody'), sv = S.save;
+  $('saveBtn').setAttribute('aria-expanded', String(!!sv)); $('saveBtn').disabled = S.mode !== 'film' || S.planBusy || !S.sceneId || !assignFor(S.sceneId);
+  if (!sv || S.mode !== 'film') { panel.hidden = true; body.replaceChildren(); return; }
+  panel.hidden = false; body.replaceChildren();
+  const cancel = el('button', { type: 'button', text: sv.phase === 'review' || sv.phase === 'error' ? 'Close' : 'Cancel' }); cancel.addEventListener('click', () => closeSave());
+  const a = assignFor(sv.sid), c = a && candFor(sv.sid, a.shot_id), f = c && TypecastChecks.candidateFacts(c);
+  const here = el('p', { class: 'meta', text: `Scene ${sceneNumber(sv.sid)} now uses ${safeId(a?.property_id)} (frame ${safeId(a?.shot_id)}). Both takes are kept; nothing changes until you apply an alternative.` });
+  if (sv.stale) {
+    body.append(el('p', { class: 'warn', text: 'The script, requirements, rejections, scene or plan changed since you opened this. Nothing was replaced. Check again from the current state.' }), el('div', { class: 'row' }, (() => { const b = el('button', { type: 'button', class: 'primary', text: 'Start again' }); b.addEventListener('click', () => { closeSave(); openSave(); }); return b; })(), cancel));
+    return;
+  }
+  if (sv.phase === 'form') {
+    const live = el('p', { id: 'svLive', class: 'chk chk-unknown', 'aria-live': 'polite' });
+    const upd = () => {
+      const r = readSaveForm(); if (r.error) { live.textContent = r.error; return; }
+      const fit = TypecastChecks.fitCheck({ scene: S.scenes.find((x) => x.id === sv.sid), cand: c, built: { trucks: r.form.trucks, cars: r.form.cars, require_available: r.form.reqAvail }, mode: S.resp?.mode });
+      const rows = fit.rows.filter((x) => /Parking|availability/i.test(x.label));
+      live.textContent = rows.length ? rows.map((x) => `${TypecastChecks.KIND_LABEL[x.kind]}: ${x.label}. ${x.detail}`).join(' ') : 'No vehicle or availability requirement is set yet.';
+    };
+    const mk = (label, v, max) => { const input = el('input', { type: 'number', min: '0', max: String(max), value: String(v), inputmode: 'numeric', 'aria-label': label }); return { input, label: el('label', {}, `${label} `, input) }; };
+    const tr = mk('Trucks', sv.form.trucks, 20), ca = mk('Crew cars', sv.form.cars, 50), av = el('input', { type: 'checkbox', 'aria-label': 'Require an available listing' });
+    av.checked = !!sv.form.reqAvail; sv.els = { trucks: tr.input, cars: ca.input, avail: av };
+    body.append(here, el('div', { class: 'constraints' }, tr.label, ca.label), el('label', { class: 'check' }, av, ' Require an available listing'), live,
+      el('p', { class: 'meta', text: `This re-plans the whole script with these requirements (this planner works on whole plans); max locations ${clamp($('maxLoc').value, 1, 4, 3)} and ${S.forbidden.length} rejected location${S.forbidden.length === 1 ? '' : 's'} stay. Unknown capacity is never counted as met.` }));
+    for (const x of [tr.input, ca.input, av]) x.addEventListener('input', upd);
+    upd();
+    const go = el('button', { type: 'button', class: 'primary', text: 'Find an alternative' }); go.addEventListener('click', runSave);
+    body.append(...(sv.error ? [el('p', { class: 'warn', text: sv.error })] : []), el('div', { class: 'row' }, go, cancel));
+    return;
+  }
+  if (sv.phase === 'loading') { body.append(here, el('p', { text: 'Checking the candidate pool with these requirements…', role: 'status' }), el('div', { class: 'row' }, cancel)); return; }
+  if (sv.phase === 'error') { body.append(el('p', { class: 'warn', text: sv.error }), el('div', { class: 'row' }, cancel)); return; }
+  // review
+  const o = sv.outcome, req = sv.req;
+  const reqText = `${req.trucks} truck${req.trucks === 1 ? '' : 's'}, ${req.cars} car${req.cars === 1 ? '' : 's'}${req.require_available ? ', available listing' : ''}`;
+  body.append(el('h3', { text: `Requirement: ${reqText}` }));
+  const thumbBox = (fct, title) => el('figure', { class: 'save-card' }, fct ? el('img', { class: 'thumb', alt: `${title} frame ${fct.shot_id}`, src: `/image/${encodeURIComponent(fct.shot_id)}` }) : '', el('figcaption', { text: `${title}: ${fct ? safeId(fct.property_id) : 'none'}` }));
+  if (o.kind === 'alternative') {
+    body.append(el('div', { class: 'save-compare' }, thumbBox(o.before, 'Before'), thumbBox(o.after, 'Proposed after')),
+      el('ul', { class: 'chk-list' }, ...o.differences.map((d) => el('li', { class: 'chk', text: d }))),
+      el('h4', { text: 'Still unresolved' }), el('ul', { class: 'chk-list' }, ...o.unresolved.map((d) => el('li', { class: 'chk chk-unknown', text: d }))),
+      el('p', { class: 'meta', text: `Scope: ${o.planChanges.length ? `the whole plan is replaced, and ${o.planChanges.length} other scene${o.planChanges.length === 1 ? ' moves' : 's move'} too (their takes stay with their old frames).` : 'the whole plan is re-planned; no other scene changes frame.'} This compares planner data, not shootability, and is not an approval.` }));
+    const apply = el('button', { type: 'button', class: 'primary', text: 'Apply alternative' }); apply.addEventListener('click', applySave);
+    body.append(el('div', { class: 'row' }, apply, (() => { const k = el('button', { type: 'button', text: 'Keep original' }); k.addEventListener('click', () => closeSave('Kept the original. Nothing changed.')); return k; })()));
+    return;
+  }
+  const msg = o.kind === 'already' ? saveOutcomeText.already : `No better candidate: ${o.reasons.join(' ')}`;
+  body.append(thumbBox(o.before, 'Current'), el('p', { role: 'status', text: msg }),
+    ...(o.before ? [el('p', { class: 'meta', text: `Current candidate under these requirements: ${o.before.excluded ? 'ruled out by the planner' : o.before.sat.parking === 'unknown' ? 'capacity unknown' : o.before.sat.parking === 'unmet' ? 'capacity below the requirement' : o.before.sat.parking === 'met' ? `${o.before.parking_status} capacity covers it (approval unknown)` : 'no vehicle requirement'}.` })] : []),
+    el('p', { class: 'meta', text: 'Nothing was changed and no result is saved. Add the data to the sources, relax the requirement, or check on site.' }), el('div', { class: 'row' }, cancel));
+}
+$('saveBtn').addEventListener('click', openSave);
+function refreshSaveStale() { if (S.save && S.save.phase === 'review' && !S.save.stale && !saveCtxValid(S.save.ctx)) { S.save.stale = true; renderSavePanel(); } }
+for (const id of ['trucks', 'cars', 'maxLoc', 'reqAvail', 'script']) $(id).addEventListener(id === 'maxLoc' || id === 'reqAvail' ? 'change' : 'input', refreshSaveStale);
+// a saved decision is a historical review note, never current source truth
+function decisionHistoryNodes(sid) {
+  const r = S.decisions[sid]; if (!r) return null;
+  const a = assignFor(sid), cur = S.built || constraints();
+  const box = el('section', { class: 'ev save-record' }, el('h4', { text: 'Saved decision (historical record)' }));
+  box.append(el('p', { class: 'meta', text: `Recorded ${r.decided_at.slice(0, 10)} for ${r.revised.trucks} truck${r.revised.trucks === 1 ? '' : 's'}, ${r.revised.cars} car${r.revised.cars === 1 ? '' : 's'}${r.revised.require_available ? ', available listing' : ''}. These are the facts captured then; they are not current source data and not an approval.` }),
+    el('p', { text: `${r.before ? safeId(r.before.property_id) : 'none'} (frame ${r.before ? safeId(r.before.shot_id) : 'none'}) → ${r.after ? safeId(r.after.property_id) : 'none'} (frame ${r.after ? safeId(r.after.shot_id) : 'none'}).` }),
+    el('ul', { class: 'chk-list' }, ...r.differences.map((d) => el('li', { class: 'chk', text: d }))));
+  if (r.after && (!a || a.shot_id !== r.after.shot_id)) box.append(el('p', { class: 'warn', text: 'This scene no longer uses the frame that decision chose.' }));
+  if (cur.trucks !== r.revised.trucks || cur.cars !== r.revised.cars || !!cur.require_available !== r.revised.require_available) box.append(el('p', { class: 'warn', text: 'Your current requirement controls differ from the ones this decision used. Set them again to re-check the fit rows.' }));
+  return box;
+}
+
 // ================= mode: Film production | Community planning =================
 // Community planning is pre-incident candidate-site review for volunteer and supply coordination. It reuses the same
 // evidence, retrieval and review engine and adds human-reported coordinator checks. It never routes evacuations,
@@ -1262,10 +1454,10 @@ const COMM_DEMO = [
   'Volunteer check-in and briefing', 'A quiet room for about 30 volunteers to check in and be briefed, an accessible entrance and restrooms nearby.', '',
   'Cold storage and staging', 'Floor area for pallets and a vehicle bay for refrigerated trucks, no more than 600 m2.',
 ].join('\n');
-const MODE_KEYS = ['builtScript', 'scenes', 'resp', 'planIdx', 'sceneId', 'variant', 'forbidden', 'edits', 'frameChange', 'frameOverrides', 'importReview', 'actorIdx',
+const MODE_KEYS = ['saveTx', 'decisions', 'builtScript', 'scenes', 'resp', 'planIdx', 'sceneId', 'variant', 'forbidden', 'edits', 'frameChange', 'frameOverrides', 'importReview', 'actorIdx',
   'undo', 'swaps', 'transfer', 'alt', 'swapUndo', 'notes', 'built', 'compare', 'comm', 'brief'];
 function freshMode(m) {
-  return { builtScript: '', scenes: [], resp: null, planIdx: 0, sceneId: null, variant: 'A', forbidden: [], edits: {}, frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0,
+  return { saveTx: null, decisions: Object.create(null), builtScript: '', scenes: [], resp: null, planIdx: 0, sceneId: null, variant: 'A', forbidden: [], edits: {}, frameChange: {}, frameOverrides: {}, importReview: [], actorIdx: 0,
     undo: null, swaps: Object.create(null), transfer: Object.create(null), alt: Object.create(null), swapUndo: null, notes: Object.create(null), built: null, compare: false,
     comm: Object.create(null), brief: { reviewer: '', date: '', notes: '' },
     inputs: { script: m === 'film' ? DEMO : '', maxLoc: '3', trucks: '0', cars: '0', reqAvail: false } };
@@ -1309,7 +1501,7 @@ function setMode(m, opts = {}) {
   if (m !== 'film' && m !== 'community') return false;
   if (m === S.mode) return true;
   if (!opts.force && (S.planBusy || reelCtrl)) { status('Wait for the plan or reel to finish before switching mode.', true); return false; }
-  stopPlay(); cancelGen(); clearPending(); endDrag();
+  stopPlay(); cancelGen(); clearPending(); endDrag(); if (S.save) closeSave();
   MODES[S.mode] = captureMode();                           // film work is stashed whole, never edited by community mode
   const had = !!MODES[m];
   S.mode = m; applyModeState(MODES[m] || freshMode(m)); MODES[m] = null; S.rev++;
@@ -1527,8 +1719,8 @@ function draftEnvelope() {
 function draftProject() {
   const p = exportSnapshot();
   return { app: p.app, variant: p.variant, ...(p.mode ? { mode: p.mode, brief: p.brief, needs: p.needs, sites: p.sites } : {}),
-    scenes: p.scenes.map(({ id, heading, description, variants, location_choice, notes, evidence }) => ({ id, heading, description, evidence: evidence?.frame ? { frame: { shot_id: evidence.frame.shot_id, property_id: evidence.frame.property_id } } : null,
-      variants, ...(location_choice ? { location_choice } : {}), ...(notes ? { notes } : {}) })) };
+    scenes: p.scenes.map(({ id, heading, description, variants, location_choice, notes, evidence, decision }) => ({ id, heading, description, evidence: evidence?.frame ? { frame: { shot_id: evidence.frame.shot_id, property_id: evidence.frame.property_id } } : null,
+      variants, ...(location_choice ? { location_choice } : {}), ...(notes ? { notes } : {}), ...(decision ? { decision } : {}) })) };
 }
 function saveDraft() {
   if (!draftState.ready || draftState.hold[S.mode] || S.planBusy || !draftOn()) return false;
