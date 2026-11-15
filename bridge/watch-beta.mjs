@@ -8,7 +8,9 @@
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { handleMessage, parseAllowed, isAllowed } from "./intake.mjs";
+import { parseAllowed, isAllowed } from "./intake.mjs";
+import { handleMessage } from "./scout-v2.mjs";
+import { createConversations } from "./conversations.mjs";
 
 export const POLL_MS = 2000;
 export const MAX_TEXT = 1500;
@@ -17,6 +19,7 @@ const BACKOFF_MAX_MS = 120_000;
 const WINDOW_OVERLAP_MS = 60_000;
 const SEEN_LIMIT = 10_000;
 const FATAL_STATUSES = new Set([400, 401, 403, 404, 422]);
+const NON_TEXT_TYPES = new Set(["attachment", "voice"]);
 
 export function parseConfig(env = process.env) {
   for (const name of ["PHOTON_PROJECT_ID", "PHOTON_PROJECT_SECRET", "PHOTON_AGENT_HANDLE", "PHOTON_ALLOWED_SENDERS"]) {
@@ -52,7 +55,8 @@ export function acceptMessage(m, cfg, startedAt = 0) {
   if (!(Date.parse(m.createdAt) >= startedAt)) return no("too_old");
   if (!m.id || !m.space.id || !m.receivedBy.id) return no("incomplete");
   const text = m.content?.type === "text" && m.content.format === "plain" ? String(m.content.text ?? "").trim() : "";
-  if (!text) return no("not_text");
+  // Photos and voice notes get one notice; tapbacks, read receipts and typing updates are ignored.
+  if (!text) return NON_TEXT_TYPES.has(m.content?.type) ? { ok: true, id: m.id, spaceId: m.space.id, senderId: m.receivedBy.id, text: "", nonText: true } : no("not_text");
   return { ok: true, id: m.id, spaceId: m.space.id, senderId: m.receivedBy.id, text };
 }
 
@@ -94,19 +98,27 @@ export function chunkText(text, max = MAX_TEXT) {
   return chunks;
 }
 
+/** PHOTON_DRY_RUN=1: read real messages, send nothing. Logs only a running count and a length, never the text. */
+export function makeDryRunClient(real, log = console.log) {
+  let wouldSend = 0;
+  return { stats: { get wouldSend() { return wouldSend; } }, projects: {
+    listMessages: (input) => real.projects.listMessages(input),
+    sendMessage: async (input) => { wouldSend += 1; log(`dry run: would send reply ${wouldSend} (${input.body.content.text.length} characters); nothing was sent`); return { id: "dry-run" }; },
+  } };
+}
+
 export function createRunner({
-  photon, cfg, handle = handleMessage, wait = sleep, now = Date.now,
-  log = console.log, logError = console.error, env = process.env, fetchImpl,
+  photon, cfg, handle = handleMessage, wait = sleep, mergeWait = wait, now = Date.now,
+  log = console.log, logError = console.error, env = process.env, fetchImpl, dryRun = false,
 }) {
   const startedAt = now();
   const seen = createSeen();
-  const queues = new Map();
   const stats = { ignored: 0, answered: 0 };
   let newest = startedAt - 5000;
 
   async function sendText(m, n, text) {
     const headers = { "idempotency-key": `typecast-reply:${m.id}:${n}` };
-    for (let attempt = 0; ; attempt++) {
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
         await photon.projects.sendMessage({
           path: { id: cfg.projectId }, headers,
@@ -115,27 +127,16 @@ export function createRunner({
         return true;
       } catch (e) {
         logError(describeError(e));
-        if (e?.status === 429 && attempt < 3) { await wait(retryAfterMs(e, now()) ?? BACKOFF_START_MS * 2 ** attempt); continue; }
-        return false;
+        if (attempt === 1) return false;
+        await wait(e?.status === 429 ? (retryAfterMs(e, now()) ?? BACKOFF_START_MS) : 1000);
       }
     }
   }
 
-  async function answer(m) {
-    let n = 0;
-    const out = async (text) => { for (const piece of chunkText(text)) await sendText(m, n++, piece); };
-    try {
-      const parts = await handle(m.spaceId, m.text, { say: out, fetchImpl, env });
-      for (const part of parts) if (part.text) await out(part.text);
-      stats.answered += 1;
-    } catch (e) { logError(describeError(e)); }
-  }
-
-  // One conversation at a time keeps its replies in order; different conversations run side by side.
-  function enqueue(m) {
-    const next = (queues.get(m.spaceId) ?? Promise.resolve()).then(() => answer(m));
-    queues.set(m.spaceId, next);
-  }
+  const conversations = createConversations({
+    handle, send: sendText, split: chunkText, wait: mergeWait, log, fetchImpl, env,
+    onError: (e) => logError(describeError(e)), onAnswered: () => { stats.answered += 1; },
+  });
 
   async function pollOnce() {
     const createdSince = new Date(Math.max(startedAt - 5000, newest - WINDOW_OVERLAP_MS)).toISOString();
@@ -152,7 +153,7 @@ export function createRunner({
         if (!raw?.id || seen.has(raw.id)) continue;
         seen.add(raw.id);
         const accepted = acceptMessage(raw, cfg, startedAt);
-        if (accepted.ok) enqueue(accepted); else stats.ignored += 1;
+        if (accepted.ok) conversations.submit(accepted); else stats.ignored += 1;
       }
       pageToken = page.nextPageToken;
     } while (pageToken);
@@ -168,7 +169,7 @@ export function createRunner({
       try {
         await pollOnce();
         backoff = 0;
-        if (!ready) { ready = true; log(`Ready: Photon Beta, polling every ${POLL_MS / 1000} s, mock mode, ${cfg.allowed.size} allowlisted sender(s).`); }
+        if (!ready) { ready = true; log(`Ready: Photon Beta, polling every ${POLL_MS / 1000} s, mock mode, ${cfg.allowed.size} allowlisted sender(s).${dryRun ? " DRY RUN: replies are counted, not sent." : ""}`); }
       } catch (e) {
         logError(describeError(e));
         if (isApiError(e) && FATAL_STATUSES.has(e.status)) return 1;
@@ -181,7 +182,7 @@ export function createRunner({
     return 0;
   }
 
-  return { pollOnce, run, stats, idle: () => Promise.all([...queues.values()]) };
+  return { pollOnce, run, stats, idle: conversations.idle };
 }
 
 async function main() {
@@ -192,10 +193,12 @@ async function main() {
   try { cfg = parseConfig(); } catch (e) { fail(e.message); }
   try { await assertMockMode(process.env.TYPECAST_API || "http://localhost:8000"); } catch (e) { fail(e.message); }
   const { Photon } = await import("@photon-ai/api");
-  const photon = new Photon({ headers: { Authorization: `Bearer ${cfg.key}` } });
+  const real = new Photon({ headers: { Authorization: `Bearer ${cfg.key}` } });
+  const dryRun = process.env.PHOTON_DRY_RUN === "1";
+  const photon = dryRun ? makeDryRunClient(real) : real;
   let stop = false;
   process.on("SIGINT", () => { stop = true; });
-  const runner = createRunner({ photon, cfg });
+  const runner = createRunner({ photon, cfg, dryRun, mergeWait: sleep });
   process.exitCode = await runner.run({ shouldStop: () => stop });
   await runner.idle();
 }

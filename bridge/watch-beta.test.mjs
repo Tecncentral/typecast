@@ -59,7 +59,7 @@ function harness(polls, over = {}) {
   const photon = fakePhoton(polls);
   const logs = [], errors = [], waits = [];
   const runner = createRunner({
-    photon, cfg, now: () => T0, wait: async (ms) => { waits.push(ms); },
+    photon, cfg, now: () => T0, wait: async (ms) => { waits.push(ms); }, mergeWait: async () => {},
     log: (l) => logs.push(l), logError: (l) => errors.push(l), env: {}, ...over,
   });
   return { photon, logs, errors, waits, runner };
@@ -174,7 +174,7 @@ test("the real intake answers the first message with its first question, as plai
   const { photon, runner } = harness([[msg("m-2")]]);
   await runner.pollOnce(); await runner.idle();
   assert.deepEqual(texts(photon), ["Got it: police station, night. LA or Houston?"]);
-  assert.ok(sessions.get("space-1234").intake, "the intake state lives under the space id");
+  assert.ok(sessions.get("space-1234").v2.st, "the intake state lives under the space id");
 });
 
 test("a whole conversation through the real intake: three questions, one search, text only", async () => {
@@ -190,10 +190,10 @@ test("a whole conversation through the real intake: three questions, one search,
   assert.deepEqual(calls, [["/scout", { scene: "INT. 1980s POLICE STATION, NIGHT. Los Angeles. Gritty. Parking for 3 trucks and 30 crew cars." }]]);
   const sent = texts(photon);
   assert.equal(sent[0], "Got it: police station, night. LA or Houston?");
-  assert.equal(sent[1], "What era? Reply: modern / 80s / 70s / any");
+  assert.match(sent[1], /^Need an exterior too/);
   assert.equal(sent[2], 'How many trucks and crew cars? Or "skip".');
-  assert.match(sent[3], /^Searching for: INT\. 1980s POLICE STATION/);
-  assert.ok(sent.some((t) => /^1\. /.test(t)) && sent.some((t) => /^3\. /.test(t)));
+  assert.match(sent[3], /^Searching now \(MOCK\)\.\nInterior: INT\. 1980s POLICE STATION/);
+  assert.ok(sent.some((t) => /^MOCK · 3 interior picks\n1\. /.test(t)) && sent.some((t) => /\n3\. /.test(t)));
   assert.ok(photon.calls.send.every((c) => c.body.content.type === "text"), "no images are sent");
   assert.ok(!sent.some((t) => /localhost:8000\/mocks\/img/.test(t)), "no image links either");
 });
@@ -223,7 +223,8 @@ test("each poll asks for received iMessages, oldest first, 100 per page, and wai
 });
 
 test("pages are followed with nextPageToken", async () => {
-  const pages = [{ items: [msg("p1")], nextPageToken: "tok" }, { items: [msg("p2")], nextPageToken: undefined }];
+  const other = { platform: "imessage", kind: "direct", id: "space-other" };
+  const pages = [{ items: [msg("p1")], nextPageToken: "tok" }, { items: [msg("p2", { space: other })], nextPageToken: undefined }];
   const queries = [];
   const photon = { calls: { send: [] }, projects: {
     listMessages: async (i) => { queries.push(i.query); return pages.shift(); },
@@ -320,5 +321,5 @@ test("the runner uses the documented SDK pattern and imports only what it needs"
   assert.match(source, /Authorization: `Bearer \$\{cfg\.key\}`/);
   assert.match(source, /photon\.projects\.listMessages/); assert.match(source, /photon\.projects\.sendMessage/);
   assert.match(source, /"idempotency-key"/);
-  assert.deepEqual([...source.matchAll(/^import .* from "(.+)";$/gm)].map((m) => m[1]).sort(), ["./intake.mjs", "node:path", "node:timers/promises", "node:url"]);
+  assert.deepEqual([...source.matchAll(/^import .* from "(.+)";$/gm)].map((m) => m[1]).sort(), ["./conversations.mjs", "./intake.mjs", "./scout-v2.mjs", "node:path", "node:timers/promises", "node:url"]);
 });
