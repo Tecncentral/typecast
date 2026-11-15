@@ -16,27 +16,40 @@ from __future__ import annotations
 import json
 import math
 import re
+import time
 
+from data.vexcel_budget import CAPS, check_and_record
 from data.vexcel_client import VEXCEL_BASE, ProviderError, VexcelClient
 
 ENDPOINTS = {"embedding/extract", "oriented/extract", "dtm/elevation", "dsm/elevation"}
+MAX_RETRIES = 5
 DIRECTIONS = ("north", "east", "south", "west")
 _Z = re.compile(r"(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)\s+(-?\d+(?:\.\d+)?)")
 
 
 class ObliqueClient(VexcelClient):
-    def _call(self, endpoint: str, parameters: dict) -> bytes:
+    def _call(self, endpoint: str, parameters: dict, count: int = 1) -> bytes:
         if endpoint not in ENDPOINTS:
             raise ValueError("Unsupported Vexcel endpoint")
-        return self._request("GET", VEXCEL_BASE + endpoint, params={**parameters, "api_key": self.api_key})
+        check_and_record(endpoint, count)
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                return self._request("GET", VEXCEL_BASE + endpoint, params={**parameters, "api_key": self.api_key})
+            except ProviderError as error:
+                if "HTTP 429" not in str(error):
+                    raise
+                if attempt == MAX_RETRIES:
+                    raise ProviderError("Vexcel HTTP 429: rate limited, retries exhausted") from None
+                time.sleep(2**attempt)
 
     def search_tiles(self, text: str, lat: float, lon: float, radius_m: float, k: int = 16) -> list[dict]:
         """Ortho tiles whose embedding matches the text, best first; [] when nothing matches."""
+        k = min(k, CAPS["embedding"]["per_search"])
         try:
             raw = self._call("embedding/extract", {
                 "search-text": text[:300], "wkt": f"POINT({lon} {lat})", "buffer-meter": int(radius_m),
                 "source.product-type": "final-ortho", "total-records": k, "page-size": k,
-                "include": "score,geometry,quadkey,collection"})
+                "include": "score,geometry,quadkey,collection"}, count=k)
         except ProviderError as error:
             if "404" in str(error):
                 return []
