@@ -339,6 +339,36 @@ def dressed_set(shot_id: str):
     }
 
 
+@app.get("/api/strike/{shot_id}")
+def struck_frames(shot_id: str):
+    """AI furniture removal for the shot's scan point, if it was precomputed with `python -m strike`.
+
+    Each face was blended back into the real scan and checked with the Decisions API; only accepted
+    faces carry a URL. The label is canonical, never taken from the cache.
+    """
+    if os.getenv("TYPECAST_ENABLE_STRIKE", "1") == "0":
+        raise HTTPException(404, "Strike is disabled")
+    if not _SHOT_ID.fullmatch(shot_id):
+        raise HTTPException(422, "Invalid shot id")
+    from index.search import get_active_index
+    from strike.core import load_strike
+    try:
+        shot = get_active_index().get_shot(shot_id)
+    except KeyError:
+        raise HTTPException(404, "Unknown shot") from None
+    except Exception:
+        raise HTTPException(503, "Shot index unavailable") from None
+    record = load_strike(shot.model_id, shot.sweep_id)
+    if not record or not any(f["struck_url"] for f in record["faces"]):
+        raise HTTPException(404, "No struck frames for this scan point")
+    heading = round(shot.heading_deg) % 360
+    face = next((f for f in record["faces"] if f["heading_deg"] == heading), None)
+    return {"shot_id": shot.shot_id, "heading_deg": heading, "label": record["label"],
+            "method": "AI image edit, blended into the real scan, checked by a decision model",
+            "edit_model": record["edit_model"], "created_at": record["created_at"],
+            "face": face, "faces": record["faces"]}
+
+
 def _servable_cache_path(path: str) -> bool:
     """Images anywhere in cache/; Gaussian splats only from generated worlds."""
     pure = pathlib.PurePosixPath(path)
