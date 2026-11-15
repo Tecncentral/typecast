@@ -38,6 +38,48 @@ function parseTodos(text) {
   }
 }
 
+const TOOL_NAMES = {
+  search_costar: "Search CoStar",
+  get_property: "Read CoStar record",
+  search_shots: "Search interiors",
+  get_shot: "Read interior",
+  rerank: "Visual re-rank",
+  check_shot_fit: "Check shot fit",
+  plan_logistics: "Plan parking",
+};
+const humanKey = (key) => key.replaceAll("_", " ");
+/** What a person can read in a lane; the raw text stays on the row's data-event-text. */
+function readable(text) {
+  const trimmed = text.trim();
+  if (!/^[[{]/.test(trimmed)) return trimmed.length > 160 ? `${trimmed.slice(0, 157)}…` : trimmed;
+  let value;
+  try {
+    value = JSON.parse(trimmed);
+  } catch {
+    return trimmed.length > 160 ? `${trimmed.slice(0, 157)}…` : trimmed;
+  }
+  const todos = parseTodos(trimmed);
+  if (todos) {
+    const done = todos.filter((todo) => todo.status === "completed").length;
+    return `${done} of ${todos.length} plan steps done`;
+  }
+  if (Array.isArray(value)) return `${value.length} item${value.length === 1 ? "" : "s"} returned`;
+  if (!value || typeof value !== "object") return String(value);
+  const keys = Object.keys(value);
+  // Records keyed by identifiers (e.g. one note per property) read as a count, never as raw ids.
+  if (keys.length && keys.every((key) => /^[0-9a-z_-]{5,}$/i.test(key) && /\d/.test(key)))
+    return `${keys.length} record${keys.length === 1 ? "" : "s"} checked`;
+  const parts = [];
+  for (const key of keys) {
+    const item = value[key];
+    if (Array.isArray(item)) parts.push(`${item.length} ${humanKey(key)}`);
+    else if (typeof item === "number" || typeof item === "boolean") parts.push(`${humanKey(key)} ${item}`);
+    else if (typeof item === "string" && item.length <= 40) parts.push(`${humanKey(key)}: ${item}`);
+    if (parts.length === 3) break;
+  }
+  return parts.length ? parts.join(" · ") : `${keys.length} fields returned`;
+}
+
 function eventLabel(event) {
   const names = {
     plan: "Plan",
@@ -54,7 +96,7 @@ function eventLabel(event) {
   };
   const parts = [
     event.type === "tool"
-      ? event.agent || "Tool"
+      ? TOOL_NAMES[event.agent] || event.agent || "Tool"
       : names[event.type] || event.type || "Event",
   ];
   if (typeof event.ms === "number" && Number.isFinite(event.ms))
@@ -155,8 +197,9 @@ export class Progress {
       row.classList.add("event-skeptic");
     row.append(
       el("span", eventLabel(event), "event-label"),
-      el("span", text, "event-text"),
+      el("span", readable(text), "event-text"),
     );
+    if (readable(text) !== text) row.title = text.length > 600 ? `${text.slice(0, 597)}…` : text;
     const followLog =
       lane.log.scrollHeight - lane.log.scrollTop - lane.log.clientHeight < 32;
     lane.log.append(row);

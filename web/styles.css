@@ -1039,3 +1039,40 @@ footer {
 .has-results .scene-section > .section-topline {
   display: none;
 }
+
+/* Disclosures open with height and opacity instead of snapping (Chromium; other engines open instantly). */
+:root {
+  interpolate-size: allow-keywords;
+}
+details::details-content {
+  block-size: 0;
+  opacity: 0;
+  overflow: clip;
+  transition: block-size 180ms ease-in, opacity 120ms ease-in, content-visibility 180ms allow-discrete;
+}
+details[open]::details-content {
+  block-size: auto;
+  opacity: 1;
+  transition: block-size 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 240ms ease-out 60ms,
+    content-visibility 320ms allow-discrete;
+}
+@media (prefers-reduced-motion: reduce) {
+  details::details-content,
+  details[open]::details-content {
+    transition: none;
+  }
+}
+.lane-log .event-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.results {
+  align-items: stretch;
+  gap: 24px;
+}
+#shortlist-heading {
+  font: 700 40px/1 var(--brand);
+  letter-spacing: 0.005em;
+}

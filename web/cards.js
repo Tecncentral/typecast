@@ -4,17 +4,13 @@ import {
   createShotViewer,
   fitStatus,
   logisticsStatus,
+  numberKnown,
   openEvidenceDrawer,
   quantity,
   sourceStatuses,
   statusTag,
 } from "./drawer.js";
 let cardSerial = 0;
-function metric(label, value, className = "") {
-  const item = el("div", undefined, `pick-metric ${className}`.trim());
-  item.append(el("dt", label), el("dd", value));
-  return item;
-}
 function previousPick(previousPicks, id) {
   return Array.isArray(previousPicks)
     ? previousPicks.find((pick) => pick.property?.property_id === id)
@@ -32,90 +28,103 @@ function rankChange(pick, previousPicks) {
     `rank-change ${previous.rank > pick.rank ? "rank-up" : "rank-down"}`,
   );
 }
-function reasonSummary(pick) {
-  const supplied = pick.reason?.trim() || "";
-  if (supplied && supplied.length <= 90) return supplied;
-  const lead = supplied.split(";")[0];
-  const blocked = /^blocked alternative$/i.test(lead);
-  if (lead && lead.length <= 90 && !blocked && !/^(CoStar|Matterport|Vexcel):/i.test(lead))
-    return lead;
-  const fit = fitStatus(pick);
-  const logistics = pick.logistics ?? {};
-  const parking = logisticsStatus(logistics, "parking");
-  return [
-    blocked ? lead : null,
-    fit === "fits" ? "Shot fits" : fit === "tight" ? "Shot is tight" : "Fit unknown",
-    logistics.truck_spaces == null
-      ? "Truck capacity unknown"
-      : `${quantity(logistics.truck_spaces, "", 0)} truck spaces · ${parking}`,
-  ].filter(Boolean).join(" · ");
+function chevron() {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("class", "disclosure-chevron");
+  const path = document.createElementNS(svg.namespaceURI, "path");
+  path.setAttribute("d", "M9 5l7 7-7 7");
+  path.setAttribute("fill", "none");
+  path.setAttribute("stroke", "currentColor");
+  path.setAttribute("stroke-width", "1.8");
+  svg.append(path);
+  return svg;
 }
-function parkingSummary(logistics, property) {
-  const section = el("section", undefined, "card-logistics");
-  const heading = el("div", undefined, "card-section-heading");
-  heading.append(
-    el("h4", "Crew logistics"),
-    statusTag(
-      logisticsStatus(logistics, "parking"),
-      logisticsStatus(logistics, "parking"),
-    ),
-  );
-  section.append(heading);
-  const content = el(
-    "div",
-    undefined,
-    `card-parking-content ${logistics.aerial_image_path ? "has-aerial" : ""}`,
-  );
-  const metrics = el("dl", undefined, "parking-metrics");
-  metrics.append(
-    metric("Truck spaces", quantity(logistics.truck_spaces, "", 0)),
-    metric("Crew cars", quantity(logistics.car_spaces, "", 0)),
-  );
-  metrics.append(
-    metric(
-      "Walk",
-      `${quantity(logistics.walk_m, " m")} · ${logisticsStatus(logistics, "walk")}`,
-      "walk-metric",
-    ),
-  );
-  content.append(metrics);
-  if (logistics.aerial_image_path) {
-    const aerial = el("figure", undefined, "card-aerial");
-    const image = el("img");
-    image.src = assetUrl(logistics.aerial_image_path);
-    image.alt = `Aerial parking evidence at ${property.address || "this location"}`;
-    image.loading = "lazy";
-    const fallback = el(
-      "p",
-      "Aerial unavailable",
-      "image-fallback aerial-fallback",
-    );
-    fallback.hidden = true;
-    image.addEventListener("error", () => {
-      image.hidden = true;
-      fallback.hidden = false;
-    });
-    aerial.append(image, fallback, el("figcaption", "Vexcel aerial"));
-    content.append(aerial);
+function disclosure(className, label, extraClass = "") {
+  const details = el("details", undefined, className);
+  const summary = el("summary", undefined, extraClass);
+  summary.append(chevron(), el("span", label));
+  details.append(summary);
+  return details;
+}
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+/** "OSM: Rail about 68 m from property coordinate; ..." -> "Rail 68 m away" */
+function shortFlag(flag) {
+  const match = /(Freeway|Rail|Airport\/runway)\s+about\s+(\d+)\s*m/i.exec(flag || "");
+  return match ? `${match[1]} ${match[2]} m away` : null;
+}
+/** Known values only, one row each; a missing value simply has no row. */
+function specRows(pick, logistics, property) {
+  const fit = pick.shot_fit ?? {};
+  const wrap = el("div", undefined, "pick-specs");
+  const list = el("dl");
+  const add = (label, value, note) => {
+    const row = el("div", undefined, "spec-row");
+    const dd = el("dd");
+    dd.append(document.createTextNode(value));
+    if (note) dd.append(el("span", note, "spec-note"));
+    row.append(el("dt", label), dd);
+    list.append(row);
+  };
+  const status = fitStatus(pick);
+  if (numberKnown(fit.needed_depth_m)) {
+    const need = `needs ${quantity(fit.needed_depth_m, " m", 1)} depth`;
+    add("Shot", status === "fits" ? `Fits · ${need}` : status === "tight" ? `Tight · ${need}` : need);
   }
-  section.append(content);
-  const noise = el("div", undefined, "card-noise");
-  const status = logisticsStatus(logistics, "noise"),
-    flags = logistics.noise_flags ?? [];
-  noise.append(el("span", "Noise", "noise-label"), statusTag(status, status));
+  if (numberKnown(logistics.truck_spaces) || numberKnown(logistics.car_spaces)) {
+    const parts = [
+      numberKnown(logistics.truck_spaces) ? plural(logistics.truck_spaces, "truck") : null,
+      numberKnown(logistics.car_spaces) ? plural(logistics.car_spaces, "car") : null,
+    ].filter(Boolean).join(" · ");
+    const state = logisticsStatus(logistics, "parking");
+    add("Parking", parts, state === "measured" ? null : state === "estimated" ? "estimate" : "unverified");
+  }
+  const flags = (logistics.noise_flags ?? []).map(shortFlag).filter(Boolean);
+  if (flags.length) add("Noise", flags.join(" · "), "map screen");
+  wrap.append(list);
+  if (logistics.aerial_image_path) {
+    const image = el("img", undefined, "pick-aerial");
+    image.src = assetUrl(logistics.aerial_image_path);
+    image.alt = `Vexcel aerial with the parking estimate at ${property.address || "this location"}`;
+    image.loading = "lazy";
+    image.addEventListener("error", () => image.remove());
+    wrap.append(image);
+  }
+  return wrap;
+}
+/** The honesty signal, said once: what no source supplied. */
+function gaps(pick, logistics, property) {
+  const fit = pick.shot_fit ?? {};
+  const out = [];
+  if (availability(property).status === "unknown") out.push("availability");
+  if (!numberKnown(fit.have_depth_m)) out.push("room depth");
+  if (!numberKnown(fit.ceiling_m)) out.push("ceiling");
+  if (fitStatus(pick) === "unknown" && numberKnown(fit.have_depth_m) && numberKnown(fit.ceiling_m)) out.push("shot fit");
+  if (!numberKnown(logistics.truck_spaces) && !numberKnown(logistics.car_spaces)) out.push("parking");
+  if (!numberKnown(logistics.walk_m)) out.push("walk to parking");
+  if (logisticsStatus(logistics, "noise") === "unknown") out.push("noise");
+  return out;
+}
+function rationale(pick, logistics) {
+  const details = disclosure("pick-rationale", "Why this pick", "pick-reason");
+  const body = el("div", undefined, "disclosure-body");
+  const sources = el("div", undefined, "source-chips");
+  sources.setAttribute("aria-label", "Evidence status by source");
+  for (const source of sourceStatuses(pick)) {
+    const chip = statusTag(`${source.label} · ${source.status}`, source.status, "source-chip");
+    chip.title = `${source.count} supplied ${source.count === 1 ? "claim" : "claims"}; see every claim in View evidence`;
+    sources.append(chip);
+  }
+  body.append(sources, el("p", pick.reason || "No ranking reason was supplied.", "full-reason"));
+  const flags = logistics.noise_flags ?? [];
   if (flags.length) {
     const list = el("ul", undefined, "noise-flags");
     for (const flag of flags) list.append(el("li", flag));
-    noise.append(list);
-  } else
-    noise.append(
-      el(
-        "p",
-        status === "unknown" ? "Conditions unknown" : "No flags reported",
-      ),
-    );
-  section.append(noise);
-  return section;
+    body.append(list);
+  }
+  details.append(body);
+  return details;
 }
 
 /** Render supplied evidence without fetching, drafting or inventing results. */
@@ -136,19 +145,10 @@ export function renderCards(
     article.setAttribute("aria-labelledby", titleId);
     const frame = createShotViewer(pick.shots, { address: property.address });
     const frameFit = fitStatus(pick);
-    frame.element
-      .querySelector(".shot-stage")
-      .append(
-        el(
-          "span",
-          frameFit === "fits"
-            ? "Shot fits"
-            : frameFit === "tight"
-              ? "Shot is tight"
-              : "Fit unknown",
-          `fit-badge fit-${frameFit} frame-fit`,
-        ),
-      );
+    if (frameFit === "fits" || frameFit === "tight")
+      frame.element
+        .querySelector(".shot-stage")
+        .append(el("span", frameFit === "fits" ? "Shot fits" : "Shot is tight", `fit-badge fit-${frameFit} frame-fit`));
     const top = el("header", undefined, "pick-header");
     const titleRow = el("div", undefined, "pick-title-row");
     const title = el("h3", property.address || "Address unknown");
@@ -160,105 +160,52 @@ export function renderCards(
     );
     rank.setAttribute("aria-label", `Rank ${pick.rank ?? "unknown"}`);
     titleRow.append(rank, title);
-    const meta = el("div", undefined, "pick-topline");
     const state = availability(property);
-    meta.append(
-      el("span", state.text, `availability availability-${state.status}`),
+    const metaLine = el("p", undefined, "pick-property-meta");
+    metaLine.append(
+      document.createTextNode([property.city, property.type, property.year_built].filter(Boolean).join(" · ")),
     );
+    if (state.status !== "unknown")
+      metaLine.append(el("span", state.text, `availability availability-${state.status}`));
     const changed = rankChange(pick, previousPicks);
-    if (changed) meta.append(changed);
-    top.append(
-      titleRow,
-      el(
-        "p",
-        [
-          property.city,
-          property.type,
-          property.year_built ? `Built ${property.year_built}` : "Era unknown",
-        ]
-          .filter(Boolean)
-          .join(" · "),
-        "pick-property-meta",
-      ),
-      meta,
-    );
+    if (changed) metaLine.append(changed);
+    top.append(titleRow, metaLine);
     const content = el("div", undefined, "pick-body");
-    const reason = el("details", undefined, "pick-rationale");
-    const reasonHeading = el("summary", undefined, "pick-reason");
-    reasonHeading.append(
-      el("span", reasonSummary(pick)),
-      el("span", "Full reason", "reason-disclosure-label"),
-    );
-    reason.append(
-      reasonHeading,
-      el("p", pick.reason || "No ranking reason was supplied.", "full-reason"),
-    );
-    content.append(reason);
-    const physical = el("section", undefined, "card-fit");
-    const status = fitStatus(pick);
-    const fitHeading = el("div", undefined, "card-section-heading");
-    fitHeading.append(
-      el("h4", "Physical fit"),
-      el(
-        "span",
-        status === "fits"
-          ? "Shot fits"
-          : status === "tight"
-            ? "Shot is tight"
-            : "Fit unknown",
-        `fit-badge fit-${status}`,
-      ),
-    );
-    const geometry = el("dl", undefined, "fit-metrics");
-    geometry.append(
-      metric("Depth needed", quantity(fit.needed_depth_m, " m", 2)),
-      metric("Available", quantity(fit.have_depth_m, " m", 2)),
-      metric("Ceiling", quantity(fit.ceiling_m, " m")),
-    );
-    physical.append(fitHeading, geometry);
-    content.append(physical);
-    const sources = el("div", undefined, "source-chips");
-    sources.setAttribute("aria-label", "Evidence status by source");
-    for (const source of sourceStatuses(pick)) {
-      const chip = statusTag(
-        `${source.label} · ${source.status}`,
-        source.status,
-        "source-chip",
-      );
-      chip.title = `${source.count} supplied ${source.count === 1 ? "claim" : "claims"}; see every claim in View evidence`;
-      sources.append(chip);
+    content.append(specRows(pick, logistics, property));
+    const missing = gaps(pick, logistics, property);
+    if (missing.length) {
+      const line = el("p", undefined, "pick-gaps");
+      line.title = "No source supplied these. Nothing is guessed.";
+      line.append(el("span", "Confirm on site", "gaps-label"), document.createTextNode(missing.join(" · ")));
+      content.append(line);
     }
-    content.append(sources, parkingSummary(logistics, property));
+    content.append(rationale(pick, logistics));
     const skeptic = el("section", undefined, "card-skeptic");
-    skeptic.append(el("h4", "Skeptic review"));
     const prior = previousPick(previousPicks, property.property_id);
-    const extraNotes = el("details", undefined, "skeptic-more");
     const notes = pick.skeptic_notes ?? [];
-    let extraCount = 0;
-    for (const [index, note] of notes.entries()) {
+    const isClear = (note) => /^no objection\.?$/i.test(note.trim());
+    const noteLine = (note, lead = false) => {
       const isNew = prior && !prior.skeptic_notes?.includes(note);
-      const line = el(
-        "p",
-        undefined,
-        `skeptic-note ${/^no objection\.?$/i.test(note.trim()) ? "skeptic-clear" : ""}`,
-      );
-      if (isNew)
-        line.append(el("span", "New · ", "new-objection"));
+      const line = el("p", undefined, `skeptic-note ${isClear(note) ? "skeptic-clear" : ""} ${lead ? "skeptic-lead" : ""}`.trim());
+      if (lead) line.append(el("span", "Skeptic", "skeptic-label"));
+      if (isNew) line.append(el("span", "New · ", "new-objection"));
       line.append(document.createTextNode(note));
-      if (index < 3 || isNew) skeptic.append(line);
-      else {
-        extraNotes.append(line);
-        extraCount += 1;
+      return line;
+    };
+    if (!notes.length) skeptic.append(el("p", "No review supplied", "skeptic-note skeptic-unknown"));
+    else {
+      const leadIndex = notes.findIndex((note) => !isClear(note));
+      const lead = leadIndex >= 0 ? notes[leadIndex] : notes[0];
+      skeptic.append(noteLine(lead, true));
+      const rest = notes.filter((_, index) => index !== (leadIndex >= 0 ? leadIndex : 0));
+      if (rest.length) {
+        const more = disclosure("skeptic-more", plural(rest.length, "more caveat"));
+        const body = el("div", undefined, "disclosure-body");
+        for (const note of rest) body.append(noteLine(note));
+        more.append(body);
+        skeptic.append(more);
       }
     }
-    if (extraCount) {
-      extraNotes.prepend(el("summary", `${extraCount} more caveats`));
-      skeptic.append(extraNotes);
-    }
-    if (!pick.skeptic_notes?.length)
-      skeptic.append(
-        el("p", "No review supplied", "skeptic-note skeptic-unknown"),
-      );
     content.append(skeptic);
     const footer = el("footer", undefined, "pick-actions");
     const detail = button(
