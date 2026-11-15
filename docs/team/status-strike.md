@@ -41,3 +41,20 @@ Output stays in git-ignored `cache/strike/` and `cache/qa/`. A spend ledger is i
 
 - A "Struck" look in the 360° viewfinder, and re-dressing from struck faces so the precinct is no longer bound to the office's desks. The World Labs session owns the viewer; it has the file layout.
 - The Director's Room stage could use a struck plate for blocking.
+
+## 2D set dressing with an image model (replaces single-point Atlas dressing)
+
+The single-scan-point Atlas dressings (depth-only `atlasChisel`) came out dark, soft and mostly invented, so they were archived (kept as `dressed-atlas-archive/`, never deleted). `python -m strike.dress` replaces them. Per real 2048 px cube face, the pipeline:
+- starts from the struck face (when Strike accepted one) or the real face;
+- dresses it with `gpt-image-2.6-sunburst` at 2048 px, using one art brief per scene so all four walls agree;
+- checks it with the Decisions API: "architecture unchanged?" ≥ 0.6 and "reads as the scene?" ≥ 0.5, with one retry.
+
+A follow-up pass keeps real signage where "no logos" erased it.
+
+Records use the viewfinder's existing `dressed.json` format with the true cube cameras (yaw = heading, 90° field of view). So **D** in Look around works unchanged. Scan points carrying a walkable Atlas room or splat are refused.
+
+**Model choice:** flare took about 15 s at 2048 but ignored "no people" and added actors. Sunburst took about 57 s, followed the brief, and runs four faces in parallel.
+
+**Result:** 4/4 walls dressed for each of the warehouse handoff, Houston apartment, Houston office and a new **1979 roller disco**. The roller disco is a sixth demo scene; Typecast scouted it to a real barrel-vaulted timber hall. The empty-shop scan point keeps its Atlas walk and was not touched.
+
+**Privacy:** the merged report covers 72 frames with 0 flagged.
