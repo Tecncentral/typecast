@@ -705,17 +705,19 @@ function renderSwapNotice() {
   const row = el('div', { class: 'row' });
   if (unreviewed) {
     const ok = el('button', { type: 'button', class: 'primary', text: 'Staging looks right on this frame' });
-    ok.addEventListener('click', () => { S.rev++; t.reviewed = true; renderAll(); status('Marked reviewed by eye on this exact frame. That is artistic alignment, not a survey: geometric fit is still unknown.'); });
+    ok.addEventListener('click', () => { S.rev++; t.reviewed = true; renderAll(); status('Marked reviewed by eye on this exact frame. That is artistic alignment, not a survey: room fit remains unverified.'); });
     row.append(ok);
   }
   if (S.swapUndo && S.swapUndo.sid === sid) { const u = el('button', { type: 'button', text: 'Undo swap' }); u.addEventListener('click', undoSwap); row.append(u); }
   if (sw.dest_kept) { const use = el('button', { type: 'button', text: 'Use my current takes here instead' }); use.addEventListener('click', useCurrentTakesHere); row.append(use); }
   if (S.alt[keyOf(sid)]) { const sw2 = el('button', { type: 'button', text: 'Switch to the other saved staging' }); sw2.addEventListener('click', switchStaging); row.append(sw2); }
   const back = el('button', { type: 'button', text: 'Back to planned location' }); back.addEventListener('click', backToPlanned); row.append(back);
-  n.append(el('p', { text: `Location swapped for scene ${sceneNumber(sid)}: ${safeId(sw.from_property_id)} → ${safeId(sw.property_id)}. ${unreviewed
-    ? 'Your takes, durations, dialogue and stand-ins were carried over as a draft. They were NOT verified against this frame and the previous scan identity does not apply. Fit stays uncalibrated until you confirm.'
-    : 'The plan summary and company moves were not recalculated for this choice. Reviewing by eye is artistic alignment, not a survey: geometric fit is still unknown.'}` }),
-    ...(sw.dest_kept ? [el('p', { class: 'meta', text: 'This frame already had different staging from earlier. It was kept, and your current takes were not copied.' })] : []),
+  // The main sentence depends on what actually happened to the takes on this frame.
+  const main = sw.dest_kept ? 'This frame already had its own staging, so it was kept; your current takes were not copied. Room fit remains unverified.'
+    : unreviewed ? 'Takes copied to this frame for review. Review stand-in placement; room fit remains unverified.'
+    : 'The plan summary and company moves were not recalculated for this choice. Reviewing by eye is artistic alignment, not a survey: room fit remains unverified.';
+  n.append(el('p', { text: `Location swapped for scene ${sceneNumber(sid)}: ${safeId(sw.from_property_id)} → ${safeId(sw.property_id)}. ${main}` }),
+    el('p', { class: 'meta', text: 'The earlier scan identity does not apply to this frame. Stand-ins are uncalibrated screen space, and source warnings and provenance labels stay as shown.' }),
     ...(S.alt[keyOf(sid)] ? [el('p', { class: 'meta', text: 'A second saved staging exists for this frame. It lives in this session only; the project file saves the one shown.' })] : []), row);
   n.hidden = false;
 }
@@ -912,8 +914,8 @@ async function dataUrl(path) {
   return new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => rej(new Error('read failed')); fr.readAsDataURL(b); });
 }
 const loadImg = (src) => new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('decode failed')); i.src = src; });
-const PACK_PRINT = '@media print{body{max-width:none;margin:0;font-size:11pt}section.scene{break-inside:avoid-page;page-break-inside:avoid}img{max-height:9cm;width:auto;max-width:100%}.sheet li{list-style:none}.sheet li:before{content:"\\2610 "}h1,h2,h3{break-after:avoid}}.sheet{border:1px solid #c98a1c;padding:.6rem .9rem;margin:.8rem 0;background:#fbf6ec}.sheet h3{margin:.2rem 0 .4rem}.sheet ul{padding-left:1.1rem}.sheet .k{font-weight:bold}.takes{display:flex;gap:.6rem;flex-wrap:wrap}.takes figure{margin:0;flex:1 1 280px}.takes img{width:100%}';
-const PACK_CSS = 'body{font:14px/1.5 Georgia,serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#1a120c}section.scene{break-inside:avoid;border-top:2px solid #c98a1c;padding:1rem 0}img{width:100%;border:1px solid #ccc}.meta{color:#6b5847;font-size:12px}dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px}dt{color:#6b5847}dd{margin:0}.unk{color:#b3261e;font-style:italic}.warn{font-size:12px}h4{margin:.6rem 0 .2rem}' + PACK_PRINT;
+const PACK_PRINT = '@media print{body{max-width:none;margin:0;font-size:11pt}section.scene{break-inside:avoid-page;page-break-inside:avoid}img{max-height:9cm;width:auto;max-width:100%}.sheet li{list-style:none}.sheet li:before{content:"\\2610 "}h1,h2,h3{break-after:avoid}}.sheet{border:1px solid #c98a1c;padding:.6rem .9rem;margin:.8rem 0;background:#fbf6ec}.sheet h3{margin:.2rem 0 .4rem}.sheet ul{padding-left:1.1rem}.sheet .k{font-weight:bold}.sheet p,.sheet li{max-width:72ch}.sheet li{margin:.25rem 0}.takes{display:flex;gap:.6rem;flex-wrap:wrap}.takes figure{margin:0;flex:1 1 280px}.takes img{width:100%}';
+const PACK_CSS = 'body{font:14px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;max-width:900px;margin:2rem auto;padding:0 1rem;color:#1a120c}section.scene{break-inside:avoid;border-top:2px solid #c98a1c;padding:1rem 0}img{width:100%;border:1px solid #ccc}.meta{color:#6b5847;font-size:12px}dl{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12px}dt{color:#6b5847}dd{margin:0}.unk{color:#b3261e;font-style:italic}.warn{font-size:12px}h4{margin:.6rem 0 .2rem}' + PACK_PRINT;
 // Safe, validated per-scene production state that Project JSON carries (identifiers and bounded text only).
 function sceneProduction(sid) {
   const out = {}, sw = validSwap(sid), t = S.transfer[keyOf(sid)], n = S.notes[sid];

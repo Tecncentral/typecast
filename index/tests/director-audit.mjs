@@ -1775,7 +1775,9 @@ test('decisions: swap keeps both takes, durations, dialogue and origin, and mark
   assert.ok(env.api.S.edits['s1::shot_a'], 'old frame staging still exists');
   assert.deepEqual(JSON.parse(JSON.stringify(env.api.S.transfer['s1::shot_b'])), { from_shot_id: 'shot_a', from_property_id: 'prop_a', reviewed: false });
   assert.equal(env.$('swapNotice').hidden, false);
-  assert.match(env.$('swapNotice').textContent, /prop_a → prop_b.*carried over as a draft.*NOT verified against this frame.*previous scan identity does not apply/);
+  assert.match(env.$('swapNotice').textContent, /prop_a → prop_b\. Takes copied to this frame for review\. Review stand-in placement; room fit remains unverified\./);
+  assert.doesNotMatch(env.$('swapNotice').textContent, /Fit stays uncalibrated|until you confirm|NOT verified against/);   // confirming never calibrates anything
+  assert.match(env.$('swapNotice').textContent, /earlier scan identity does not apply.*source warnings and provenance labels stay as shown/);
   assert.match(env.$('planSel').childNodes[0]?.textContent || env.$('stagePlanSummary').textContent, /swapped by hand, totals not recalculated/);
   env.drawLog.length = 0; env.api.setVariant('A');
   assert.ok(painted(env).includes('STAGING CARRIED OVER · UNREVIEWED ON THIS FRAME'));
@@ -1898,6 +1900,7 @@ test('decisions: the shoot pack carries the decision sheet, escapes notes, lists
   assert.ok(html.includes('&lt;script&gt;alert(1)&lt;/script&gt;'));
   for (const leak of ['FAKE', 'sk-live', 'licensed.jpg', '/Users/demo', 'listing contact']) assert.equal(html.includes(leak), false, leak);
   assert.ok(html.includes('@media print')); assert.ok(html.includes('page-break-inside'));
+  assert.ok(html.includes('system-ui') && !html.includes('Georgia') && html.includes('max-width:72ch'));   // local system sans, bounded line length
   assert.ok(env.drawLog.some((e) => e.m === 'fillText' && String(e.args[0]).includes('STAGING CARRIED OVER')), 'pack staged image carries the stamp');
 });
 
@@ -2046,7 +2049,8 @@ test('review: swapping into a frame that already holds other staging keeps it, s
   const newerA = JSON.stringify(env.api.S.edits['s1::shot_a']);
   env.api.swapLocation('s1', 'shot_b');                              // destination already holds the earlier copy
   assert.equal(JSON.stringify(env.api.S.edits['s1::shot_b']), firstCopy, 'earlier destination staging is not overwritten');
-  assert.match(env.$('swapNotice').textContent, /already had different staging from earlier\. It was kept, and your current takes were not copied/);
+  assert.match(env.$('swapNotice').textContent, /already had its own staging, so it was kept; your current takes were not copied\. Room fit remains unverified/);
+  assert.doesNotMatch(env.$('swapNotice').textContent, /Takes copied to this frame/);   // the main sentence must not claim a copy that did not happen
   const label = (re) => env.$('swapNotice').querySelectorAll('button').find((b) => re.test(b.textContent));
   assert.ok(label(/Use my current takes here instead/));
   label(/Use my current takes here instead/).click();
@@ -2061,7 +2065,7 @@ test('review: swapping into a frame that already holds other staging keeps it, s
   assert.equal(JSON.stringify(env.api.S.edits['s1::shot_a']), newerA, 'the source frame staging never changed');
   // reviewing says what review means
   env.$('swapNotice').querySelectorAll('button').find((b) => /looks right/.test(b.textContent)).click();
-  assert.match(env.$('swapNotice').textContent, /artistic alignment, not a survey: geometric fit is still unknown/);
+  assert.match(env.$('swapNotice').textContent, /artistic alignment, not a survey: room fit remains unverified/);
 });
 
 test('review: prototype-like scene ids, notes and links import and render without errors', async () => {
