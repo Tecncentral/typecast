@@ -12,9 +12,9 @@ For production teams, `/director` adds a home/base pin, a one-way commute limit,
 
 ## Demo walkthrough
 
-Start at `/app/` with **Warehouse handoff**. Agent activity leads into the **inside-out descent**: the property map gives way to its Vexcel aerial, then to a real Matterport frame. Open **Look around** to compose in the **360° viewfinder**, change the lens from **24 to 50 mm**, and press **D** when **AI dressing** is offered. A wipe compares the real scan with the imagined set. Ask for five trucks, then open `/director`. The Director's Room groups script scenes across buildings to show the trade-off between visual similarity and company moves.
+Start at `/app/`, choose **Interiors** on the split landing and run **Warehouse handoff**. Agent activity leads into the **inside-out descent**: the property map gives way to its Vexcel aerial, then to a real Matterport frame. Above the cards, drag **Max drive** or **Max budget** to filter the shortlist live. Click a card to open its cost panel, which compares the found location with a standing set, a build and CGI. These are scenario estimates from public pricing ranges and CoStar rent data, not verified savings. Open **Look around** to compose in the **360° viewfinder**, change the lens from **24 to 50 mm**, and press **D** when **AI dressing** is offered. A wipe compares the real scan with the imagined set. Ask for five trucks to see the shortlist re-rank. **Exteriors** searches Vexcel's 45° obliques in place. Then open `/director`. The Director's Room groups script scenes across buildings to show the trade-off between visual similarity and company moves.
 
-Sources: [descent](web/descent.js), [viewfinder and lens controls](web/viewfinder.js), [production planner](index/production.py). The rehearsal script is in the [runbook](docs/demo-runbook.md).
+Sources: [descent](web/descent.js), [viewfinder and lens controls](web/viewfinder.js), [cost panel](web/costs.js) and [cost model](data/cost_model.py), [production planner](index/production.py). The rehearsal script is in the [runbook](docs/demo-runbook.md).
 
 The Director's Room optimizes within its retrieved candidate pool, not every building in the catalog. Its move count assumes one visit per chosen property. It is not a timed travel schedule or proof of production savings.
 
